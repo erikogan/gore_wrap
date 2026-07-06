@@ -19,6 +19,8 @@ class GoreResult:
     n_strips: int
     interp_fraction: float    # scan-quality signal for the >20% warning
     scale_factor: float
+    center: tuple             # (x, y) of the axis in scaled mm coords
+    profile: geometry.Profile  # apex-closed profile, for the preview surface
 
 
 def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
@@ -56,5 +58,5 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
         outlines.append(geometry.simplify_outline(outline, tol=tolerance))
 
     return GoreResult(outlines=outlines, dims=dims, fit_error=err,
-                      n_strips=n_strips, interp_fraction=profile.interp_fraction,
-                      scale_factor=scale_factor)
+                      n_strips=n_strips, interp_fraction=closed.interp_fraction,
+                      scale_factor=scale_factor, center=center, profile=closed)

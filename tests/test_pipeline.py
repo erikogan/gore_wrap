@@ -25,6 +25,17 @@ def test_build_gores_averaged_produces_identical_strips():
     assert res.fit_error < 1.0
 
 
+def test_build_gores_exposes_profile_and_center_for_preview():
+    pts = cylinder_with_hemisphere(radius=40.0, height=100.0, center=(5.0, -3.0))
+    res = build(pts)
+    # The reconstructed profile and axis center let the operator build the
+    # viewport preview surface.
+    assert len(res.center) == 2
+    assert abs(res.center[0] - 5.0) < 0.5
+    assert res.profile.radii.shape[1] == 1  # averaged -> single column
+    assert res.profile.radii[-1, 0] == 0.0  # apex closed to a point
+
+
 def test_build_gores_fitted_produces_one_strip_per_sector():
     pts = cylinder_with_hemisphere(radius=40.0, height=100.0)
     res = build(pts, mode="FITTED")
