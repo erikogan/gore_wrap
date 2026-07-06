@@ -27,95 +27,109 @@ def base_span(poly):
     return on_base[:, 0].min(), on_base[:, 0].max()
 
 
-def test_layout_places_all_strips_on_common_baseline():
-    outline = make_gore(n_strips=12)
-    outlines = [outline] * 12
-    result = svg_export.layout(outlines, seam_offset=0.0)
-    assert len(result.placements) == 12
-    baselines = [poly[:, 1].max() for _, poly in result.placements]
-    # Every strip's base sits on the same y (bases aligned on one axis).
+def adjacent_base_gaps(result):
+    """Horizontal gap between the bases of each pair of neighbouring strips."""
+    polys = [p for _, p in result.placements]
+    return [base_span(polys[i + 1])[0] - base_span(polys[i])[1]
+            for i in range(len(polys) - 1)]
+
+
+# --- layout -----------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def zero_layout():
+    return svg_export.layout([make_gore(n_strips=12)] * 12, seam_offset=0.0)
+
+
+def test_layout_places_every_strip(zero_layout):
+    assert len(zero_layout.placements) == 12
+
+
+def test_layout_aligns_bases_on_common_baseline(zero_layout):
+    baselines = [poly[:, 1].max() for _, poly in zero_layout.placements]
     assert max(baselines) - min(baselines) < 1e-6
 
 
-def test_layout_zero_offset_bases_touch():
-    outline = make_gore(n_strips=12, seam_offset=0.0)
-    result = svg_export.layout([outline] * 12, seam_offset=0.0)
-    polys = [p for _, p in result.placements]
-    gaps = [base_span(polys[i + 1])[0] - base_span(polys[i])[1]
-            for i in range(len(polys) - 1)]
-    assert max(abs(g) for g in gaps) < 0.05
-
-
-def test_layout_negative_offset_spaces_by_gap():
-    outline = make_gore(n_strips=12, seam_offset=-2.0)
-    result = svg_export.layout([outline] * 12, seam_offset=-2.0)
-    polys = [p for _, p in result.placements]
-    gaps = [base_span(polys[i + 1])[0] - base_span(polys[i])[1]
-            for i in range(len(polys) - 1)]
-    assert all(abs(g - 2.0) < 0.1 for g in gaps)
-
-
-def test_layout_positive_offset_spaces_by_overlap():
-    outline = make_gore(n_strips=12, seam_offset=2.0)
-    result = svg_export.layout([outline] * 12, seam_offset=2.0)
-    polys = [p for _, p in result.placements]
-    gaps = [base_span(polys[i + 1])[0] - base_span(polys[i])[1]
-            for i in range(len(polys) - 1)]
-    assert all(abs(g - 2.0) < 0.1 for g in gaps)
+@pytest.mark.parametrize("seam_offset, expected_gap", [
+    (0.0, 0.0),    # butt joint: bases touch
+    (-2.0, 2.0),   # gap on object -> spaced by the gap
+    (2.0, 2.0),    # overlap on object -> spaced by the overlap in the file
+])
+def test_layout_spaces_bases_by_offset(seam_offset, expected_gap):
+    result = svg_export.layout([make_gore(n_strips=12, seam_offset=seam_offset)] * 12,
+                               seam_offset=seam_offset)
+    gaps = adjacent_base_gaps(result)
+    assert max(abs(g - expected_gap) for g in gaps) < 0.1
 
 
 def test_layout_wraps_to_multiple_rows_when_wide():
     # Total base width of all gores ~ the object's circumference; a >600mm
-    # circumference (radius ~110mm) cannot fit one 610mm row -> multiple rows.
+    # circumference (radius ~100mm) cannot fit one 610mm row -> multiple rows.
     outline = make_gore(n_strips=12, radius=100.0, height=120.0)
     result = svg_export.layout([outline] * 12, seam_offset=0.0)
     baselines = {round(poly[:, 1].max(), 3) for _, poly in result.placements}
-    assert len(baselines) >= 2  # more than one baseline => rows wrapped
+    assert len(baselines) >= 2
 
 
 def test_layout_raises_when_single_strip_too_tall():
-    # A strip taller than the mat cannot be cut; layout must refuse.
     outline = make_gore(n_strips=6, radius=200.0, height=700.0)
     with pytest.raises(svg_export.LayoutError):
         svg_export.layout([outline] * 6, seam_offset=0.0)
 
 
-def test_write_svg_real_scale_and_path_count(tmp_path):
-    outline = make_gore(n_strips=12)
-    result = svg_export.layout([outline] * 12, seam_offset=0.0)
-    path = tmp_path / "gores.svg"
-    svg_export.write_svg(str(path), result, labels_enabled=False)
+# --- write_svg --------------------------------------------------------------
 
-    tree = ET.parse(path)
-    root = tree.getroot()
-    assert root.get("width") == "610mm"
-    assert root.get("height") == "610mm"
-    assert root.get("viewBox") == "0 0 610 610"
-    paths = root.findall(f".//{{{SVG_NS}}}path")
-    assert len(paths) == 12
-    # No labels group when labels are disabled.
-    assert root.find(f".//{{{SVG_NS}}}text") is None
+@pytest.fixture(scope="module")
+def svg_root_no_labels(zero_layout, tmp_path_factory):
+    path = tmp_path_factory.mktemp("svg") / "gores.svg"
+    svg_export.write_svg(str(path), zero_layout, labels_enabled=False)
+    return ET.parse(path).getroot()
 
 
-def test_write_svg_includes_labels_when_enabled(tmp_path):
-    outline = make_gore(n_strips=12)
-    result = svg_export.layout([outline] * 12, seam_offset=0.0)
-    path = tmp_path / "gores_labeled.svg"
-    svg_export.write_svg(str(path), result, labels_enabled=True)
-    root = ET.parse(path).getroot()
-    texts = root.findall(f".//{{{SVG_NS}}}text")
-    assert len(texts) == 12
+@pytest.fixture(scope="module")
+def svg_root_labels(zero_layout, tmp_path_factory):
+    path = tmp_path_factory.mktemp("svg") / "gores_labeled.svg"
+    svg_export.write_svg(str(path), zero_layout, labels_enabled=True)
+    return ET.parse(path).getroot()
+
+
+@pytest.mark.parametrize("attr, expected", [
+    ("width", "610mm"),
+    ("height", "610mm"),
+    ("viewBox", "0 0 610 610"),
+])
+def test_write_svg_document_is_real_scale(svg_root_no_labels, attr, expected):
+    assert svg_root_no_labels.get(attr) == expected
+
+
+def test_write_svg_emits_one_path_per_strip(svg_root_no_labels):
+    assert len(svg_root_no_labels.findall(f".//{{{SVG_NS}}}path")) == 12
+
+
+def test_write_svg_omits_labels_when_disabled(svg_root_no_labels):
+    assert svg_root_no_labels.find(f".//{{{SVG_NS}}}text") is None
+
+
+def test_write_svg_labels_one_per_strip(svg_root_labels):
+    assert len(svg_root_labels.findall(f".//{{{SVG_NS}}}text")) == 12
+
+
+def test_write_svg_labels_number_strips_in_order(svg_root_labels):
+    texts = svg_root_labels.findall(f".//{{{SVG_NS}}}text")
     assert {t.text for t in texts} == {str(i) for i in range(1, 13)}
 
 
-def test_write_svg_coordinates_within_mat(tmp_path):
-    outline = make_gore(n_strips=12)
-    result = svg_export.layout([outline] * 12, seam_offset=0.0)
-    path = tmp_path / "gores.svg"
-    svg_export.write_svg(str(path), result, labels_enabled=False)
-    root = ET.parse(path).getroot()
+def _all_path_coords(root):
+    coords = []
     for p in root.findall(f".//{{{SVG_NS}}}path"):
-        coords = [float(v) for v in p.get("d").replace("M", " ").replace("L", " ")
-                  .replace("Z", " ").split()]
-        assert min(coords) >= -0.01
-        assert max(coords) <= 610.01
+        d = p.get("d").replace("M", " ").replace("L", " ").replace("Z", " ")
+        coords.extend(float(v) for v in d.split())
+    return coords
+
+
+def test_write_svg_coordinates_not_below_mat(svg_root_no_labels):
+    assert min(_all_path_coords(svg_root_no_labels)) >= -0.01
+
+
+def test_write_svg_coordinates_not_above_mat(svg_root_no_labels):
+    assert max(_all_path_coords(svg_root_no_labels)) <= 610.01
