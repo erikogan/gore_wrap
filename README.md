@@ -9,7 +9,7 @@ Built for roughly conical/cylindrical hand-made objects with rounded tops.
 
 ## Install
 
-1. Build the extension zip (or use `dist/gore_wrap-0.1.0.zip`):
+1. Build the extension zip (or use `dist/gore_wrap-0.2.0.zip`):
    ```
    blender --command extension build --source-dir gore_wrap --output-dir dist
    ```
