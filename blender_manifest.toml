@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "gore_wrap"
-version = "0.2.0"
+version = "0.3.0"
 name = "Gore Wrap"
 tagline = "Flatten scanned meshes into vinyl gore strips and export SVG"
 maintainer = "Erik <claude@erik.ogan.net>"

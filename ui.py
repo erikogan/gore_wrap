@@ -21,6 +21,10 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         box.label(text=f"Strip count: {props.computed_n_strips}")
         box.prop(props, "mode")
         box.prop(props, "seam_offset")
+        if props.mode == "FITTED":
+            box.prop(props, "start_angle")
+            box.label(text="Gore 1 = green, wind toward orange (gore 2)",
+                      icon="INFO")
 
         box = layout.box()
         box.label(text="Prep", icon="MOD_BEVEL")

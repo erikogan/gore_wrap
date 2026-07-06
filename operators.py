@@ -41,6 +41,7 @@ def _params(props):
         smoothing_sigma=props.smoothing_sigma,
         tolerance=props.tolerance,
         scale_factor=props.scale_factor,
+        start_angle=np.radians(props.start_angle),
     )
 
 
@@ -77,7 +78,7 @@ def _validate(obj, context):
     return None
 
 
-def _build_preview_surface(result, scale_factor):
+def _build_preview_surface(result, scale_factor, start_angle):
     """(verts, faces, seam_edges) for a surface of revolution in mesh units.
 
     Built in the original mesh coordinates (profile divided back by the scale
@@ -97,7 +98,8 @@ def _build_preview_surface(result, scale_factor):
 
     verts = []
     for col in range(m):
-        theta = 2 * np.pi * col / m
+        # Offset by start_angle so gore 1 sits at the physical start direction.
+        theta = start_angle + 2 * np.pi * col / m
         sector = int(col / per_strip) % n_sectors if n_sectors > 1 else 0
         for k in range(len(z)):
             r = radii[k, sector]
@@ -105,6 +107,7 @@ def _build_preview_surface(result, scale_factor):
 
     rows = len(z)
     faces = []
+    face_sectors = []
     seam_edges = []
     for col in range(m):
         nxt = (col + 1) % m
@@ -114,16 +117,41 @@ def _build_preview_surface(result, scale_factor):
             c = nxt * rows + k + 1
             d = col * rows + k + 1
             faces.append((a, b, c, d))
+            face_sectors.append(col // per_strip)
         if col % per_strip == 0:
             for k in range(rows - 1):
                 seam_edges.append((col * rows + k, col * rows + k + 1))
-    return verts, faces, seam_edges
+    return verts, faces, face_sectors, seam_edges
 
 
-def _make_preview_object(context, result, scale_factor):
+# Preview material colors: base surface, gore-1 start, gore-2 (winding dir).
+_PREVIEW_MATERIALS = (
+    ("GoreWrap Preview Mat", (0.1, 0.6, 1.0, 1.0), 0.35),
+    ("GoreWrap Start Mat", (0.1, 0.85, 0.2, 1.0), 0.7),
+    ("GoreWrap Next Mat", (1.0, 0.5, 0.05, 1.0), 0.6),
+)
+
+
+def _get_preview_material(name, color, alpha):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name)
+        mat.use_nodes = True
+        if hasattr(mat, "blend_method"):  # removed in EEVEE Next (Blender 4.3+)
+            mat.blend_method = "BLEND"
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is not None:
+            bsdf.inputs["Base Color"].default_value = color
+            if "Alpha" in bsdf.inputs:
+                bsdf.inputs["Alpha"].default_value = alpha
+    return mat
+
+
+def _make_preview_object(context, result, scale_factor, start_angle, highlight):
     import bmesh
 
-    verts, faces, seam_edges = _build_preview_surface(result, scale_factor)
+    verts, faces, face_sectors, seam_edges = _build_preview_surface(
+        result, scale_factor, start_angle)
 
     old = bpy.data.objects.get(PREVIEW_NAME)
     if old is not None:
@@ -136,11 +164,15 @@ def _make_preview_object(context, result, scale_factor):
     bm = bmesh.new()
     bmverts = [bm.verts.new(v) for v in verts]
     bm.verts.ensure_lookup_table()
-    for f in faces:
+    for f, sector in zip(faces, face_sectors):
         try:
-            bm.faces.new([bmverts[i] for i in f])
+            face = bm.faces.new([bmverts[i] for i in f])
         except ValueError:
-            pass  # skip degenerate faces near the apex
+            continue  # skip degenerate faces near the apex
+        if highlight and sector == 0:
+            face.material_index = 1   # gore 1: start
+        elif highlight and sector == 1:
+            face.material_index = 2   # gore 2: winding direction
     seam_set = set(seam_edges)
     for edge in bm.edges:
         key = (edge.verts[0].index, edge.verts[1].index)
@@ -149,26 +181,12 @@ def _make_preview_object(context, result, scale_factor):
     bm.to_mesh(mesh)
     bm.free()
 
+    for name, color, alpha in _PREVIEW_MATERIALS:
+        mesh.materials.append(_get_preview_material(name, color, alpha))
+
     obj = bpy.data.objects.new(PREVIEW_NAME, mesh)
-    _assign_preview_material(obj)
     context.collection.objects.link(obj)
     return obj
-
-
-def _assign_preview_material(obj):
-    name = "GoreWrap Preview Mat"
-    mat = bpy.data.materials.get(name)
-    if mat is None:
-        mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
-        if hasattr(mat, "blend_method"):  # removed in EEVEE Next (Blender 4.3+)
-            mat.blend_method = "BLEND"
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        if bsdf is not None:
-            bsdf.inputs["Base Color"].default_value = (0.1, 0.6, 1.0, 1.0)
-            if "Alpha" in bsdf.inputs:
-                bsdf.inputs["Alpha"].default_value = 0.35
-    obj.data.materials.append(mat)
 
 
 class GOREWRAP_OT_preview(bpy.types.Operator):
@@ -187,7 +205,9 @@ class GOREWRAP_OT_preview(bpy.types.Operator):
         result = _run(obj, context)
         props = context.scene.gore_wrap
         _store_readouts(props, result)
-        _make_preview_object(context, result, props.scale_factor)
+        _make_preview_object(context, result, props.scale_factor,
+                             np.radians(props.start_angle),
+                             highlight=props.mode == "FITTED")
 
         if result.interp_fraction > 0.2:
             self.report({"WARNING"},

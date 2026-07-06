@@ -101,14 +101,16 @@ def _interpolate_nan_columns(radii):
     return radii, n_filled
 
 
-def radial_profile(points, center, n_bands=150, n_sectors=1):
+def radial_profile(points, center, n_bands=150, n_sectors=1, start_angle=0.0):
     """Reduce a point cloud to a radius profile about `center`.
 
     Points are binned into `n_bands` height slices and `n_sectors` angular
     sectors; each cell's radius is the mean distance from the axis of the
     points that fall in it. Empty cells are interpolated vertically. In
     Averaged mode use n_sectors=1; in Fitted mode use n_sectors=N so each gore
-    gets its own profile column.
+    gets its own profile column. `start_angle` (radians) rotates the sector
+    origin, so sector 0 spans [start_angle, start_angle + 2*pi/N) — this is how
+    Fitted mode aligns gore 1 with a chosen landmark on the object.
     """
     points = np.asarray(points, dtype=float)
     cx, cy = center
@@ -116,7 +118,7 @@ def radial_profile(points, center, n_bands=150, n_sectors=1):
     dy = points[:, 1] - cy
     r = np.hypot(dx, dy)
     z = points[:, 2]
-    theta = np.mod(np.arctan2(dy, dx), 2 * np.pi)
+    theta = np.mod(np.arctan2(dy, dx) - start_angle, 2 * np.pi)
 
     z_min, z_max = z.min(), z.max()
     z_edges = np.linspace(z_min, z_max, n_bands + 1)

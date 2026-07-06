@@ -39,6 +39,13 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
                     "negative leaves a gap, zero is a butt joint",
         default=0.0, min=-5.0, max=5.0)
 
+    start_angle: bpy.props.FloatProperty(
+        name="Start Angle",
+        description="Rotate which sector is gore 1 (degrees, counter-clockwise "
+                    "from +X seen from above), to align the start with a "
+                    "landmark on the object. Fitted mode only",
+        default=0.0, min=0.0, max=360.0)
+
     crop_z: bpy.props.FloatProperty(
         name="Bottom Crop",
         description="Discard everything below this height (mesh units)",

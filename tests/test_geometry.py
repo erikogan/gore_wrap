@@ -82,6 +82,20 @@ def test_radial_profile_full_cloud_needs_no_interpolation(cone_profile):
     assert cone_profile.interp_fraction == 0.0
 
 
+def test_radial_profile_start_angle_rolls_sectors():
+    # Rotating the sector origin by one sector width just renames the columns:
+    # the new column k is the old column k+1.
+    from tests.synthetic import elliptical_column
+    pts = elliptical_column(a=48.0, b=32.0, height=100.0)
+    n = 12
+    base = geometry.radial_profile(pts, center=(0.0, 0.0), n_bands=100,
+                                   n_sectors=n, start_angle=0.0)
+    rolled = geometry.radial_profile(pts, center=(0.0, 0.0), n_bands=100,
+                                     n_sectors=n, start_angle=2 * np.pi / n)
+    for k in range(n):
+        assert np.allclose(rolled.radii[:, k], base.radii[:, (k + 1) % n])
+
+
 @pytest.fixture(scope="module")
 def holed_cone_profile(cone_cloud):
     # Punch a hole: drop every point in a z-slab so those bands are empty.

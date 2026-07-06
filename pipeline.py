@@ -24,7 +24,8 @@ class GoreResult:
 
 
 def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
-                smoothing_sigma, tolerance, scale_factor=1.0, n_bands=200):
+                smoothing_sigma, tolerance, scale_factor=1.0, start_angle=0.0,
+                n_bands=200):
     """Turn a scan point cloud into flat gore outlines and derived dimensions.
 
     Steps: crop below `crop_z` (in the mesh's own units), scale to mm, center
@@ -42,7 +43,7 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
     n_sectors = n_strips if mode == "FITTED" else 1
 
     profile = geometry.radial_profile(points, center, n_bands=n_bands,
-                                      n_sectors=n_sectors)
+                                      n_sectors=n_sectors, start_angle=start_angle)
     profile = geometry.smooth_profile(profile, smoothing_sigma)
     # Fit error is measured against the scanned surface, before apex closure.
     err = geometry.fit_error(points, center, profile)

@@ -61,6 +61,14 @@ radius that is merely scaled (which is what an off-center axis or an elliptical
 section produces) normalizes away, so Fitted mode reduces to Averaged on such shapes
 and only diverges where the silhouette genuinely differs between sides.
 
+**Fitted registration.** Because fitted strips are sector-specific, the user needs to
+know where gore 1 goes. A **Start Angle** (degrees, CCW from +X seen from above)
+rotates which sector is gore 1, so it can be aimed at a landmark on the object. The
+Preview highlights **gore 1 green** and **gore 2 orange**, giving both the start and
+the winding direction; the numbered SVG labels then run in that order. Each fitted
+gore is left-right symmetric, so no strip needs flipping — only the start and
+direction matter.
+
 ### SVG export
 
 - Real-scale mm SVG, 610×610 document (24″ mat), one closed path per gore, Silhouette

@@ -1,15 +1,15 @@
 # Gore Wrap
 
-A Blender extension that simplifies a scanned mesh (e.g. from Qlone) into flat
-vinyl **gore strips** — vertical panels that taper to a point at the top — and
-exports a real-scale SVG for cutting on a Silhouette (24″×24″ mat) and wrapping
-around the object.
+A Blender extension that simplifies a scanned mesh (e.g. from Qlone) into
+flat **gore strips** — vertical panels that taper to a point at the top — and
+exports a real-scale SVG for cutting on a Silhouette and wrapping around the
+object.
 
-Built for roughly conical/cylindrical hand-made objects with rounded tops.
+Originally built for transfering complex patterns onto glass stuff cups.
 
 ## Install
 
-1. Build the extension zip (or use `dist/gore_wrap-0.2.0.zip`):
+1. Build the extension zip (or use `dist/gore_wrap-0.3.0.zip`):
    ```
    blender --command extension build --source-dir gore_wrap --output-dir dist
    ```
@@ -30,6 +30,17 @@ Built for roughly conical/cylindrical hand-made objects with rounded tops.
 6. Click **Export SVG** and open the file in Silhouette Studio. Strips are laid
    out on a common baseline in wrap order; in Fitted mode a separate red labels
    layer numbers them (exclude it from cutting).
+
+### Fitted mode: where to start applying
+
+Fitted strips are sector-specific, so they must go on in order at the right
+place. Mark a landmark on the object (a seam, a blemish, a dab of tape), then
+set **Start Angle** so gore 1 lands on it — in the Preview, **gore 1 is green**
+and **gore 2 is orange**. Apply the green strip (label 1) at your landmark, then
+continue toward the orange strip (winding counter-clockwise seen from the top)
+with strips 2, 3, …. Each gore is left-right symmetric, so you never need to
+flip one; only the start and direction matter. (Averaged mode gores are
+identical, so none of this applies — start anywhere.)
 
 ## Development
 

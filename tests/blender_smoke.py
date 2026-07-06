@@ -71,6 +71,17 @@ def main():
     assert len(paths) == 15, f"expected 15 paths, got {len(paths)}"
     assert root.get("width") == "610mm"
     print(f"[smoke] export ok: {len(paths)} paths -> {out}")
+
+    # Fitted mode with a start angle: preview should highlight gore 1 and 2.
+    props.mode = "FITTED"
+    props.start_angle = 90.0
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        assert bpy.ops.gorewrap.preview() == {"FINISHED"}
+    preview = bpy.data.objects.get("GoreWrap Preview")
+    assert len(preview.data.materials) == 3, "expected 3 preview materials"
+    used = {p.material_index for p in preview.data.polygons}
+    assert {1, 2} <= used, f"start/next gores not highlighted: {used}"
+    print(f"[smoke] fitted highlight ok: material indices {sorted(used)}")
     print("[smoke] PASS")
 
 
