@@ -144,6 +144,9 @@ def _get_preview_material(name, color, alpha):
             bsdf.inputs["Base Color"].default_value = color
             if "Alpha" in bsdf.inputs:
                 bsdf.inputs["Alpha"].default_value = alpha
+        # Viewport display color so the highlight also shows in Solid shading
+        # (with the viewport Color set to Material).
+        mat.diffuse_color = (color[0], color[1], color[2], alpha)
     return mat
 
 

@@ -81,7 +81,15 @@ def main():
     assert len(preview.data.materials) == 3, "expected 3 preview materials"
     used = {p.material_index for p in preview.data.polygons}
     assert {1, 2} <= used, f"start/next gores not highlighted: {used}"
-    print(f"[smoke] fitted highlight ok: material indices {sorted(used)}")
+    # Viewport-display colors let the highlight show in Solid shading too.
+    start_col = bpy.data.materials["GoreWrap Start Mat"].diffuse_color
+    next_col = bpy.data.materials["GoreWrap Next Mat"].diffuse_color
+    assert start_col[1] > start_col[0] and start_col[1] > start_col[2], \
+        f"start material not green in viewport: {start_col[:]}"
+    assert next_col[0] > next_col[1] > next_col[2], \
+        f"next material not orange in viewport: {next_col[:]}"
+    print(f"[smoke] fitted highlight ok: material indices {sorted(used)}, "
+          f"viewport colors set")
     print("[smoke] PASS")
 
 

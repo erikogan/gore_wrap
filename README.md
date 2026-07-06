@@ -9,7 +9,7 @@ Originally built for transfering complex patterns onto glass stuff cups.
 
 ## Install
 
-1. Build the extension zip (or use `dist/gore_wrap-0.3.0.zip`):
+1. Build the extension zip (or use `dist/gore_wrap-0.3.1.zip`):
    ```
    blender --command extension build --source-dir gore_wrap --output-dir dist
    ```
