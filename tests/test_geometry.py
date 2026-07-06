@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 
 from gore_wrap import geometry
-from tests.synthetic import cylinder_with_hemisphere, tapered_cone
+from tests.synthetic import (cylinder_with_hemisphere, tapered_cone,
+                             unevenly_sampled_cylinder)
 
 
 # --- shared point clouds and derived objects (computed once per module) ------
@@ -44,6 +45,20 @@ def _width_at_height(outline, y):
 def test_center_axis_recovers_offset_center(offset_cloud, axis, expected):
     center = geometry.center_axis(offset_cloud, n_bands=150)
     assert abs(center[axis] - expected) < 0.5
+
+
+@pytest.fixture(scope="module")
+def uneven_cloud():
+    # Cross-sections centered at (2, -1) but sampled far more densely on one
+    # side, which pulls a centroid off but not a circle fit.
+    return unevenly_sampled_cylinder(radius=40.0, height=100.0,
+                                     center=(2.0, -1.0), kappa=2.5)
+
+
+@pytest.mark.parametrize("axis, expected", [(0, 2.0), (1, -1.0)])
+def test_center_axis_robust_to_uneven_sampling(uneven_cloud, axis, expected):
+    center = geometry.center_axis(uneven_cloud, n_bands=150)
+    assert abs(center[axis] - expected) < 1.0
 
 
 # --- radial_profile ---------------------------------------------------------
@@ -167,6 +182,30 @@ def test_unwrap_gore_cone_base_width_follows_bottom_radius(cone_gore):
 def test_unwrap_gore_cone_meridian_exceeds_height(cone_gore):
     # Slant height of a tapered cone plus the apex is longer than H.
     assert cone_gore[:, 1].max() > 100.0
+
+
+# --- unwrap_gore_uniform (fitted mode, uniform envelope) ---------------------
+
+def test_unwrap_gore_uniform_base_width_from_average():
+    # Base width comes from the averaged profile, not the (narrower) sector.
+    z = np.linspace(0.0, 100.0, 50)
+    r_avg = np.linspace(40.0, 0.0, 50)
+    r_sector = np.linspace(25.0, 0.0, 50)
+    outline = geometry.unwrap_gore_uniform(z, r_sector, r_avg, n_strips=12,
+                                           seam_offset=0.0)
+    base_width = outline[:, 0].max() - outline[:, 0].min()
+    assert abs(base_width - 2 * np.pi * 40.0 / 12) < 1e-9
+
+
+def test_unwrap_gore_uniform_height_independent_of_sector():
+    # Two different sectors share the averaged meridian, so height is identical.
+    z = np.linspace(0.0, 100.0, 50)
+    r_avg = np.linspace(40.0, 0.0, 50)
+    wide = geometry.unwrap_gore_uniform(z, np.linspace(50.0, 0.0, 50), r_avg,
+                                        n_strips=12, seam_offset=0.0)
+    narrow = geometry.unwrap_gore_uniform(z, np.linspace(20.0, 0.0, 50), r_avg,
+                                          n_strips=12, seam_offset=0.0)
+    assert abs(wide[:, 1].max() - narrow[:, 1].max()) < 1e-12
 
 
 # --- smooth_profile ---------------------------------------------------------

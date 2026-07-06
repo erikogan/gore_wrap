@@ -34,30 +34,48 @@ def strip_count(angle_degrees):
     return max(3, int(round(360.0 / angle_degrees)))
 
 
-def center_axis(points, n_bands=150):
+def _fit_circle_center(xy):
+    """Algebraic (Kasa) least-squares circle fit; returns the center (a, b).
+
+    Solves x^2 + y^2 = 2a*x + 2b*y + c for [a, b, c] in the least-squares
+    sense. Unlike a centroid, this finds the center that best equalizes the
+    radii, so uneven angular sampling does not bias it toward the dense side.
+    """
+    x = xy[:, 0]
+    y = xy[:, 1]
+    A = np.column_stack([2 * x, 2 * y, np.ones(len(x))])
+    b = x * x + y * y
+    sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+    return sol[0], sol[1]
+
+
+def center_axis(points, n_bands=150, min_band_points=16):
     """Estimate the (x, y) of the vertical axis of a roughly axisymmetric cloud.
 
-    Points are binned by z into `n_bands` equal slices; each non-empty band
-    contributes its (x, y) centroid, and the axis is the unweighted mean of
-    those centroids. Equal weighting keeps a dense base from dominating a
-    sparse cap.
+    Points are binned by z into `n_bands` slices; each band with enough points
+    is fit with a least-squares circle, and the axis is the median of those
+    band centers. The circle fit is robust to the uneven angular coverage
+    typical of scans (which would pull a centroid toward the dense side), and
+    the median across bands rejects the occasional bad slice near the apex.
     """
     points = np.asarray(points, dtype=float)
     z = points[:, 2]
     z_min, z_max = z.min(), z.max()
     if z_max <= z_min:
-        return float(points[:, 0].mean()), float(points[:, 1].mean())
+        return _fit_circle_center(points[:, :2])
 
     edges = np.linspace(z_min, z_max, n_bands + 1)
     idx = np.clip(np.digitize(z, edges) - 1, 0, n_bands - 1)
 
-    centroids = []
-    for b in range(n_bands):
-        sel = idx == b
-        if np.any(sel):
-            centroids.append(points[sel, :2].mean(axis=0))
-    centroids = np.array(centroids)
-    return float(centroids[:, 0].mean()), float(centroids[:, 1].mean())
+    centers = []
+    for band in range(n_bands):
+        sel = idx == band
+        if np.count_nonzero(sel) >= min_band_points:
+            centers.append(_fit_circle_center(points[sel, :2]))
+    if not centers:
+        return float(points[:, 0].mean()), float(points[:, 1].mean())
+    centers = np.array(centers)
+    return float(np.median(centers[:, 0])), float(np.median(centers[:, 1]))
 
 
 def _interpolate_nan_columns(radii):
@@ -179,6 +197,35 @@ def unwrap_gore(z, r, n_strips, seam_offset=0.0):
     ds = np.hypot(np.diff(r), np.diff(z))
     s = np.concatenate([[0.0], np.cumsum(ds)])
     half_width = np.pi * r / n_strips + seam_offset / 2.0
+    right = np.column_stack([half_width, s])
+    left = np.column_stack([-half_width, s])
+    return np.vstack([right, left[::-1]])
+
+
+def unwrap_gore_uniform(z, r_sector, r_avg, n_strips, seam_offset=0.0):
+    """Flatten a sector into a gore with a uniform envelope (fitted mode).
+
+    Height and base width come from the averaged profile `r_avg`, so every gore
+    shares one bounding box, while the taper *contour* follows `r_sector`
+    normalized to the averaged base radius. This keeps the per-sector silhouette
+    (where each side bulges up its height) but yields interchangeable, uniform
+    strips suitable as a template. A pure per-sector radius scale — which is
+    what an off-center axis or an elliptical section produces — normalizes away,
+    leaving averaged-like gores.
+    """
+    z = np.asarray(z, dtype=float)
+    r_sector = np.asarray(r_sector, dtype=float)
+    r_avg = np.asarray(r_avg, dtype=float)
+
+    # Uniform meridian (and thus height) from the averaged profile.
+    ds = np.hypot(np.diff(r_avg), np.diff(z))
+    s = np.concatenate([[0.0], np.cumsum(ds)])
+
+    base = r_sector[0]
+    scale = r_avg[0] / base if base > 1e-9 else 1.0
+    r_norm = r_sector * scale
+
+    half_width = np.pi * r_norm / n_strips + seam_offset / 2.0
     right = np.column_stack([half_width, s])
     left = np.column_stack([-half_width, s])
     return np.vstack([right, left[::-1]])

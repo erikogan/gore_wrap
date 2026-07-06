@@ -51,11 +51,20 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
     dims = geometry.derived_dims(closed)
 
     outlines = []
-    for s in range(n_strips):
-        col = closed.radii[:, s if n_sectors > 1 else 0]
-        outline = geometry.unwrap_gore(closed.z, col, n_strips=n_strips,
-                                       seam_offset=seam_offset)
-        outlines.append(geometry.simplify_outline(outline, tol=tolerance))
+    if n_sectors > 1:
+        # Fitted mode: every gore shares the averaged envelope (uniform width
+        # and height) while its taper contour follows its own sector.
+        r_avg = closed.radii.mean(axis=1)
+        for s in range(n_strips):
+            outline = geometry.unwrap_gore_uniform(closed.z, closed.radii[:, s],
+                                                   r_avg, n_strips=n_strips,
+                                                   seam_offset=seam_offset)
+            outlines.append(geometry.simplify_outline(outline, tol=tolerance))
+    else:
+        outline = geometry.unwrap_gore(closed.z, closed.radii[:, 0],
+                                       n_strips=n_strips, seam_offset=seam_offset)
+        simplified = geometry.simplify_outline(outline, tol=tolerance)
+        outlines = [simplified] * n_strips
 
     return GoreResult(outlines=outlines, dims=dims, fit_error=err,
                       n_strips=n_strips, interp_fraction=closed.interp_fraction,

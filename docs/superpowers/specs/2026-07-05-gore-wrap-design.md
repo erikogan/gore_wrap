@@ -24,8 +24,11 @@ developable-surface fitting (overkill for vinyl tolerance).
 1. **Input**: user pre-orients the scan Z-up and deletes obvious junk; the selected
    mesh is read in world space with modifiers applied. A bottom-crop slider discards
    everything below a chosen height.
-2. **Assisted centering**: ~150 horizontal bands; per-band vertex centroids averaged
-   to define the vertical axis.
+2. **Assisted centering**: ~150 horizontal bands; each band's points are fit with a
+   least-squares (Kåsa) circle and the axis is the median of the band centers. A
+   circle fit resists the uneven angular coverage typical of scans, which would pull
+   a plain centroid toward the densely sampled side and, in Fitted mode, show up as a
+   once-around wobble in gore width and height.
 3. **Radius profile**: per band, mean distance from axis — over the full circle
    (*Averaged* mode) or per angular sector (*Fitted* mode, one profile per gore).
    Gaussian smoothing along z; empty bands interpolated from neighbors (warn if >20%).
@@ -47,8 +50,16 @@ faintly curved edges) introduces error well under vinyl tolerance for 15–30° 
 
 - Strip angle 5°–45° (default 24° → 15 strips); N snapped so N·angle = 360°, with a
   live strip-count readout.
-- Averaged vs Fitted mode chosen per run. Fitted strips are unique and labeled 1…N.
+- Averaged vs Fitted mode chosen per run. Fitted strips are labeled 1…N.
 - Signed seam offset in mm.
+
+**Fitted mode uses a uniform envelope.** Every fitted gore shares one width (from the
+averaged base circumference ÷ N) and one height (the averaged meridian length); only
+the taper *contour* — where each side bulges up its height — follows the gore's own
+sector. This keeps fitted strips interchangeable and template-friendly. A per-sector
+radius that is merely scaled (which is what an off-center axis or an elliptical
+section produces) normalizes away, so Fitted mode reduces to Averaged on such shapes
+and only diverges where the silhouette genuinely differs between sides.
 
 ### SVG export
 

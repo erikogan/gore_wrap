@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from gore_wrap import pipeline
-from tests.synthetic import cylinder_with_hemisphere
+from tests.synthetic import cylinder_with_hemisphere, elliptical_column
 
 
 def build(pts, **kw):
@@ -75,6 +75,23 @@ def test_build_gores_profile_apex_closed_to_point(offset_result):
 def test_build_gores_fitted_produces_one_strip_per_sector(cyl_cloud):
     res = build(cyl_cloud, mode="FITTED")
     assert len(res.outlines) == res.n_strips
+
+
+@pytest.fixture(scope="module")
+def fitted_elliptical():
+    # An elliptical section: sector radii genuinely differ, so the uniform-box
+    # guarantee is non-trivial (naive fitting would vary width by a/b = 1.5x).
+    return build(elliptical_column(a=48.0, b=32.0, height=100.0), mode="FITTED")
+
+
+def test_build_gores_fitted_uniform_base_width(fitted_elliptical):
+    widths = [o[:, 0].max() - o[:, 0].min() for o in fitted_elliptical.outlines]
+    assert max(widths) - min(widths) < 0.05
+
+
+def test_build_gores_fitted_uniform_height(fitted_elliptical):
+    heights = [o[:, 1].max() for o in fitted_elliptical.outlines]
+    assert max(heights) - min(heights) < 0.05
 
 
 # --- crop and scale ---------------------------------------------------------
