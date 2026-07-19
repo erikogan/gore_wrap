@@ -15,5 +15,7 @@ blender_version_min = "4.2.0"
 
 license = ["SPDX:GPL-3.0-or-later"]
 
-# numpy ships with Blender, so no bundled wheels are required.
+# svgelements is a pure-Python universal wheel (no transitive deps); numpy
+# ships with Blender, so it needs no wheel.
+wheels = ["./wheels/svgelements-1.9.6-py2.py3-none-any.whl"]
 platforms = ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"]
