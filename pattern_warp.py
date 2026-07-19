@@ -126,22 +126,29 @@ def _flatten_subpath(subpath, k, flatten_tol):
     return pts
 
 
+def _sample_base_tile(pattern, tile_w, flatten_tol):
+    """Flatten each subpath and scale to the tile width; return (base, tile_h).
+
+    base is a list of (K, 2) polygons in mm, y-down, within [0, tile_w] x
+    [0, tile_h], where tile_h = pattern.px_height * (tile_w / pattern.px_width)
+    preserves the pattern's aspect ratio.
+    """
+    k = tile_w / pattern.px_width
+    tile_h = pattern.px_height * k
+    base = [_flatten_subpath(sp, k, flatten_tol) for sp in pattern.subpaths]
+    return base, tile_h
+
+
 def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
     """Flatten and tile the pattern across the unrolled base circumference.
 
     R = repeats_x tiles fit exactly across `circumference` (tile width
-    W = circumference / R); tile height H = W * px_height / px_width keeps the
-    pattern undistorted at the base. Tiles repeat up from y=0 to cover
-    gore_height and one tile past each circumferential end (the pattern is
-    seamless, so the padding wraps). Output polygons are mm, y-up.
+    W = circumference / R). Tiles repeat up from y=0 to cover gore_height and
+    one tile past each circumferential end (the pattern is seamless, so the
+    padding wraps). Output polygons are mm, y-up.
     """
     W = circumference / repeats_x
-    k = W / pattern.px_width
-    H = pattern.px_height * k
-
-    # Base tile polygons in mm, y-down within [0, W] x [0, H].
-    base = [_flatten_subpath(sp, k, flatten_tol) for sp in pattern.subpaths]
-
+    base, H = _sample_base_tile(pattern, W, flatten_tol)
     n_rows = int(np.ceil(gore_height / H)) + 1
     field = []
     for col in range(-1, repeats_x + 1):          # one wrap tile each side

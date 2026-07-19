@@ -95,6 +95,20 @@ def test_build_field_pads_past_both_ends(tmp_path):
     assert xs.min() <= 0.0 and xs.max() >= 40.0
 
 
+def test_sample_base_tile_width_equals_tile_w(tmp_path):
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    base, tile_h = pattern_warp._sample_base_tile(pattern, 10.0, 0.1)
+    x0, x1, _y0, _y1 = _bbox(base[0])
+    assert abs((x1 - x0) - 10.0) < 0.05
+
+
+def test_sample_base_tile_preserves_aspect(tmp_path):
+    # FULL_CELL_SVG viewBox is 40x20 (aspect 2), so a 10-wide tile is 5 tall.
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    _base, tile_h = pattern_warp._sample_base_tile(pattern, 10.0, 0.1)
+    assert abs(tile_h - 5.0) < 0.05
+
+
 def _one_gore_layout(n_strips=12):
     pts = cylinder_with_hemisphere(radius=40.0, height=100.0)
     center = geometry.center_axis(pts)
