@@ -146,19 +146,26 @@ def _path_d(poly):
     return " ".join(cmds)
 
 
-def write_svg(path, result, labels_enabled=False, mat=MAT_MM):
+def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None):
     """Write the placed strips to a real-scale SVG for Silhouette Studio.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
     labels are enabled, a separate `labels` group holds the wrap-order number
-    near each strip's base so it can be excluded from cutting.
+    near each strip's base so it can be excluded from cutting. When pattern_polys
+    is a non-empty list, emits a `pattern` group before the cuts group.
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{mat:.0f}mm" '
         f'height="{mat:.0f}mm" viewBox="0 0 {mat:.0f} {mat:.0f}">',
-        '  <g id="cuts" fill="none" stroke="#000000" stroke-width="0.2">',
     ]
+    if pattern_polys:
+        lines.append('  <g id="pattern" fill="none" stroke="#000000" '
+                     'stroke-width="0.2">')
+        for poly in pattern_polys:
+            lines.append(f'    <path d="{_path_d(poly)}"/>')
+        lines.append('  </g>')
+    lines.append('  <g id="cuts" fill="none" stroke="#000000" stroke-width="0.2">')
     for _, poly in result.placements:
         lines.append(f'    <path d="{_path_d(poly)}"/>')
     lines.append('  </g>')

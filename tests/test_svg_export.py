@@ -133,3 +133,17 @@ def test_write_svg_coordinates_not_below_mat(svg_root_no_labels):
 
 def test_write_svg_coordinates_not_above_mat(svg_root_no_labels):
     assert max(_all_path_coords(svg_root_no_labels)) <= 610.01
+
+
+def test_write_svg_emits_pattern_group_before_cuts(zero_layout, tmp_path):
+    poly = np.array([[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]])
+    path = tmp_path / "patterned.svg"
+    svg_export.write_svg(str(path), zero_layout, pattern_polys=[poly])
+    root = ET.parse(path).getroot()
+    group_ids = [g.get("id") for g in root.findall(f"{{{SVG_NS}}}g")]
+    assert group_ids[:2] == ["pattern", "cuts"]
+
+
+def test_write_svg_no_pattern_group_when_absent(svg_root_no_labels):
+    ids = {g.get("id") for g in svg_root_no_labels.findall(f".//{{{SVG_NS}}}g")}
+    assert "pattern" not in ids
