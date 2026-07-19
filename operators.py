@@ -5,10 +5,12 @@ these operators are the glue that reads vertices, builds a preview surface, and
 writes the SVG.
 """
 
+import time
+
 import numpy as np
 import bpy
 
-from . import pipeline, svg_export, pattern_warp
+from . import pipeline, svg_export, pattern_warp, export_job
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -43,6 +45,15 @@ def _params(props):
         scale_factor=props.scale_factor,
         start_angle=np.radians(props.start_angle),
     )
+
+
+def _run_to_completion(gen):
+    """Drain a progress generator, returning its StopIteration value."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
 
 
 def _run(obj, context):
@@ -285,41 +296,81 @@ class GOREWRAP_OT_export(bpy.types.Operator):
                         f"units or calibrate the scale.")
             return {"CANCELLED"}
 
-        try:
-            layout = svg_export.layout(result.outlines, props.seam_offset)
-        except svg_export.LayoutError as exc:
-            self.report({"ERROR"}, str(exc))
+        if props.use_pattern and not props.pattern_svg:
+            self.report({"ERROR"},
+                        "Choose a pattern SVG or turn off Fill With Pattern.")
             return {"CANCELLED"}
 
-        pattern_polys = None
-        if props.use_pattern:
-            if not props.pattern_svg:
-                self.report({"ERROR"},
-                            "Choose a pattern SVG or turn off Fill With Pattern.")
-                return {"CANCELLED"}
+        params = {
+            "seam_offset": props.seam_offset,
+            "labels": props.labels and props.mode == "FITTED",
+            "use_pattern": props.use_pattern,
+            "pattern_svg": (bpy.path.abspath(props.pattern_svg)
+                            if props.use_pattern else ""),
+            "pattern_repeats_x": props.pattern_repeats_x,
+            "pattern_flatten_tol": props.pattern_flatten_tol,
+        }
+        self._gen = export_job.export_steps(result, params, self.filepath)
+        self._timer = None
+
+        # No event loop headlessly (background, scripts, smoke test): drain now.
+        if bpy.app.background or context.window is None:
             try:
-                pattern = pattern_warp.load_pattern(
-                    bpy.path.abspath(props.pattern_svg))
-            except pattern_warp.PatternError as exc:
+                summary = _run_to_completion(self._gen)
+            except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
-            gore_height = max(o[:, 1].max() for o in result.outlines)
-            field = pattern_warp.build_field(
-                pattern, result.dims.bottom_circumference, gore_height,
-                props.pattern_repeats_x, props.pattern_flatten_tol)
-            pattern_polys = pattern_warp.warp_into_gores(
-                field, layout.placements, result.outlines,
-                result.dims.bottom_circumference)
-            if not pattern_polys:
-                self.report({"WARNING"},
-                            "Pattern produced no geometry; exported outlines only.")
+            self._report_summary(summary)
+            return {"FINISHED"}
 
-        labels = props.labels and props.mode == "FITTED"
-        svg_export.write_svg(self.filepath, layout, labels_enabled=labels,
-                             pattern_polys=pattern_polys)
-        self.report({"INFO"},
-                    f"Exported {result.n_strips} strips to {self.filepath}")
-        return {"FINISHED"}
+        wm = context.window_manager
+        wm.progress_begin(0.0, 1.0)
+        self._timer = wm.event_timer_add(0.05, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            return self._cancel(context)
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+        wm = context.window_manager
+        deadline = time.monotonic() + 0.03
+        try:
+            while time.monotonic() < deadline:
+                frac, label = next(self._gen)
+                context.workspace.status_text_set(f"{label}  —  Esc to cancel")
+                wm.progress_update(frac)
+        except StopIteration as stop:
+            self._finish(context)
+            self._report_summary(stop.value)
+            return {"FINISHED"}
+        except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
+            self._finish(context)
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+    def _cancel(self, context):
+        self._gen.close()
+        self._finish(context)
+        self.report({"INFO"}, "Export cancelled.")
+        return {"CANCELLED"}
+
+    def _finish(self, context):
+        wm = context.window_manager
+        if self._timer is not None:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        wm.progress_end()
+        context.workspace.status_text_set(None)
+
+    def _report_summary(self, summary):
+        if summary is not None and summary.pattern_empty:
+            self.report({"WARNING"},
+                        "Pattern produced no geometry; exported outlines only.")
+        n = summary.n_strips if summary is not None else 0
+        self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
 
 
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale, GOREWRAP_OT_export)
