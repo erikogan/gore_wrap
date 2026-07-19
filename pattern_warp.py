@@ -18,7 +18,10 @@ def clip_to_rect(poly, xmin, xmax, ymin, ymax):
 
     `poly` is an (K, 2) array of a closed polygon (no repeated last point
     required). Returns the clipped (M, 2) polygon, or None if the polygon
-    lies entirely outside the rectangle.
+    lies entirely outside the rectangle. A concave polygon that leaves and
+    re-enters the rectangle is stitched into one polygon with zero-width
+    bridge edges (a known Sutherland-Hodgman trait); harmless for cutting and
+    accepted here to avoid a heavyweight polygon-clipping dependency.
     """
     edges = (
         (lambda p: p[0] >= xmin, lambda a, b: _intersect_x(a, b, xmin)),
@@ -172,17 +175,17 @@ def warp_into_gores(field, placements, outlines, circumference):
         # Recover this gore's placement transform from a corresponding vertex.
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
-        _t, _l, right_x = _edge_profiles(outline)
+        top, _left_x, right_x = _edge_profiles(outline)
         hw0 = float(right_x(0.0))
         if hw0 <= 1e-9:
             continue
-        gore_height = float(outline[:, 1].max())
+        gore_height = top
         xc = (i + 0.5) * circumference / n
         for pol in field:
             clipped = clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, gore_height)
             if clipped is None:
                 continue
-            s = np.asarray(right_x(clipped[:, 1])) / hw0
+            s = right_x(clipped[:, 1]) / hw0
             warped = np.column_stack([
                 tx + (clipped[:, 0] - xc) * s,
                 base_y - clipped[:, 1],
