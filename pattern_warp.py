@@ -106,3 +106,46 @@ def _shape_locator(element, shape_index):
     if element.id:
         return f"{tag}#{element.id}"
     return f"{tag} (drawable shape #{shape_index})"
+
+
+def _flatten_subpath(subpath, k, flatten_tol):
+    """Sample one subpath into an (K,2) polygon in mm, scaling px by k."""
+    p = Path(subpath)
+    length_mm = p.length() * k
+    n = max(2, int(np.ceil(length_mm / flatten_tol)) + 1)
+    pts = np.empty((n, 2))
+    for i in range(n):
+        pt = p.point(i / (n - 1))
+        pts[i, 0] = pt.x * k
+        pts[i, 1] = pt.y * k
+    return pts
+
+
+def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
+    """Flatten and tile the pattern across the unrolled base circumference.
+
+    R = repeats_x tiles fit exactly across `circumference` (tile width
+    W = circumference / R); tile height H = W * px_height / px_width keeps the
+    pattern undistorted at the base. Tiles repeat up from y=0 to cover
+    gore_height and one tile past each circumferential end (the pattern is
+    seamless, so the padding wraps). Output polygons are mm, y-up.
+    """
+    W = circumference / repeats_x
+    k = W / pattern.px_width
+    H = pattern.px_height * k
+
+    # Base tile polygons in mm, y-down within [0, W] x [0, H].
+    base = [_flatten_subpath(sp, k, flatten_tol) for sp in pattern.subpaths]
+
+    n_rows = int(np.ceil(gore_height / H)) + 1
+    field = []
+    for col in range(-1, repeats_x + 1):          # one wrap tile each side
+        dx = col * W
+        for row in range(n_rows):
+            dy = row * H
+            for poly in base:
+                out = np.empty_like(poly)
+                out[:, 0] = poly[:, 0] + dx
+                out[:, 1] = dy + (H - poly[:, 1])  # flip to y-up, stack rows
+                field.append(out)
+    return field
