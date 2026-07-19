@@ -156,39 +156,38 @@ def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
     return field
 
 
-def warp_into_gores(field, placements, outlines, circumference):
-    """Clip the master field into each gore and horizontally warp it.
+def iter_warp_gores(field, placements, outlines, circumference):
+    """Yield (gore_index, [warped polygons]) for each gore, in placement order.
 
-    For gore i (wrap order), its circumferential window is centered at
-    xc = (i + 0.5) * circumference / N and is half-width hw0 = outline
-    half-width at the base (which already includes the seam offset). Each field
-    vertex (X, Y) maps to final coords
-        x = tx + (X - xc) * right_x(Y) / hw0
-        y = base_y - Y
-    so y is never distorted (horizontal lines stay horizontal) and the side
-    edges land exactly on the gore outline. Overflow above the apex is trimmed
-    by clipping y to the gore height. Returns a flat list of polygons.
+    Same warp as warp_into_gores, but per gore so callers can report progress.
+    A gore with a degenerate base (hw0 <= 1e-9) yields an empty list.
     """
     n = len(placements)
-    out = []
     for (i, poly), outline in zip(placements, outlines):
         # Recover this gore's placement transform from a corresponding vertex.
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
         top, _left_x, right_x = _edge_profiles(outline)
         hw0 = float(right_x(0.0))
-        if hw0 <= 1e-9:
-            continue
-        gore_height = top
-        xc = (i + 0.5) * circumference / n
-        for pol in field:
-            clipped = clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, gore_height)
-            if clipped is None:
-                continue
-            s = right_x(clipped[:, 1]) / hw0
-            warped = np.column_stack([
-                tx + (clipped[:, 0] - xc) * s,
-                base_y - clipped[:, 1],
-            ])
-            out.append(warped)
+        gore_polys = []
+        if hw0 > 1e-9:
+            xc = (i + 0.5) * circumference / n
+            for pol in field:
+                clipped = clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, top)
+                if clipped is None:
+                    continue
+                s = right_x(clipped[:, 1]) / hw0
+                gore_polys.append(np.column_stack([
+                    tx + (clipped[:, 0] - xc) * s,
+                    base_y - clipped[:, 1],
+                ]))
+        yield i, gore_polys
+
+
+def warp_into_gores(field, placements, outlines, circumference):
+    """Flat list of every gore's warped polygons (see iter_warp_gores)."""
+    out = []
+    for _i, gore_polys in iter_warp_gores(field, placements, outlines,
+                                          circumference):
+        out.extend(gore_polys)
     return out

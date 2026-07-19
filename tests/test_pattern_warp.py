@@ -133,3 +133,21 @@ def test_warp_squeezes_toward_apex():
         top = poly[poly[:, 1] < poly[:, 1].min() + 5.0]
         bot = poly[poly[:, 1] > poly[:, 1].max() - 5.0]
         assert np.ptp(top[:, 0]) < 0.5 * np.ptp(bot[:, 0])
+
+
+def test_iter_warp_gores_yields_one_group_per_gore():
+    layout, outlines = _one_gore_layout(n_strips=12)
+    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
+    groups = list(pattern_warp.iter_warp_gores(
+        full, layout.placements, outlines, 2 * np.pi * 40.0))
+    assert len(groups) == 12
+
+
+def test_iter_warp_gores_concatenation_matches_flat():
+    layout, outlines = _one_gore_layout()
+    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
+    circ = 2 * np.pi * 40.0
+    flat = pattern_warp.warp_into_gores(full, layout.placements, outlines, circ)
+    per_gore = [p for _i, polys in pattern_warp.iter_warp_gores(
+        full, layout.placements, outlines, circ) for p in polys]
+    assert len(per_gore) == len(flat)
