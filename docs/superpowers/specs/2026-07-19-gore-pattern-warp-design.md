@@ -74,18 +74,40 @@ primitive shapes (`<rect>`, `<circle>`, …) uniformly. This retires the parser,
 Bézier/arc flattener, and transform-composition code that would otherwise be the main
 risk.
 
-1. **`load_pattern(path, flatten_tol) → Pattern`** — `SVG.parse` the file; walk
-   elements; for each drawable, take `Path(el).as_subpaths()` and sample each subpath to
-   `flatten_tol` (mm) into a closed polygon. Returns the polygons in tile-local coords
-   plus the tile size `(w_pat, h_pat)` from the SVG `viewBox`/width-height. SVG input
-   only — EPS is exported to SVG in Illustrator (lossless).
-2. **`build_field(pattern, circumference, gore_height, repeats_x) → polygons`** — tile
-   the pattern `R` times across `circumference` at natural aspect, stacking upward from
-   the base and extending past both circumferential ends (the field is periodic).
-3. **`warp_into_gores(field, placements, outlines) → list[list[polygon]]`** — per gore:
-   clip the field to that gore's master rectangle (Sutherland–Hodgman), apply the
-   horizontal warp using the outline's own edge profile (`_edge_profiles` from
-   `svg_export`), and translate into the gore's mat placement (`tx`, `base_y`).
+1. **`load_pattern(path) → Pattern`** — `SVG.parse` the file; walk elements; for each
+   drawable `Shape`, take `abs(Path(el)).as_subpaths()` (transforms baked to absolute
+   coordinates). Returns the subpaths plus the reified box size `(px_width, px_height)`.
+   Parse only — sampling happens in `build_field`, where the final tile size is known.
+   SVG input only — EPS is exported to SVG in Illustrator (lossless).
+2. **`build_field(pattern, circumference, gore_height, repeats_x, flatten_tol) →
+   polygons`** — set tile width `W = circumference / R` and `k = W / px_width` (see
+   *Coordinate normalization*); sample each subpath to `flatten_tol` (mm) and scale by
+   `k`, then tile `R` times across `circumference` at natural aspect
+   (`H = px_height · k`), stacking upward from the base and extending one tile past each
+   circumferential end (the field is periodic).
+3. **`warp_into_gores(field, placements, outlines, circumference) → list[polygon]`** —
+   per gore: clip the field to that gore's master rectangle (Sutherland–Hodgman), apply
+   the horizontal warp using the outline's own edge profile (`_edge_profiles` from
+   `svg_export`), and translate into the gore's mat placement (`tx`, `base_y`). Returns
+   a flat list of warped closed polygons.
+
+### Coordinate normalization
+
+svgelements reifies the **full** transform chain, including the SVG viewport transform
+that maps the `viewBox` onto the document's physical `width`/`height`. So a pattern
+declared `width="40mm" viewBox="0 0 40 20"` yields reified coordinates in **rendered
+pixels** (here 96 dpi → a 3.78× scale), not viewBox units. Rather than undo that,
+`build_field` folds it out for free: reified pixels map straight to tile-millimetres via
+
+    k = W / px_width          (px_width = reified doc.width)
+    tile_mm = px_coord · k
+
+Because the tile is rescaled to `W` anyway, the mm→px factor cancels; only the pattern's
+**aspect ratio** must survive parsing, and it does (the viewport scale is uniform when
+`width:height` matches the `viewBox` aspect, as it is for `preserveAspectRatio`
+defaults). This holds whether the pattern's `width` is given in `mm`, `px`, or unitless
+— verified across all three. It also removes any need to read or normalize the raw
+`viewBox` numbers.
 
 `svg_export.write_svg()` gains an optional `pattern_polys` argument and emits a
 `<g id="pattern">` group **below** `cuts` (so it is visually behind and easy to exclude
@@ -142,15 +164,15 @@ the panel moves; the existing `labels` toggle and Export button are unchanged.
 After the existing `svg_export.layout(...)` call, and only when
 `props.use_pattern and props.pattern_svg`:
 
-1. `pattern = pattern_warp.load_pattern(bpy.path.abspath(props.pattern_svg),
-   props.pattern_flatten_tol)` — wrap in try/except; on failure
-   `self.report({"ERROR"}, ...)` naming the file and `return {"CANCELLED"}`.
+1. `pattern = pattern_warp.load_pattern(bpy.path.abspath(props.pattern_svg))` — wrap in
+   try/except; on failure `self.report({"ERROR"}, ...)` naming the file and
+   `return {"CANCELLED"}`.
 2. `field = pattern_warp.build_field(pattern, result.dims.bottom_circumference,
-   gore_height, props.pattern_repeats_x)` — base circumference is the widest ring
-   (`s=1`), matching the already-derived `bottom_circumference`; `gore_height` from the
-   outlines.
+   gore_height, props.pattern_repeats_x, props.pattern_flatten_tol)` — base
+   circumference is the widest ring (`s=1`), matching the already-derived
+   `bottom_circumference`; `gore_height = max(o[:, 1].max() for o in result.outlines)`.
 3. `pattern_polys = pattern_warp.warp_into_gores(field, layout.placements,
-   result.outlines)`.
+   result.outlines, result.dims.bottom_circumference)`.
 4. `svg_export.write_svg(self.filepath, layout, labels_enabled=labels,
    pattern_polys=pattern_polys)`.
 
