@@ -77,14 +77,20 @@ def load_pattern(path):
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
         raise PatternError(f"{path} has no usable viewBox.")
     subpaths = []
+    dropped = 0
     for element in doc.elements():
         if not isinstance(element, Shape):
             continue
         try:
             geom = abs(Path(element))          # bake the full transform chain
         except Exception:
+            dropped += 1                       # never silently lose a shape
             continue
         subpaths.extend(geom.as_subpaths())
+    if dropped:
+        raise PatternError(
+            f"{dropped} shape(s) in {path} could not be parsed; "
+            f"fix or remove them in Illustrator and re-export.")
     if not subpaths:
         raise PatternError(f"No drawable shapes found in {path}.")
     return Pattern(subpaths=subpaths,

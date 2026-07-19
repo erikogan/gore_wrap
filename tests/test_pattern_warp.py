@@ -39,3 +39,11 @@ def test_load_pattern_rejects_empty_svg(tmp_path):
     empty = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>'
     with pytest.raises(pattern_warp.PatternError):
         pattern_warp.load_pattern(_write(tmp_path, empty))
+
+
+def test_load_pattern_reports_unparseable_shapes(tmp_path, monkeypatch):
+    def boom(_element):
+        raise ValueError("unparseable")
+    monkeypatch.setattr(pattern_warp, "Path", boom)
+    with pytest.raises(pattern_warp.PatternError):
+        pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
