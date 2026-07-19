@@ -17,6 +17,7 @@
 - When the pattern is off, exported SVG output is **byte-for-byte identical** to today's.
 - Blender 4.2+; license `SPDX:GPL-3.0-or-later`.
 - Tests: one behavioural assertion per test (match existing style in `tests/`).
+- **Runtime skew:** Blender 4.5 LTS and 5.0 both bundle **numpy 1.26.4 on Python 3.11**; the dev venv runs **numpy 2.5.1 on Python 3.14**. All code (and tests) must use only APIs common to both — e.g. `np.ptp(x)`, never the `ndarray.ptp()` method removed in numpy 2.0 — and Python 3.11-compatible syntax.
 
 ---
 
@@ -264,18 +265,58 @@ def load_pattern(path):
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
         raise PatternError(f"{path} has no usable viewBox.")
     subpaths = []
+    dropped = []
+    shape_index = 0
     for element in doc.elements():
         if not isinstance(element, Shape):
             continue
+        shape_index += 1
         try:
             geom = abs(Path(element))          # bake the full transform chain
         except Exception:
+            dropped.append(_shape_locator(element, shape_index))
             continue
         subpaths.extend(geom.as_subpaths())
+    if dropped:
+        raise PatternError(
+            f"{len(dropped)} shape(s) in {path} could not be parsed and were "
+            f"left out: {', '.join(dropped)}. Fix or remove them and re-export.")
     if not subpaths:
         raise PatternError(f"No drawable shapes found in {path}.")
     return Pattern(subpaths=subpaths,
                    px_width=float(doc.width), px_height=float(doc.height))
+
+
+def _shape_locator(element, shape_index):
+    """A findable identifier for a dropped shape: `tag#id`, or the tag plus its
+    ordinal among drawable shapes when it has no id."""
+    tag = element.values.get("tag", type(element).__name__.lower())
+    if element.id:
+        return f"{tag}#{element.id}"
+    return f"{tag} (drawable shape #{shape_index})"
+```
+
+A shape that fails to reify is surfaced as a `PatternError` listing findable
+locators, not silently skipped — a partial pattern would waste vinyl with no
+warning. The message names no specific vector-editor tool. Add two tests
+(monkeypatch the module's `Path` so reification raises):
+
+```python
+# tests/test_pattern_warp.py  (add to the load_pattern tests)
+def test_load_pattern_reports_unparseable_shapes(tmp_path, monkeypatch):
+    monkeypatch.setattr(pattern_warp, "Path",
+                        lambda _e: (_ for _ in ()).throw(ValueError()))
+    with pytest.raises(pattern_warp.PatternError, match="could not be parsed"):
+        pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+
+
+def test_load_pattern_names_dropped_shape_by_id(tmp_path, monkeypatch):
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" '
+           'width="10" height="10"><path id="broken" d="M0 0 L5 0 L5 5 Z"/></svg>')
+    monkeypatch.setattr(pattern_warp, "Path",
+                        lambda _e: (_ for _ in ()).throw(ValueError()))
+    with pytest.raises(pattern_warp.PatternError, match="broken"):
+        pattern_warp.load_pattern(_write(tmp_path, svg))
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -457,11 +498,14 @@ def test_warp_squeezes_toward_apex():
     full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
     warped = pattern_warp.warp_into_gores(full, layout.placements, outlines,
                                           circumference=2 * np.pi * 40.0)
-    # Width of warped content near the top is far less than near the base.
-    allpts = np.vstack(warped)
-    top = allpts[allpts[:, 1] < allpts[:, 1].min() + 5.0]
-    bot = allpts[allpts[:, 1] > allpts[:, 1].max() - 5.0]
-    assert top[:, 0].ptp() < 0.5 * bot[:, 0].ptp()
+    # Check the taper per gore: pooling all gores (np.vstack) would measure the
+    # inter-gore layout spread (~N-1 vs N gore-widths, always > 0.5) instead of
+    # the warp's taper, so it would pass even for a broken warp. Within one
+    # gore's own polygon, the near-apex band must be far narrower than the base.
+    for poly in warped:
+        top = poly[poly[:, 1] < poly[:, 1].min() + 5.0]
+        bot = poly[poly[:, 1] > poly[:, 1].max() - 5.0]
+        assert np.ptp(top[:, 0]) < 0.5 * np.ptp(bot[:, 0])
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**

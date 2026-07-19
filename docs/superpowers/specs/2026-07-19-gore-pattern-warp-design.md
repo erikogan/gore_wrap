@@ -185,6 +185,10 @@ The `_params` dict feeding `build_gores` is **not** touched (pattern is post-geo
   With Pattern."`
 - `pattern_repeats_x < 1` is prevented by the prop's `min`, so no runtime check needed.
 - File unreadable / no drawable elements → error naming the file (from `load_pattern`).
+- Any shape that fails to reify is surfaced as a `PatternError` that lists findable
+  locators for the dropped shapes (`tag#id`, or the tag plus its ordinal among drawable
+  shapes when it has no id), never silently dropped — a partial pattern would waste vinyl
+  with no warning. The message names no specific vector-editor tool.
 - A gore that yields no polygons after clipping → that gore exports outline-only and the
   operator reports a `{"WARNING"}` rather than failing the whole export.
 
@@ -199,6 +203,12 @@ universal wheel covers all four listed platforms. Add it to the dev venv for pyt
 each, numpy-ABI risk against Blender's bundled numpy) and buy nothing here — the
 remaining math is `np.interp` for half-width, ~30 lines of Sutherland–Hodgman for the
 rectangle clip, and arithmetic for tiling.
+
+**numpy/Python runtime matrix.** Blender 4.5 LTS and 5.0 both bundle **numpy 1.26.4 on
+Python 3.11**; the dev/pytest venv runs **numpy 2.5.1 on Python 3.14**. Code must use
+only APIs common to both numpy lines (notably `np.ptp(x)`, not the `ndarray.ptp()`
+method removed in numpy 2.0) and Python 3.11-compatible syntax. The Task 8 Blender smoke
+test exercises the actual bundled numpy, complementing the dev-venv pytest run.
 
 ## Testing
 
