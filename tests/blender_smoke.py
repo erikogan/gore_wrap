@@ -11,6 +11,7 @@ Exits non-zero on failure so it can gate CI.
 import os
 import sys
 import tempfile
+import tomllib
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -19,6 +20,28 @@ import bpy
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
+
+
+def _register_manifest_wheels():
+    """Put this add-on's declared wheels on sys.path.
+
+    A real install (Preferences > Install from Disk, or the extensions repo)
+    has Blender read blender_manifest.toml and add each wheel to sys.path
+    itself before the add-on is imported. This script imports `gore_wrap`
+    directly instead of going through that install flow, so it has to
+    replicate that one step -- otherwise bpy-side modules that need a wheel
+    (e.g. pattern_warp's svgelements) can't be imported headlessly.
+    """
+    manifest_path = os.path.join(REPO, "gore_wrap", "blender_manifest.toml")
+    with open(manifest_path, "rb") as fh:
+        manifest = tomllib.load(fh)
+    for wheel in manifest.get("wheels", []):
+        wheel_path = os.path.normpath(os.path.join(REPO, "gore_wrap", wheel))
+        if wheel_path not in sys.path:
+            sys.path.insert(0, wheel_path)
+
+
+_register_manifest_wheels()
 
 from tests.synthetic import cylinder_with_hemisphere  # noqa: E402
 import gore_wrap  # noqa: E402
@@ -71,6 +94,24 @@ def main():
     assert len(paths) == 15, f"expected 15 paths, got {len(paths)}"
     assert root.get("width") == "610mm"
     print(f"[smoke] export ok: {len(paths)} paths -> {out}")
+
+    # Patterned export: a tiny seamless SVG should add a pattern layer.
+    pat = os.path.join(tempfile.gettempdir(), "gorewrap_pattern.svg")
+    with open(pat, "w") as fh:
+        fh.write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
+                 'width="20" height="20"><circle cx="10" cy="10" r="6"/></svg>')
+    props.use_pattern = True
+    props.pattern_svg = pat
+    props.pattern_repeats_x = 8
+    out_pat = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_pattern.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_pat)
+    assert res == {"FINISHED"}, res
+    root = ET.parse(out_pat).getroot()
+    ids = {g.get("id") for g in root.findall(f".//{{{SVG_NS}}}g")}
+    assert "pattern" in ids, f"no pattern layer in export: {ids}"
+    print("[smoke] pattern export ok: pattern layer present")
+    props.use_pattern = False
 
     # Fitted mode with a start angle: preview should highlight gore 1 and 2.
     props.mode = "FITTED"

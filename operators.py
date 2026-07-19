@@ -8,7 +8,7 @@ writes the SVG.
 import numpy as np
 import bpy
 
-from . import pipeline, svg_export
+from . import pipeline, svg_export, pattern_warp
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -291,8 +291,32 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
 
+        pattern_polys = None
+        if props.use_pattern:
+            if not props.pattern_svg:
+                self.report({"ERROR"},
+                            "Choose a pattern SVG or turn off Fill With Pattern.")
+                return {"CANCELLED"}
+            try:
+                pattern = pattern_warp.load_pattern(
+                    bpy.path.abspath(props.pattern_svg))
+            except pattern_warp.PatternError as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            gore_height = max(o[:, 1].max() for o in result.outlines)
+            field = pattern_warp.build_field(
+                pattern, result.dims.bottom_circumference, gore_height,
+                props.pattern_repeats_x, props.pattern_flatten_tol)
+            pattern_polys = pattern_warp.warp_into_gores(
+                field, layout.placements, result.outlines,
+                result.dims.bottom_circumference)
+            if not pattern_polys:
+                self.report({"WARNING"},
+                            "Pattern produced no geometry; exported outlines only.")
+
         labels = props.labels and props.mode == "FITTED"
-        svg_export.write_svg(self.filepath, layout, labels_enabled=labels)
+        svg_export.write_svg(self.filepath, layout, labels_enabled=labels,
+                             pattern_polys=pattern_polys)
         self.report({"INFO"},
                     f"Exported {result.n_strips} strips to {self.filepath}")
         return {"FINISHED"}
