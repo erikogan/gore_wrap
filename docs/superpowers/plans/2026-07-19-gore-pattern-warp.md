@@ -777,9 +777,12 @@ Expected: `OK`
 
 - [ ] **Step 5: Run the Blender smoke test**
 
-Run: `blender --background --python tests/blender_smoke.py`
+Run (Blender is not on PATH; use the full app path — mind the space):
+```bash
+"/Applications/Blender 4.app/Contents/MacOS/Blender" --background --python tests/blender_smoke.py
+```
 Expected: ends with `[smoke] pattern export ok: pattern layer present` and `[smoke] PASS`, exit code 0.
-(If Blender is not installed on this machine, note that and defer this step to a machine that has it; the pytest suite already covers the pattern geometry.)
+(Blender 5.0 is also installed at `/Applications/Blender 5.app/Contents/MacOS/Blender`; the smoke test should pass on either.)
 
 - [ ] **Step 6: Commit**
 
@@ -829,9 +832,11 @@ Expected: PASS (all tests, including the new `tests/test_pattern_warp.py` and th
 
 - [ ] **Step 4: Build the extension to confirm the wheel is bundled**
 
-Run: `blender --command extension build --source-dir gore_wrap --output-dir dist`
+Run:
+```bash
+"/Applications/Blender 4.app/Contents/MacOS/Blender" --command extension build --source-dir gore_wrap --output-dir dist
+```
 Expected: builds `dist/gore_wrap-0.4.0.zip` with no wheel errors.
-(Defer if Blender is unavailable here.)
 
 - [ ] **Step 5: Commit**
 
