@@ -4,7 +4,11 @@ Pure numpy + svgelements (no Blender), so it runs under plain pytest. All
 output coordinates are millimetres, matching svg_export.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
+
+from svgelements import SVG, Path, Shape
 
 
 def clip_to_rect(poly, xmin, xmax, ymin, ymax):
@@ -50,3 +54,38 @@ def _intersect_x(a, b, x):
 def _intersect_y(a, b, y):
     t = (y - a[1]) / (b[1] - a[1])
     return np.array([a[0] + t * (b[0] - a[0]), y])
+
+
+class PatternError(Exception):
+    """Raised when a pattern SVG cannot be used (no viewBox / no shapes)."""
+
+
+@dataclass
+class Pattern:
+    subpaths: list      # svgelements Subpath objects, transforms reified to px
+    px_width: float     # reified viewBox width  (content in [0, px_width])
+    px_height: float    # reified viewBox height (content in [0, px_height])
+
+
+def load_pattern(path):
+    """Parse a pattern SVG into transform-reified subpaths plus its box size.
+
+    Coordinates are the SVG's reified pixels; build_field rescales them to the
+    target tile size, so only their aspect ratio matters here.
+    """
+    doc = SVG.parse(path)
+    if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
+        raise PatternError(f"{path} has no usable viewBox.")
+    subpaths = []
+    for element in doc.elements():
+        if not isinstance(element, Shape):
+            continue
+        try:
+            geom = abs(Path(element))          # bake the full transform chain
+        except Exception:
+            continue
+        subpaths.extend(geom.as_subpaths())
+    if not subpaths:
+        raise PatternError(f"No drawable shapes found in {path}.")
+    return Pattern(subpaths=subpaths,
+                   px_width=float(doc.width), px_height=float(doc.height))
