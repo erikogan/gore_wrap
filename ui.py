@@ -53,6 +53,18 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         box.prop(props, "measured_value")
         box.operator("gorewrap.apply_scale", icon="CON_SIZELIMIT")
 
+        box = layout.box()
+        box.label(text="Pattern", icon="TEXTURE")
+        box.prop(props, "use_pattern")
+        if props.use_pattern:
+            col = box.column(align=True)
+            col.prop(props, "pattern_svg")
+            col.prop(props, "pattern_repeats_x")
+            col.prop(props, "pattern_flatten_tol")
+            if props.has_preview and props.pattern_repeats_x:
+                per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
+                col.label(text=f"~ {per_gore:.2f} repeats per gore", icon="INFO")
+
         col = layout.column(align=True)
         col.scale_y = 1.3
         col.operator("gorewrap.preview", icon="HIDE_OFF")

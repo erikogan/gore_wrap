@@ -67,6 +67,25 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
                     "order (exclude it from cutting)",
         default=True)
 
+    use_pattern: bpy.props.BoolProperty(
+        name="Fill With Pattern",
+        description="Warp a seamless vector pattern to fill each gore, added as "
+                    "a separate layer in the exported SVG",
+        default=False)
+    pattern_svg: bpy.props.StringProperty(
+        name="Pattern SVG",
+        description="Seamless (tileable) pattern as an SVG file",
+        subtype="FILE_PATH", default="")
+    pattern_repeats_x: bpy.props.IntProperty(
+        name="Repeats Around",
+        description="How many times the pattern tiles around the full "
+                    "circumference (fit exactly, for seamlessness)",
+        default=12, min=1, soft_max=64)
+    pattern_flatten_tol: bpy.props.FloatProperty(
+        name="Curve Tolerance (mm)",
+        description="How finely pattern curves are flattened for cutting",
+        default=0.1, min=0.01, max=1.0)
+
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
         description="Multiplier from mesh units to millimetres",
