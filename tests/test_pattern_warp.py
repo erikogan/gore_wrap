@@ -42,8 +42,16 @@ def test_load_pattern_rejects_empty_svg(tmp_path):
 
 
 def test_load_pattern_reports_unparseable_shapes(tmp_path, monkeypatch):
-    def boom(_element):
-        raise ValueError("unparseable")
-    monkeypatch.setattr(pattern_warp, "Path", boom)
-    with pytest.raises(pattern_warp.PatternError):
+    monkeypatch.setattr(pattern_warp, "Path",
+                        lambda _e: (_ for _ in ()).throw(ValueError()))
+    with pytest.raises(pattern_warp.PatternError, match="could not be parsed"):
         pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+
+
+def test_load_pattern_names_dropped_shape_by_id(tmp_path, monkeypatch):
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" '
+           'width="10" height="10"><path id="broken" d="M0 0 L5 0 L5 5 Z"/></svg>')
+    monkeypatch.setattr(pattern_warp, "Path",
+                        lambda _e: (_ for _ in ()).throw(ValueError()))
+    with pytest.raises(pattern_warp.PatternError, match="broken"):
+        pattern_warp.load_pattern(_write(tmp_path, svg))

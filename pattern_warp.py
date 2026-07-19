@@ -77,21 +77,32 @@ def load_pattern(path):
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
         raise PatternError(f"{path} has no usable viewBox.")
     subpaths = []
-    dropped = 0
+    dropped = []
+    shape_index = 0
     for element in doc.elements():
         if not isinstance(element, Shape):
             continue
+        shape_index += 1
         try:
             geom = abs(Path(element))          # bake the full transform chain
         except Exception:
-            dropped += 1                       # never silently lose a shape
+            dropped.append(_shape_locator(element, shape_index))
             continue
         subpaths.extend(geom.as_subpaths())
     if dropped:
         raise PatternError(
-            f"{dropped} shape(s) in {path} could not be parsed; "
-            f"fix or remove them in Illustrator and re-export.")
+            f"{len(dropped)} shape(s) in {path} could not be parsed and were "
+            f"left out: {', '.join(dropped)}. Fix or remove them and re-export.")
     if not subpaths:
         raise PatternError(f"No drawable shapes found in {path}.")
     return Pattern(subpaths=subpaths,
                    px_width=float(doc.width), px_height=float(doc.height))
+
+
+def _shape_locator(element, shape_index):
+    """A findable identifier for a dropped shape: `tag#id`, or the tag plus its
+    ordinal among drawable shapes when it has no id."""
+    tag = element.values.get("tag", type(element).__name__.lower())
+    if element.id:
+        return f"{tag}#{element.id}"
+    return f"{tag} (drawable shape #{shape_index})"
