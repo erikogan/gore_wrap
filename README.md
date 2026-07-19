@@ -30,6 +30,11 @@ Originally built for transfering complex patterns onto glass stuff cups.
 6. Click **Export SVG** and open the file in Silhouette Studio. Strips are laid
    out on a common baseline in wrap order; in Fitted mode a separate red labels
    layer numbers them (exclude it from cutting).
+7. To apply a repeating design, tick **Fill With Pattern**, choose a seamless
+   (tileable) **Pattern SVG** (export EPS to SVG from your vector editor first),
+   and set **Repeats Around** (how many times it tiles around the object). The
+   pattern is warped to each gore — squeezed horizontally so it fills the taper
+   without distorting vertically — and written as a separate `pattern` layer.
 
 ### Fitted mode: where to start applying
 
@@ -44,12 +49,12 @@ identical, so none of this applies — start anywhere.)
 
 ## Development
 
-Geometry, layout, and SVG writing are pure numpy/stdlib and tested without
-Blender:
+Geometry, layout, pattern warping, and SVG writing are pure
+numpy/svgelements/stdlib and tested without Blender:
 
 ```
-python -m venv .venv && .venv/bin/pip install numpy pytest
-.venv/bin/python -m pytest        # 31 tests
+python -m venv .venv && .venv/bin/pip install numpy svgelements pytest
+.venv/bin/python -m pytest
 ```
 
 End-to-end smoke test inside Blender:
