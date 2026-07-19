@@ -792,6 +792,15 @@ with:
 
 - [ ] **Step 3: Extend the smoke test to cover a pattern export**
 
+> Note (as-built): the smoke test imports `gore_wrap` directly rather than via a
+> real extension install, so it must replicate Blender's wheel-loading. A small
+> `_register_manifest_wheels()` helper (added near the top of the file) reads the
+> manifest's `wheels` list and inserts each on `sys.path` before `import gore_wrap`,
+> so `pattern_warp`'s `svgelements` import resolves headlessly. Verified `[smoke]
+> PASS` (exit 0) on both Blender 4.5 LTS and 5.0; a harmless post-PASS
+> `unregister_class` teardown trace can appear on 4.5 when a copy of the extension
+> is also installed on the machine (environmental, not from this code).
+
 In `tests/blender_smoke.py`, after the existing export assertions (after line 73, before the Fitted-mode section at line 75), add:
 
 ```python
@@ -856,9 +865,9 @@ In `README.md`, add a step under **Use** (after the Export SVG step) and a line 
 Under Use:
 ```markdown
 7. To apply a repeating design, tick **Fill With Pattern**, choose a seamless
-   **Pattern SVG** (export EPS to SVG from Illustrator first), and set **Repeats
-   Around** (how many times it tiles around the object). The pattern is warped to
-   each gore and written as a separate `pattern` layer in the SVG.
+   **Pattern SVG** (export EPS to SVG from your vector editor first), and set
+   **Repeats Around** (how many times it tiles around the object). The pattern is
+   warped to each gore and written as a separate `pattern` layer in the SVG.
 ```
 
 Under Development, extend the dependency line:
