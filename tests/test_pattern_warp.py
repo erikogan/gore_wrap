@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from gore_wrap import pattern_warp
+from gore_wrap import geometry, pattern_warp, svg_export
+from tests.synthetic import cylinder_with_hemisphere
 
 
 SIMPLE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
@@ -92,3 +93,43 @@ def test_build_field_pads_past_both_ends(tmp_path):
                                      flatten_tol=0.1)
     xs = np.concatenate([p[:, 0] for p in field])
     assert xs.min() <= 0.0 and xs.max() >= 40.0
+
+
+def _one_gore_layout(n_strips=12):
+    pts = cylinder_with_hemisphere(radius=40.0, height=100.0)
+    center = geometry.center_axis(pts)
+    prof = geometry.radial_profile(pts, center, n_bands=200, n_sectors=1)
+    prof = geometry.close_apex(geometry.smooth_profile(prof, sigma=2.0))
+    outline = geometry.simplify_outline(
+        geometry.unwrap_gore(prof.z, prof.radii[:, 0], n_strips=n_strips), tol=0.3)
+    outlines = [outline] * n_strips
+    layout = svg_export.layout(outlines, seam_offset=0.0)
+    return layout, outlines
+
+
+def test_warp_keeps_horizontal_lines_horizontal():
+    layout, outlines = _one_gore_layout()
+    # A single wide horizontal sliver at height y=20 spanning the whole field.
+    sliver = [np.array([[-5.0, 20.0], [500.0, 20.0], [500.0, 20.5], [-5.0, 20.5]])]
+    warped = pattern_warp.warp_into_gores(sliver, layout.placements, outlines,
+                                          circumference=2 * np.pi * 40.0)
+    ys = np.concatenate([p[:, 1] for p in warped])
+    assert ys.max() - ys.min() < 0.6   # only the 0.5 sliver thickness, no bow
+
+
+def test_warp_squeezes_toward_apex():
+    layout, outlines = _one_gore_layout()
+    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
+    warped = pattern_warp.warp_into_gores(full, layout.placements, outlines,
+                                          circumference=2 * np.pi * 40.0)
+    # Width of warped content near the top is far less than near the base,
+    # checked per gore: with 12 congruent gores butted edge to edge in one
+    # row, pooling all of them (np.vstack) makes the near-apex band span
+    # almost the same range as the near-base band -- N-1 gore-widths versus
+    # N gore-widths -- which stays above the 0.5 ratio for any N > 2
+    # regardless of whether the warp is correct. Checking within each gore's
+    # own polygon isolates the taper the warp is actually responsible for.
+    for poly in warped:
+        top = poly[poly[:, 1] < poly[:, 1].min() + 5.0]
+        bot = poly[poly[:, 1] > poly[:, 1].max() - 5.0]
+        assert np.ptp(top[:, 0]) < 0.5 * np.ptp(bot[:, 0])

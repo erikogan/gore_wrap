@@ -10,6 +10,8 @@ import numpy as np
 
 from svgelements import SVG, Path, Shape
 
+from .svg_export import _edge_profiles
+
 
 def clip_to_rect(poly, xmin, xmax, ymin, ymax):
     """Sutherland-Hodgman clip of a closed polygon to an axis-aligned rect.
@@ -149,3 +151,41 @@ def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
                 out[:, 1] = dy + (H - poly[:, 1])  # flip to y-up, stack rows
                 field.append(out)
     return field
+
+
+def warp_into_gores(field, placements, outlines, circumference):
+    """Clip the master field into each gore and horizontally warp it.
+
+    For gore i (wrap order), its circumferential window is centered at
+    xc = (i + 0.5) * circumference / N and is half-width hw0 = outline
+    half-width at the base (which already includes the seam offset). Each field
+    vertex (X, Y) maps to final coords
+        x = tx + (X - xc) * right_x(Y) / hw0
+        y = base_y - Y
+    so y is never distorted (horizontal lines stay horizontal) and the side
+    edges land exactly on the gore outline. Overflow above the apex is trimmed
+    by clipping y to the gore height. Returns a flat list of polygons.
+    """
+    n = len(placements)
+    out = []
+    for (i, poly), outline in zip(placements, outlines):
+        # Recover this gore's placement transform from a corresponding vertex.
+        tx = poly[0, 0] - outline[0, 0]
+        base_y = poly[0, 1] + outline[0, 1]
+        _t, _l, right_x = _edge_profiles(outline)
+        hw0 = float(right_x(0.0))
+        if hw0 <= 1e-9:
+            continue
+        gore_height = float(outline[:, 1].max())
+        xc = (i + 0.5) * circumference / n
+        for pol in field:
+            clipped = clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, gore_height)
+            if clipped is None:
+                continue
+            s = np.asarray(right_x(clipped[:, 1])) / hw0
+            warped = np.column_stack([
+                tx + (clipped[:, 0] - xc) * s,
+                base_y - clipped[:, 1],
+            ])
+            out.append(warped)
+    return out
