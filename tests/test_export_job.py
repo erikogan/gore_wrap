@@ -1,6 +1,5 @@
 import os
 
-import numpy as np
 import pytest
 
 from gore_wrap import export_job, pipeline, pattern_warp, svg_export

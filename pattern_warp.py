@@ -160,7 +160,12 @@ def iter_warp_gores(field, placements, outlines, circumference):
     """Yield (gore_index, [warped polygons]) for each gore, in placement order.
 
     Same warp as warp_into_gores, but per gore so callers can report progress.
-    A gore with a degenerate base (hw0 <= 1e-9) yields an empty list.
+    For gore i, the circumferential window is centered at
+    xc = (i + 0.5) * circumference / N with half-width hw0 = outline half-width
+    at the base (which already includes the seam offset); each field vertex
+    (X, Y) maps to x = tx + (X - xc) * right_x(Y) / hw0, y = base_y - Y, so y is
+    never distorted and the side edges land on the gore outline. A gore with a
+    degenerate base (hw0 <= 1e-9) yields an empty list.
     """
     n = len(placements)
     for (i, poly), outline in zip(placements, outlines):
