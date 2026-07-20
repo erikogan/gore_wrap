@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from svgelements import SVG, Path, Shape
+from svgelements import SVG, Path, Shape, Move, Close
 
 from .svg_export import _edge_profiles
 
@@ -113,17 +113,37 @@ def _shape_locator(element, shape_index):
     return f"{tag} (drawable shape #{shape_index})"
 
 
+def _segment_chord_length(seg, samples=6):
+    """Cheap arc-length estimate: sum of chords between `samples` points along
+    the segment. Avoids svgelements' exact Path.length(), which subdivides
+    curves recursively and costs ~1.75s per curvy subpath on real patterns.
+    """
+    prev = seg.point(0.0)
+    total = 0.0
+    for i in range(1, samples):
+        cur = seg.point(i / (samples - 1))
+        total += np.hypot(cur.x - prev.x, cur.y - prev.y)
+        prev = cur
+    return total
+
+
 def _flatten_subpath(subpath, k, flatten_tol):
-    """Sample one subpath into an (K,2) polygon in mm, scaling px by k."""
-    p = Path(subpath)
-    length_mm = p.length() * k
-    n = max(2, int(np.ceil(length_mm / flatten_tol)) + 1)
-    pts = np.empty((n, 2))
-    for i in range(n):
-        pt = p.point(i / (n - 1))
-        pts[i, 0] = pt.x * k
-        pts[i, 1] = pt.y * k
-    return pts
+    """Sample one subpath into an (K,2) polygon in mm, scaling px by k.
+
+    Each segment is sampled to ~flatten_tol spacing using a cheap chord-length
+    estimate for its point count. Move/Close carry no interior geometry (a Close
+    is a straight edge and polygon closure is implicit), so they are skipped.
+    """
+    pts = []
+    for seg in Path(subpath):
+        if isinstance(seg, (Move, Close)):
+            continue
+        length_mm = _segment_chord_length(seg) * k
+        n = max(2, int(np.ceil(length_mm / flatten_tol)) + 1)
+        for i in range(n):
+            p = seg.point(i / (n - 1))
+            pts.append((p.x * k, p.y * k))
+    return np.array(pts, dtype=float) if pts else np.empty((0, 2))
 
 
 def _sample_base_tile(pattern, tile_w, flatten_tol):

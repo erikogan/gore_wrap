@@ -14,6 +14,12 @@ width="40mm" height="20mm">
 FULL_CELL_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
 width="40" height="20"><rect x="0" y="0" width="40" height="20"/></svg>'''
 
+LINE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><path d="M0 0 L100 0"/></svg>'''
+
+CURVE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><path d="M10 10 C 40 10 40 40 10 40 Z"/></svg>'''
+
 
 def _write(tmp_path, text, name="pat.svg"):
     p = tmp_path / name
@@ -23,6 +29,31 @@ def _write(tmp_path, text, name="pat.svg"):
 
 def _bbox(poly):
     return poly[:, 0].min(), poly[:, 0].max(), poly[:, 1].min(), poly[:, 1].max()
+
+
+def test_flatten_subpath_avoids_slow_path_length(tmp_path, monkeypatch):
+    # _flatten_subpath must not call svgelements' exact Path.length() — it is
+    # ~1.75s per curvy subpath. Poison it to prove the sampler doesn't use it.
+    import svgelements
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CURVE_SVG))
+    def boom(self, *a, **k):
+        raise AssertionError("Path.length() must not be called (too slow)")
+    monkeypatch.setattr(svgelements.Path, "length", boom)
+    poly = pattern_warp._flatten_subpath(pattern.subpaths[0], 1.0, 0.1)
+    assert len(poly) >= 2
+
+
+def test_flatten_subpath_preserves_line_endpoints(tmp_path):
+    pattern = pattern_warp.load_pattern(_write(tmp_path, LINE_SVG))
+    poly = pattern_warp._flatten_subpath(pattern.subpaths[0], 1.0, 10.0)
+    assert np.allclose(poly[0], [0.0, 0.0]) and np.allclose(poly[-1], [100.0, 0.0])
+
+
+def test_flatten_subpath_denser_for_finer_tolerance(tmp_path):
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CURVE_SVG))
+    coarse = pattern_warp._flatten_subpath(pattern.subpaths[0], 1.0, 1.0)
+    fine = pattern_warp._flatten_subpath(pattern.subpaths[0], 1.0, 0.1)
+    assert len(fine) > len(coarse)
 
 
 def test_clip_to_rect_trims_polygon_to_bounds():
