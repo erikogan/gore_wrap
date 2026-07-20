@@ -32,16 +32,13 @@ def export_steps(result, params, filepath):
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
-        yield 0.10, "Building pattern field…"
-        gore_height = max(o[:, 1].max() for o in result.outlines)
-        field = pattern_warp.build_field(
-            pattern, result.dims.bottom_circumference, gore_height,
-            params["pattern_repeats_x"], params["pattern_flatten_tol"])
+        yield 0.10, "Preparing pattern…"
         circ = result.dims.bottom_circumference
         n = len(layout.placements)
         pattern_polys = []
         for i, gore_polys in pattern_warp.iter_warp_gores(
-                field, layout.placements, result.outlines, circ):
+                pattern, layout.placements, result.outlines, circ,
+                params["pattern_repeats_x"], params["pattern_flatten_tol"]):
             pattern_polys.extend(gore_polys)
             yield 0.10 + 0.85 * (i + 1) / n, f"Warping gore {i + 1}/{n}"
 

@@ -75,8 +75,8 @@ class Pattern:
 def load_pattern(path):
     """Parse a pattern SVG into transform-reified subpaths plus its box size.
 
-    Coordinates are the SVG's reified pixels; build_field rescales them to the
-    target tile size, so only their aspect ratio matters here.
+    Coordinates are the SVG's reified pixels; _sample_base_tile rescales them
+    to the target tile size, so only their aspect ratio matters here.
     """
     doc = SVG.parse(path)
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
@@ -137,30 +137,6 @@ def _sample_base_tile(pattern, tile_w, flatten_tol):
     tile_h = pattern.px_height * k
     base = [_flatten_subpath(sp, k, flatten_tol) for sp in pattern.subpaths]
     return base, tile_h
-
-
-def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
-    """Flatten and tile the pattern across the unrolled base circumference.
-
-    R = repeats_x tiles fit exactly across `circumference` (tile width
-    W = circumference / R). Tiles repeat up from y=0 to cover gore_height and
-    one tile past each circumferential end (the pattern is seamless, so the
-    padding wraps). Output polygons are mm, y-up.
-    """
-    W = circumference / repeats_x
-    base, H = _sample_base_tile(pattern, W, flatten_tol)
-    n_rows = int(np.ceil(gore_height / H)) + 1
-    field = []
-    for col in range(-1, repeats_x + 1):          # one wrap tile each side
-        dx = col * W
-        for row in range(n_rows):
-            dy = row * H
-            for poly in base:
-                out = np.empty_like(poly)
-                out[:, 0] = poly[:, 0] + dx
-                out[:, 1] = dy + (H - poly[:, 1])  # flip to y-up, stack rows
-                field.append(out)
-    return field
 
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,

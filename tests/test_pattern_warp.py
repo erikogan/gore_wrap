@@ -65,36 +65,6 @@ def test_load_pattern_names_dropped_shape_by_id(tmp_path, monkeypatch):
         pattern_warp.load_pattern(_write(tmp_path, svg))
 
 
-def test_build_field_tile_has_expected_width(tmp_path):
-    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
-    field = pattern_warp.build_field(pattern, circumference=40.0,
-                                     gore_height=10.0, repeats_x=4,
-                                     flatten_tol=0.1)
-    # W = 40/4 = 10; the full-cell rect tile spans one W in x.
-    widths = [ _bbox(p)[1] - _bbox(p)[0] for p in field ]
-    assert abs(max(widths) - 10.0) < 0.05
-
-
-def test_build_field_preserves_aspect_at_base(tmp_path):
-    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
-    field = pattern_warp.build_field(pattern, circumference=40.0,
-                                     gore_height=10.0, repeats_x=4,
-                                     flatten_tol=0.1)
-    # viewBox aspect 2.0 => tile 10 wide should be 5 tall.
-    base = min(field, key=lambda p: _bbox(p)[2])
-    x0, x1, y0, y1 = _bbox(base)
-    assert abs((x1 - x0) - 2.0 * (y1 - y0)) < 0.05
-
-
-def test_build_field_pads_past_both_ends(tmp_path):
-    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
-    field = pattern_warp.build_field(pattern, circumference=40.0,
-                                     gore_height=10.0, repeats_x=4,
-                                     flatten_tol=0.1)
-    xs = np.concatenate([p[:, 0] for p in field])
-    assert xs.min() <= 0.0 and xs.max() >= 40.0
-
-
 def test_sample_base_tile_width_equals_tile_w(tmp_path):
     pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
     base, tile_h = pattern_warp._sample_base_tile(pattern, 10.0, 0.1)
@@ -122,10 +92,17 @@ def _one_gore_layout(n_strips=12):
 
 
 def _brute_force_warp(pattern, placements, outlines, circ, R, tol):
-    """Reference: build the whole field and clip it against every gore (the
-    pre-pruning algorithm), for equivalence checks."""
+    """Reference: build the whole field and clip it against every gore."""
+    W = circ / R
+    base, H = pattern_warp._sample_base_tile(pattern, W, tol)
     gore_h = max(o[:, 1].max() for o in outlines)
-    field = pattern_warp.build_field(pattern, circ, gore_h, R, tol)
+    n_rows = int(np.ceil(gore_h / H)) + 1
+    field = []
+    for c in range(-1, R + 1):
+        for r in range(n_rows):
+            for bp in base:
+                field.append(np.column_stack([bp[:, 0] + c * W,
+                                              r * H + (H - bp[:, 1])]))
     n = len(placements)
     out = []
     for (i, poly), outline in zip(placements, outlines):
@@ -168,9 +145,10 @@ def test_pruned_warp_skips_most_tiles(tmp_path, monkeypatch):
     layout, outlines = _one_gore_layout()
     pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
     circ = 2 * np.pi * 40.0
-    # build_field signature is (pattern, circumference, gore_height, R, tol).
-    full_field = len(pattern_warp.build_field(
-        pattern, circ, max(o[:, 1].max() for o in outlines), 24, 0.1))
+    W = circ / 24
+    base, H = pattern_warp._sample_base_tile(pattern, W, 0.1)
+    gore_h = max(o[:, 1].max() for o in outlines)
+    full_field = (24 + 2) * (int(np.ceil(gore_h / H)) + 1) * len(base)
     calls = {"n": 0}
     real = pattern_warp.clip_to_rect
     def counted(*a, **k):
