@@ -121,47 +121,82 @@ def _one_gore_layout(n_strips=12):
     return layout, outlines
 
 
-def test_warp_keeps_horizontal_lines_horizontal():
+def _brute_force_warp(pattern, placements, outlines, circ, R, tol):
+    """Reference: build the whole field and clip it against every gore (the
+    pre-pruning algorithm), for equivalence checks."""
+    gore_h = max(o[:, 1].max() for o in outlines)
+    field = pattern_warp.build_field(pattern, circ, gore_h, R, tol)
+    n = len(placements)
+    out = []
+    for (i, poly), outline in zip(placements, outlines):
+        tx = poly[0, 0] - outline[0, 0]
+        base_y = poly[0, 1] + outline[0, 1]
+        top, _l, right_x = pattern_warp._edge_profiles(outline)
+        hw0 = float(right_x(0.0))
+        if hw0 <= 1e-9:
+            continue
+        xc = (i + 0.5) * circ / n
+        for pol in field:
+            cl = pattern_warp.clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, top)
+            if cl is None:
+                continue
+            s = right_x(cl[:, 1]) / hw0
+            out.append(np.column_stack([tx + (cl[:, 0] - xc) * s,
+                                        base_y - cl[:, 1]]))
+    return out
+
+
+def _sorted_by_bbox(polys):
+    return sorted(polys, key=lambda p: (round(p[:, 0].min(), 3),
+                                        round(p[:, 1].min(), 3),
+                                        round(p[:, 0].max(), 3),
+                                        round(p[:, 1].max(), 3)))
+
+
+def test_pruned_warp_matches_brute_force(tmp_path):
     layout, outlines = _one_gore_layout()
-    # A single wide horizontal sliver at height y=20 spanning the whole field.
-    sliver = [np.array([[-5.0, 20.0], [500.0, 20.0], [500.0, 20.5], [-5.0, 20.5]])]
-    warped = pattern_warp.warp_into_gores(sliver, layout.placements, outlines,
-                                          circumference=2 * np.pi * 40.0)
-    ys = np.concatenate([p[:, 1] for p in warped])
-    assert ys.max() - ys.min() < 0.6   # only the 0.5 sliver thickness, no bow
-
-
-def test_warp_squeezes_toward_apex():
-    layout, outlines = _one_gore_layout()
-    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
-    warped = pattern_warp.warp_into_gores(full, layout.placements, outlines,
-                                          circumference=2 * np.pi * 40.0)
-    # Width of warped content near the top is far less than near the base,
-    # checked per gore: with 12 congruent gores butted edge to edge in one
-    # row, pooling all of them (np.vstack) makes the near-apex band span
-    # almost the same range as the near-base band -- N-1 gore-widths versus
-    # N gore-widths -- which stays above the 0.5 ratio for any N > 2
-    # regardless of whether the warp is correct. Checking within each gore's
-    # own polygon isolates the taper the warp is actually responsible for.
-    for poly in warped:
-        top = poly[poly[:, 1] < poly[:, 1].min() + 5.0]
-        bot = poly[poly[:, 1] > poly[:, 1].max() - 5.0]
-        assert np.ptp(top[:, 0]) < 0.5 * np.ptp(bot[:, 0])
-
-
-def test_iter_warp_gores_yields_one_group_per_gore():
-    layout, outlines = _one_gore_layout(n_strips=12)
-    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
-    groups = list(pattern_warp.iter_warp_gores(
-        full, layout.placements, outlines, 2 * np.pi * 40.0))
-    assert len(groups) == 12
-
-
-def test_iter_warp_gores_concatenation_matches_flat():
-    layout, outlines = _one_gore_layout()
-    full = [np.array([[-500.0, 0.0], [500.0, 0.0], [500.0, 200.0], [-500.0, 200.0]])]
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
     circ = 2 * np.pi * 40.0
-    flat = pattern_warp.warp_into_gores(full, layout.placements, outlines, circ)
-    per_gore = [p for _i, polys in pattern_warp.iter_warp_gores(
-        full, layout.placements, outlines, circ) for p in polys]
-    assert len(per_gore) == len(flat)
+    pruned = pattern_warp.warp_into_gores(pattern, layout.placements, outlines,
+                                          circ, 24, 0.1)
+    brute = _brute_force_warp(pattern, layout.placements, outlines, circ, 24, 0.1)
+    a, b = _sorted_by_bbox(pruned), _sorted_by_bbox(brute)
+    assert len(a) == len(b) and all(np.allclose(x, y) for x, y in zip(a, b))
+
+
+def test_pruned_warp_skips_most_tiles(tmp_path, monkeypatch):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    circ = 2 * np.pi * 40.0
+    # build_field signature is (pattern, circumference, gore_height, R, tol).
+    full_field = len(pattern_warp.build_field(
+        pattern, circ, max(o[:, 1].max() for o in outlines), 24, 0.1))
+    calls = {"n": 0}
+    real = pattern_warp.clip_to_rect
+    def counted(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(pattern_warp, "clip_to_rect", counted)
+    pattern_warp.warp_into_gores(pattern, layout.placements, outlines, circ, 24, 0.1)
+    n_gores = len(layout.placements)
+    assert calls["n"] < 0.4 * n_gores * full_field
+
+
+def test_warp_tapers_toward_apex(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    warped = pattern_warp.warp_into_gores(pattern, layout.placements, outlines,
+                                          2 * np.pi * 40.0, 24, 0.1)
+    allpts = np.vstack(warped)
+    top = allpts[allpts[:, 1] < allpts[:, 1].min() + 5.0]
+    bot = allpts[allpts[:, 1] > allpts[:, 1].max() - 5.0]
+    assert np.ptp(top[:, 0]) < np.ptp(bot[:, 0])
+
+
+def test_warp_wraps_at_seam(tmp_path):
+    # Gore 0's window crosses x=0 (negative column); it must still produce polys.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.1))
+    assert len(groups[0]) > 0

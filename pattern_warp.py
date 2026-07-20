@@ -163,20 +163,23 @@ def build_field(pattern, circumference, gore_height, repeats_x, flatten_tol):
     return field
 
 
-def iter_warp_gores(field, placements, outlines, circumference):
-    """Yield (gore_index, [warped polygons]) for each gore, in placement order.
+def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
+                    flatten_tol):
+    """Yield (gore_index, [warped polygons]) per gore, generating only the
+    pattern tile columns that overlap each gore.
 
-    Same warp as warp_into_gores, but per gore so callers can report progress.
-    For gore i, the circumferential window is centered at
-    xc = (i + 0.5) * circumference / N with half-width hw0 = outline half-width
-    at the base (which already includes the seam offset); each field vertex
-    (X, Y) maps to x = tx + (X - xc) * right_x(Y) / hw0, y = base_y - Y, so y is
-    never distorted and the side edges land on the gore outline. A gore with a
-    degenerate base (hw0 <= 1e-9) yields an empty list.
+    Tile width W = circumference / repeats_x. Gore i has window
+    [xc - hw0, xc + hw0] with xc = (i + 0.5) * circumference / N and hw0 the
+    outline half-width at the base. Only tile columns whose x-span intersects
+    that window are generated (a ±1 margin keeps edge tiles), so ~1/N of the
+    field is touched instead of all of it. Each field vertex (X, Y) maps to
+    x = tx + (X - xc) * right_x(Y) / hw0, y = base_y - Y, identical to the old
+    full-field warp. A degenerate gore (hw0 <= 1e-9) yields an empty list.
     """
     n = len(placements)
+    W = circumference / repeats_x
+    base, tile_h = _sample_base_tile(pattern, W, flatten_tol)
     for (i, poly), outline in zip(placements, outlines):
-        # Recover this gore's placement transform from a corresponding vertex.
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
         top, _left_x, right_x = _edge_profiles(outline)
@@ -184,22 +187,35 @@ def iter_warp_gores(field, placements, outlines, circumference):
         gore_polys = []
         if hw0 > 1e-9:
             xc = (i + 0.5) * circumference / n
-            for pol in field:
-                clipped = clip_to_rect(pol, xc - hw0, xc + hw0, 0.0, top)
-                if clipped is None:
-                    continue
-                s = right_x(clipped[:, 1]) / hw0
-                gore_polys.append(np.column_stack([
-                    tx + (clipped[:, 0] - xc) * s,
-                    base_y - clipped[:, 1],
-                ]))
+            x_lo, x_hi = xc - hw0, xc + hw0
+            c_lo = int(np.floor(x_lo / W)) - 1     # ±1 margin: never miss a tile
+            c_hi = int(np.floor(x_hi / W)) + 1
+            n_rows = int(np.ceil(top / tile_h)) + 1
+            for c in range(c_lo, c_hi + 1):
+                dx = c * W
+                for r in range(n_rows):
+                    dy = r * tile_h
+                    for bp in base:
+                        pol = np.column_stack([
+                            bp[:, 0] + dx,
+                            dy + (tile_h - bp[:, 1]),   # flip y-up, stack rows
+                        ])
+                        clipped = clip_to_rect(pol, x_lo, x_hi, 0.0, top)
+                        if clipped is None:
+                            continue
+                        s = right_x(clipped[:, 1]) / hw0
+                        gore_polys.append(np.column_stack([
+                            tx + (clipped[:, 0] - xc) * s,
+                            base_y - clipped[:, 1],
+                        ]))
         yield i, gore_polys
 
 
-def warp_into_gores(field, placements, outlines, circumference):
+def warp_into_gores(pattern, placements, outlines, circumference, repeats_x,
+                    flatten_tol):
     """Flat list of every gore's warped polygons (see iter_warp_gores)."""
     out = []
-    for _i, gore_polys in iter_warp_gores(field, placements, outlines,
-                                          circumference):
+    for _i, gore_polys in iter_warp_gores(pattern, placements, outlines,
+                                          circumference, repeats_x, flatten_tol):
         out.extend(gore_polys)
     return out
