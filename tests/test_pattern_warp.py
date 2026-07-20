@@ -172,6 +172,19 @@ def test_pruned_warp_matches_brute_force(tmp_path):
     assert len(a) == len(b) and all(np.allclose(x, y) for x, y in zip(a, b))
 
 
+def test_pruned_warp_matches_brute_force_with_curves(tmp_path):
+    # Same equivalence anchor, but on a curvy (multi-segment) pattern so the
+    # chord-based flatten path is exercised against the full-field reference.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CURVE_SVG))
+    circ = 2 * np.pi * 40.0
+    pruned = pattern_warp.warp_into_gores(pattern, layout.placements, outlines,
+                                          circ, 24, 0.1)
+    brute = _brute_force_warp(pattern, layout.placements, outlines, circ, 24, 0.1)
+    a, b = _sorted_by_bbox(pruned), _sorted_by_bbox(brute)
+    assert len(a) == len(b) and all(np.allclose(x, y) for x, y in zip(a, b))
+
+
 def test_pruned_warp_skips_most_tiles(tmp_path, monkeypatch):
     layout, outlines = _one_gore_layout()
     pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
