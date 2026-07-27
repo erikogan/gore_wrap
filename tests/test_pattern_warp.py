@@ -20,6 +20,12 @@ width="100" height="100"><path d="M0 0 L100 0"/></svg>'''
 CURVE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
 width="100" height="100"><path d="M10 10 C 40 10 40 40 10 40 Z"/></svg>'''
 
+CUSP_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><path d="M0 50 L50 50 L50 0"/></svg>'''
+
+SMOOTH_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><path d="M0 0 C 20 0 40 20 40 40 C 40 60 60 80 80 80"/></svg>'''
+
 
 def _write(tmp_path, text, name="pat.svg"):
     p = tmp_path / name
@@ -94,6 +100,20 @@ def test_load_pattern_names_dropped_shape_by_id(tmp_path, monkeypatch):
                         lambda _e: (_ for _ in ()).throw(ValueError()))
     with pytest.raises(pattern_warp.PatternError, match="broken"):
         pattern_warp.load_pattern(_write(tmp_path, svg))
+
+
+def test_subpath_geometry_flags_a_cusp(tmp_path):
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CUSP_SVG))
+    segs, corners, closed = pattern_warp._subpath_geometry(pattern.subpaths[0])
+    # Two line segments meeting at a right angle -> the join is a corner.
+    assert corners[1] is True
+
+
+def test_subpath_geometry_smooth_join_not_flagged(tmp_path):
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SMOOTH_SVG))
+    segs, corners, closed = pattern_warp._subpath_geometry(pattern.subpaths[0])
+    # The two cubics are tangent-continuous at their join -> not a corner.
+    assert corners[1] is False
 
 
 def test_sample_base_tile_width_equals_tile_w(tmp_path):

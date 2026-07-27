@@ -127,6 +127,49 @@ def _segment_chord_length(seg, samples=6):
     return total
 
 
+_CORNER_COS = np.cos(np.radians(5.0))   # tangent break beyond ~5deg is a corner
+
+
+def _seg_tangent_start(seg):
+    v = seg.point(0.001) - seg.point(0.0)
+    return _unit_pt(v)
+
+
+def _seg_tangent_end(seg):
+    v = seg.point(1.0) - seg.point(0.999)
+    return _unit_pt(v)
+
+
+def _unit_pt(p):
+    n = np.hypot(p.x, p.y)
+    return np.array([p.x / n, p.y / n]) if n > 1e-12 else np.zeros(2)
+
+
+def _is_corner(prev_seg, next_seg):
+    t_in = _seg_tangent_end(prev_seg)
+    t_out = _seg_tangent_start(next_seg)
+    return bool(float(np.dot(t_in, t_out)) < _CORNER_COS)   # Python bool
+
+
+def _subpath_geometry(subpath):
+    """Return (segs, seg_start_corner, closed) for a subpath (see interfaces)."""
+    closed = False
+    segs = []
+    for seg in Path(subpath):
+        if isinstance(seg, Move):
+            continue
+        if isinstance(seg, Close):
+            closed = True
+            continue
+        segs.append(seg)
+    corners = [True] * len(segs)
+    for i in range(1, len(segs)):
+        corners[i] = _is_corner(segs[i - 1], segs[i])
+    if closed and len(segs) >= 2:
+        corners[0] = _is_corner(segs[-1], segs[0])
+    return segs, corners, closed
+
+
 def _flatten_subpath(subpath, k, flatten_tol):
     """Sample one subpath into an (K,2) polygon in mm, scaling px by k.
 
