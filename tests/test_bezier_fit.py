@@ -51,3 +51,22 @@ def test_fit_closed_loop_returns_cubics():
     pts = np.column_stack([np.cos(a), np.sin(a)])
     cubics = bezier_fit.fit_beziers(pts, [], closed=True, resolution=0.02)
     assert len(cubics) >= 1
+
+
+def test_fit_cubic_recovers_a_known_cubic():
+    # Points sampled from a known "hump" cubic; _fit_cubic must recover handles
+    # that track it closely in ONE segment. With the buggy residual baseline
+    # (only b0*p0 + b3*p3 subtracted, missing the b1/b2 terms) the least-squares
+    # solve is biased and one handle magnitude goes negative, tripping the
+    # fallback (chord/3) and missing by >0.5 units; the correct baseline
+    # (b0+b1)*p0 + (b2+b3)*p3 recovers handles that fit to within 0.2.
+    p0 = np.array([0.0, 0.0]); c1 = np.array([3.0, 3.0])
+    c2 = np.array([7.0, 3.0]); p3 = np.array([10.0, 0.0])
+    t = np.linspace(0, 1, 24)[:, None]
+    pts = ((1 - t)**3 * p0 + 3 * (1 - t)**2 * t * c1
+           + 3 * (1 - t) * t**2 * c2 + t**3 * p3)
+    t0 = bezier_fit._unit(pts[1] - pts[0])
+    t1 = bezier_fit._unit(pts[-2] - pts[-1])
+    fit = bezier_fit._fit_cubic(pts, t0, t1)
+    err, _idx = bezier_fit._max_error(pts, fit)
+    assert err < 0.2
