@@ -51,6 +51,40 @@ def clip_to_rect(poly, xmin, xmax, ymin, ymax):
     return np.array(pts)
 
 
+def clip_to_rect_flagged(poly, mask, xmin, xmax, ymin, ymax):
+    """Sutherland-Hodgman clip carrying a per-vertex corner mask.
+
+    Returns (clipped_poly (M,2), clipped_mask (M,)) or (None, None) if nothing
+    survives. Points created on a rectangle edge are flagged True.
+    """
+    edges = (
+        (lambda p: p[0] >= xmin, lambda a, b: _intersect_x(a, b, xmin)),
+        (lambda p: p[0] <= xmax, lambda a, b: _intersect_x(a, b, xmax)),
+        (lambda p: p[1] >= ymin, lambda a, b: _intersect_y(a, b, ymin)),
+        (lambda p: p[1] <= ymax, lambda a, b: _intersect_y(a, b, ymax)),
+    )
+    pts = [np.asarray(p, float) for p in poly]
+    flags = [bool(m) for m in mask]
+    for inside, intersect in edges:
+        if not pts:
+            return None, None
+        out_p, out_f = [], []
+        n = len(pts)
+        for i in range(n):
+            cur, prev = pts[i], pts[i - 1]
+            cur_in, prev_in = inside(cur), inside(prev)
+            if cur_in:
+                if not prev_in:
+                    out_p.append(intersect(prev, cur)); out_f.append(True)
+                out_p.append(cur); out_f.append(flags[i])
+            elif prev_in:
+                out_p.append(intersect(prev, cur)); out_f.append(True)
+        pts, flags = out_p, out_f
+    if len(pts) < 3:
+        return None, None
+    return np.array(pts), np.array(flags, dtype=bool)
+
+
 def _intersect_x(a, b, x):
     t = (x - a[0]) / (b[0] - a[0])
     return np.array([x, a[1] + t * (b[1] - a[1])])

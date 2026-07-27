@@ -242,3 +242,20 @@ def test_warp_wraps_at_seam(tmp_path):
     groups = dict(pattern_warp.iter_warp_gores(
         pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.1))
     assert len(groups[0]) > 0
+
+
+def test_clip_flagged_marks_crossings_as_corners():
+    # A square straddling the right edge; the two new points on x=8 are corners.
+    square = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+    mask = np.zeros(4, dtype=bool)
+    poly, out = pattern_warp.clip_to_rect_flagged(square, mask, 0.0, 8.0, -1.0, 11.0)
+    on_edge = np.isclose(poly[:, 0], 8.0)
+    assert out[on_edge].all() and out[on_edge].size == 2
+
+
+def test_clip_flagged_preserves_interior_corner():
+    tri = np.array([[1.0, 1.0], [5.0, 1.0], [3.0, 6.0]])
+    mask = np.array([False, True, False])   # apex flagged
+    poly, out = pattern_warp.clip_to_rect_flagged(tri, mask, 0.0, 10.0, 0.0, 10.0)
+    apex = poly[np.isclose(poly[:, 0], 5.0) & np.isclose(poly[:, 1], 1.0)]
+    assert bool(out[np.isclose(poly[:, 0], 5.0) & np.isclose(poly[:, 1], 1.0)][0])
