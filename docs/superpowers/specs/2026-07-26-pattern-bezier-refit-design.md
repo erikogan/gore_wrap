@@ -77,11 +77,13 @@ across. Each cubic is `(p0, c1, c2, p3)` with shared endpoints.
 
 ### `gore_wrap/svg_export.py`
 
-Add `_bezier_path_d(cubics, closed)` emitting `M p0 C c1 c2 p3 C … [Z]`. The `pattern`
-group uses it when smoothing is on; with smoothing off it falls back to today's polyline
-`_path_d`. Output coordinate precision is widened enough to resolve `resolution`
-(0.00625mm needs ≥4 decimals). The no-pattern path and the `cuts`/`labels` groups are
-unchanged.
+Add `_bezier_path_d(cubics, closed)` emitting `M p0 C c1 c2 p3 C … [Z]`, used by the
+`pattern` group when smoothing is on. With smoothing **off**, the adaptive warp + fit
+still run, and `export_job` flattens each fitted cubic back to a short polyline that
+`write_svg` emits with the existing `_path_d` (the legacy uniform-flatten warp path is
+gone). `write_svg` distinguishes the two by entry type. Output coordinate precision is
+widened enough to resolve `resolution` (0.00625mm needs ≥4 decimals). The no-pattern path
+and the `cuts`/`labels` groups are unchanged.
 
 ### `gore_wrap/export_job.py`
 
@@ -99,8 +101,10 @@ Drives the per-gore warp+fit and yields descriptive progress (see below). `param
 
 The modal export already reports per gore; this makes the phases descriptive so a longer
 run reads clearly rather than as a freeze:
-`"Loading pattern…"` → `"Preparing pattern…"` → per gore `"Warping gore i/N"` →
-`"Smoothing gore i/N"`. Esc still cancels; no partial file.
+`"Loading pattern…"` → `"Preparing pattern…"` → per gore `"Warping & smoothing gore
+i/N"`. (The warp and the bezier fit are fused in one per-gore pass, so they share a
+single labeled step per gore rather than two — the label names both actions.) Esc still
+cancels; no partial file.
 
 ## Testing
 
@@ -108,10 +112,11 @@ Pure-numpy/stdlib+svgelements under pytest:
 
 - Corner detection: a subpath with a known cusp marks exactly that join a corner; a smooth
   (tangent-continuous) join is not marked.
-- Adaptive sampler: for a curved segment under a known warp, every sampled span is within
-  `resolution` of the true warped curve; a gentle span yields far fewer points than a
-  tight one.
-- Fit accuracy: sampling the fitted beziers stays within `resolution` of the warped points.
+- Fit accuracy (unit): sampling a fitted bezier stays within `resolution` of its input
+  points (e.g. a semicircle).
+- End-to-end accuracy: for a curvy pattern warped into a gore, every fitted-bezier point
+  lies on the true warped shape — within a small multiple of `resolution` of a densely
+  sampled warp reference. This jointly guards the adaptive sampler and the fit.
 - Corner preservation: at a carried corner the two adjacent fitted cubics have distinctly
   different tangents (not smoothed).
 - Clip edge → corner: a subpath crossing the rect boundary produces a corner at the cut.
