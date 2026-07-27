@@ -138,11 +138,12 @@ def layout(outlines, seam_offset, spacing_extra=0.0,
                         width=max_right + margin, height=total_height)
 
 
-def _path_d(poly):
+def _path_d(poly, closed=True):
     cmds = [f"M {poly[0, 0]:.3f} {poly[0, 1]:.3f}"]
     for x, y in poly[1:]:
         cmds.append(f"L {x:.3f} {y:.3f}")
-    cmds.append("Z")
+    if closed:
+        cmds.append("Z")
     return " ".join(cmds)
 
 
@@ -176,8 +177,11 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
         for entry in pattern_polys:
             if isinstance(entry, tuple) and len(entry) == 2 and \
                     isinstance(entry[1], (bool, np.bool_)):
-                cubics, closed = entry
-                lines.append(f'    <path d="{_bezier_path_d(cubics, closed)}"/>')
+                geom, closed = entry
+                if isinstance(geom, np.ndarray):
+                    lines.append(f'    <path d="{_path_d(geom, closed)}"/>')
+                else:
+                    lines.append(f'    <path d="{_bezier_path_d(geom, closed)}"/>')
             else:
                 lines.append(f'    <path d="{_path_d(entry)}"/>')
         lines.append('  </g>')

@@ -117,7 +117,6 @@ def test_iter_warp_gores_yields_bezier_subpaths(tmp_path):
 def _dense_warp_gore(pattern, placements, outlines, circ, R, gore, n_per_seg=60):
     """Ground-truth warped shape for one gore: sample every subpath finely,
     tile/clip/warp exactly like the warp does but without fitting."""
-    from svgelements import Path, Move, Close
     W = circ / R; k = W / pattern.px_width; tile_h = pattern.px_height * k
     i, poly = placements[gore]; outline = outlines[gore]
     tx = poly[0, 0] - outline[0, 0]; base_y = poly[0, 1] + outline[0, 1]
@@ -127,7 +126,7 @@ def _dense_warp_gore(pattern, placements, outlines, circ, R, gore, n_per_seg=60)
     n_rows = int(np.ceil(top / tile_h)) + 1
     out = []
     for sp in pattern.subpaths:
-        segs = [s for s in Path(sp) if not isinstance(s, (Move, Close))]
+        segs, _cn, _cl = pattern_warp._subpath_geometry(sp)   # includes closing edge
         for c in range(c_lo, c_hi + 1):
             dx = c * W
             for r in range(n_rows):
@@ -180,3 +179,14 @@ def test_clip_flagged_preserves_interior_corner():
     poly, out = pattern_warp.clip_to_rect_flagged(tri, mask, 0.0, 10.0, 0.0, 10.0)
     apex = poly[np.isclose(poly[:, 0], 5.0) & np.isclose(poly[:, 1], 1.0)]
     assert bool(out[np.isclose(poly[:, 0], 5.0) & np.isclose(poly[:, 1], 1.0)][0])
+
+
+TRIANGLE_Z_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><path d="M0 0 L10 0 L5 10 Z"/></svg>'''
+
+
+def test_subpath_geometry_synthesizes_closing_edge(tmp_path):
+    # Two explicit lines + a Z that draws a real third edge -> 3 segments.
+    pattern = pattern_warp.load_pattern(_write(tmp_path, TRIANGLE_Z_SVG))
+    segs, corners, closed = pattern_warp._subpath_geometry(pattern.subpaths[0])
+    assert closed and len(segs) == 3

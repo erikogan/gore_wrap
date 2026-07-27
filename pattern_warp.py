@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from svgelements import SVG, Path, Shape, Move, Close
+from svgelements import SVG, Path, Shape, Move, Close, Line
 
 from . import bezier_fit
 from .svg_export import _edge_profiles
@@ -183,6 +183,13 @@ def _subpath_geometry(subpath):
             closed = True
             continue
         segs.append(seg)
+    if closed and segs:
+        # A Z draws a straight edge from the last point back to the start. Add
+        # it as a real segment so it is sampled/warped/fit like any other edge
+        # (its warped form is a curve); skip when it would be zero-length.
+        s, e = segs[0].start, segs[-1].end
+        if np.hypot(s.x - e.x, s.y - e.y) > 1e-9:
+            segs.append(Line(e, s))
     corners = [True] * len(segs)
     for i in range(1, len(segs)):
         corners[i] = _is_corner(segs[i - 1], segs[i])
@@ -267,7 +274,10 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             x_lo, x_hi = xc - hw0, xc + hw0
 
             def warp(mx, my):
-                return (tx + (mx - xc) * float(right_x(my)) / hw0, base_y - my)
+                # Works for scalars (adaptive sampler) and numpy arrays (final
+                # pass) — np.interp inside right_x handles both. One definition,
+                # so the sampler and the final warp can never drift apart.
+                return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
 
             c_lo = int(np.floor(x_lo / W)) - 1
             c_hi = int(np.floor(x_hi / W)) + 1
@@ -285,10 +295,8 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                             mpts, mmask, x_lo, x_hi, 0.0, top)
                         if cpts is None:
                             continue
-                        wpts = np.column_stack([
-                            tx + (cpts[:, 0] - xc) * (right_x(cpts[:, 1]) / hw0),
-                            base_y - cpts[:, 1],
-                        ])
+                        fx, fy = warp(cpts[:, 0], cpts[:, 1])
+                        wpts = np.column_stack([fx, fy])
                         corner_idx = np.nonzero(cmask)[0]
                         # `segs` never includes the implicit Close edge (see
                         # _subpath_geometry): its closure is left to the

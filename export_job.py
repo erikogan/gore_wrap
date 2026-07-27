@@ -8,6 +8,8 @@ only in the final step, so abandoning the generator early leaves no file.
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from . import svg_export, pattern_warp
 
 
@@ -17,8 +19,7 @@ class ExportSummary:
     pattern_empty: bool
 
 
-def _flatten_cubics(cubics, closed, n=8):
-    import numpy as np
+def _flatten_cubics(cubics, n=8):
     pts = []
     for p0, c1, c2, p3 in cubics:
         t = np.linspace(0, 1, n)[:, None]
@@ -52,7 +53,7 @@ def export_steps(result, params, filepath):
             if params["pattern_smooth"]:
                 pattern_polys.extend(subpaths)
             else:
-                pattern_polys.extend(_flatten_cubics(c, cl) for c, cl in subpaths)
+                pattern_polys.extend((_flatten_cubics(c), cl) for c, cl in subpaths)
             yield 0.10 + 0.85 * (i + 1) / n, f"Warping & smoothing gore {i + 1}/{n}"
 
     yield 0.97, "Writing SVG…"

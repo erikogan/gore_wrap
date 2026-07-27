@@ -158,3 +158,14 @@ def test_write_svg_emits_bezier_pattern(tmp_path, zero_layout):
     d = ET.parse(path).getroot().find(
         f".//{{{SVG_NS}}}g[@id='pattern']/{{{SVG_NS}}}path").get("d")
     assert " C " in d
+
+
+def test_write_svg_open_polyline_entry_has_no_close(tmp_path, zero_layout):
+    # pattern_smooth=False emits (points, closed) tuples; an open subpath must
+    # not gain a spurious straight closing chord.
+    poly = np.array([[10.0, 10.0], [20.0, 10.0], [15.0, 20.0]])
+    path = tmp_path / "open.svg"
+    svg_export.write_svg(str(path), zero_layout, pattern_polys=[(poly, False)])
+    d = ET.parse(path).getroot().find(
+        f".//{{{SVG_NS}}}g[@id='pattern']/{{{SVG_NS}}}path").get("d")
+    assert "Z" not in d
