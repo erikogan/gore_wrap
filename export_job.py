@@ -17,13 +17,23 @@ class ExportSummary:
     pattern_empty: bool
 
 
+def _flatten_cubics(cubics, closed, n=8):
+    import numpy as np
+    pts = []
+    for p0, c1, c2, p3 in cubics:
+        t = np.linspace(0, 1, n)[:, None]
+        pts.append((1 - t)**3 * p0 + 3 * (1 - t)**2 * t * c1
+                   + 3 * (1 - t) * t**2 * c2 + t**3 * p3)
+    return np.vstack(pts)
+
+
 def export_steps(result, params, filepath):
     """Lay out, warp, and write the export, yielding (fraction, label).
 
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
-    labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_flatten_tol.
-    Returns an ExportSummary via StopIteration.value. Raises
-    svg_export.LayoutError or pattern_warp.PatternError on bad input.
+    labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
+    pattern_resolution. Returns an ExportSummary via StopIteration.value.
+    Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
     """
     yield 0.0, "Laying out strips…"
     layout = svg_export.layout(result.outlines, params["seam_offset"])
@@ -36,11 +46,14 @@ def export_steps(result, params, filepath):
         circ = result.dims.bottom_circumference
         n = len(layout.placements)
         pattern_polys = []
-        for i, gore_polys in pattern_warp.iter_warp_gores(
+        for i, subpaths in pattern_warp.iter_warp_gores(
                 pattern, layout.placements, result.outlines, circ,
-                params["pattern_repeats_x"], params["pattern_flatten_tol"]):
-            pattern_polys.extend(gore_polys)
-            yield 0.10 + 0.85 * (i + 1) / n, f"Warping gore {i + 1}/{n}"
+                params["pattern_repeats_x"], params["pattern_resolution"]):
+            if params["pattern_smooth"]:
+                pattern_polys.extend(subpaths)
+            else:
+                pattern_polys.extend(_flatten_cubics(c, cl) for c, cl in subpaths)
+            yield 0.10 + 0.85 * (i + 1) / n, f"Warping & smoothing gore {i + 1}/{n}"
 
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],

@@ -147,3 +147,14 @@ def test_write_svg_emits_pattern_group_before_cuts(zero_layout, tmp_path):
 def test_write_svg_no_pattern_group_when_absent(svg_root_no_labels):
     ids = {g.get("id") for g in svg_root_no_labels.findall(f".//{{{SVG_NS}}}g")}
     assert "pattern" not in ids
+
+
+def test_write_svg_emits_bezier_pattern(tmp_path, zero_layout):
+    import numpy as np
+    p0 = np.array([10.0, 10.0]); p3 = np.array([20.0, 10.0])
+    c1 = np.array([13.0, 13.0]); c2 = np.array([17.0, 13.0])
+    path = tmp_path / "bez.svg"
+    svg_export.write_svg(str(path), zero_layout, pattern_polys=[([(p0, c1, c2, p3)], False)])
+    d = ET.parse(path).getroot().find(
+        f".//{{{SVG_NS}}}g[@id='pattern']/{{{SVG_NS}}}path").get("d")
+    assert " C " in d
