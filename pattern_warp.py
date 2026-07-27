@@ -298,16 +298,15 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                         fx, fy = warp(cpts[:, 0], cpts[:, 1])
                         wpts = np.column_stack([fx, fy])
                         corner_idx = np.nonzero(cmask)[0]
-                        # `segs` never includes the implicit Close edge (see
-                        # _subpath_geometry): its closure is left to the
-                        # renderer's straight-line "Z", matching the old
-                        # flatten-based warp. So fit_beziers always sees an
-                        # open point run here — passing the subpath's real
-                        # `closed` flag would make it stitch a spurious
-                        # wraparound chord across that unsampled gap, which
-                        # is a straight line in *master* space but curves
-                        # under the nonlinear gore warp, and does not track
-                        # the true warped shape there.
+                        # fit_beziers is always called with closed=False: a
+                        # closed subpath's implicit Close edge is already
+                        # sampled (see _subpath_geometry, which appends it as a
+                        # real Line), so the point run returns to ~the start on
+                        # its own and open-run fitting covers the whole loop.
+                        # The subpath's real `closed` flag rides in the tuple
+                        # below so the renderer still emits a (now ~zero-length)
+                        # `Z`. Passing closed=True instead would mishandle the
+                        # duplicated start point where the run rejoins itself.
                         cubics = bezier_fit.fit_beziers(
                             wpts, corner_idx, False, resolution)
                         if cubics:

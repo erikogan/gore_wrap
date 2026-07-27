@@ -186,7 +186,10 @@ width="100" height="100"><path d="M0 0 L10 0 L5 10 Z"/></svg>'''
 
 
 def test_subpath_geometry_synthesizes_closing_edge(tmp_path):
-    # Two explicit lines + a Z that draws a real third edge -> 3 segments.
+    # Two explicit lines + a Z that draws a real third edge -> 3 segments, and
+    # the synthetic edge runs from the last point back to the start.
     pattern = pattern_warp.load_pattern(_write(tmp_path, TRIANGLE_Z_SVG))
     segs, corners, closed = pattern_warp._subpath_geometry(pattern.subpaths[0])
-    assert closed and len(segs) == 3
+    assert (closed and len(segs) == 3
+            and segs[-1].start == segs[-2].end
+            and segs[-1].end == segs[0].start)
