@@ -139,7 +139,7 @@ def _fit_cubic(pts, t0, t1):
     b3 = u**3
     A1 = b1[:, None] * t0[None, :]
     A2 = b2[:, None] * t1[None, :]
-    R = pts - (b0[:, None] * p0[None, :] + b3[:, None] * p3[None, :])
+    R = pts - ((b0 + b1)[:, None] * p0[None, :] + (b2 + b3)[:, None] * p3[None, :])
     c00 = np.sum(A1 * A1); c01 = np.sum(A1 * A2); c11 = np.sum(A2 * A2)
     x0 = np.sum(A1 * R); x1 = np.sum(A2 * R)
     det = c00 * c11 - c01 * c01
