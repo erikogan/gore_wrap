@@ -308,7 +308,8 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             "pattern_svg": (bpy.path.abspath(props.pattern_svg)
                             if props.use_pattern else ""),
             "pattern_repeats_x": props.pattern_repeats_x,
-            "pattern_flatten_tol": props.pattern_flatten_tol,
+            "pattern_smooth": props.pattern_smooth,
+            "pattern_resolution": props.pattern_resolution,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
         self._timer = None

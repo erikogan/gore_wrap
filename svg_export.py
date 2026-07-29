@@ -138,11 +138,23 @@ def layout(outlines, seam_offset, spacing_extra=0.0,
                         width=max_right + margin, height=total_height)
 
 
-def _path_d(poly):
+def _path_d(poly, closed=True):
     cmds = [f"M {poly[0, 0]:.3f} {poly[0, 1]:.3f}"]
     for x, y in poly[1:]:
         cmds.append(f"L {x:.3f} {y:.3f}")
-    cmds.append("Z")
+    if closed:
+        cmds.append("Z")
+    return " ".join(cmds)
+
+
+def _bezier_path_d(cubics, closed):
+    p0 = cubics[0][0]
+    cmds = [f"M {p0[0]:.4f} {p0[1]:.4f}"]
+    for _p0, c1, c2, p3 in cubics:
+        cmds.append(f"C {c1[0]:.4f} {c1[1]:.4f} {c2[0]:.4f} {c2[1]:.4f} "
+                    f"{p3[0]:.4f} {p3[1]:.4f}")
+    if closed:
+        cmds.append("Z")
     return " ".join(cmds)
 
 
@@ -162,8 +174,16 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
     if pattern_polys:
         lines.append('  <g id="pattern" fill="none" stroke="#000000" '
                      'stroke-width="0.2">')
-        for poly in pattern_polys:
-            lines.append(f'    <path d="{_path_d(poly)}"/>')
+        for entry in pattern_polys:
+            if isinstance(entry, tuple) and len(entry) == 2 and \
+                    isinstance(entry[1], (bool, np.bool_)):
+                geom, closed = entry
+                if isinstance(geom, np.ndarray):
+                    lines.append(f'    <path d="{_path_d(geom, closed)}"/>')
+                else:
+                    lines.append(f'    <path d="{_bezier_path_d(geom, closed)}"/>')
+            else:
+                lines.append(f'    <path d="{_path_d(entry)}"/>')
         lines.append('  </g>')
     lines.append('  <g id="cuts" fill="none" stroke="#000000" stroke-width="0.2">')
     for _, poly in result.placements:

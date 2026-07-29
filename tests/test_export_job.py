@@ -6,7 +6,8 @@ from gore_wrap import export_job, pipeline, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
-                  pattern_svg="", pattern_repeats_x=12, pattern_flatten_tol=0.1)
+                  pattern_svg="", pattern_repeats_x=12,
+                  pattern_smooth=True, pattern_resolution=0.05)
 
 
 def _result():

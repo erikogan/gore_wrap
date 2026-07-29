@@ -81,10 +81,16 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="How many times the pattern tiles around the full "
                     "circumference (fit exactly, for seamlessness)",
         default=12, min=1, soft_max=64)
-    pattern_flatten_tol: bpy.props.FloatProperty(
-        name="Curve Tolerance (mm)",
-        description="How finely pattern curves are flattened for cutting",
-        default=0.1, min=0.01, max=1.0)
+    pattern_smooth: bpy.props.BoolProperty(
+        name="Smooth to Curves",
+        description="Fit the warped pattern to smooth cubic bezier curves so the "
+                    "cutter does not stutter through many tiny line segments",
+        default=True)
+    pattern_resolution: bpy.props.FloatProperty(
+        name="Curve Resolution (mm)",
+        description="Maximum deviation of the fitted curves from the true warped "
+                    "shape",
+        default=0.00625, min=0.001, max=1.0)
 
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
