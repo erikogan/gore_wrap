@@ -35,6 +35,22 @@ Originally built for transfering complex patterns onto glass stuff cups.
    and set **Repeats Around** (how many times it tiles around the object). The
    pattern is warped to each gore — squeezed horizontally so it fills the taper
    without distorting vertically — and written as a separate `pattern` layer.
+   With **Smooth to Curves** on, the warped pattern is fitted to smooth bezier
+   curves so the cutter does not stutter through many tiny line segments.
+   **Simplify Mode** controls how aggressively:
+   - **Visual** (default) — fewest nodes and the smoothest cut, while keeping
+     genuine corners crisp.
+   - **Cutter Resolution** — hugs the true warped shape to cutter precision;
+     more nodes, use it when exact fidelity matters.
+   - **Custom** — reveals **Simplify Tol (mm)** (max deviation of the fitted
+     curves from the true shape) and **Corner Angle (deg)**.
+
+   The **Corner Angle** is the *turn* angle — how far the path bends at a join.
+   A join is kept as a sharp corner only when it turns by more than this;
+   gentler bends are smoothed into one curve, so a **lower** value smooths more.
+   Note this is the opposite sense from some vector editors, whose "corner
+   angle threshold" measures the *interior* angle (180° − turn): their 150°
+   default corresponds to about 30° here.
 
 ### Fitted mode: where to start applying
 
