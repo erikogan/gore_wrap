@@ -1,3 +1,4 @@
+import math
 import os
 
 import pytest
@@ -7,7 +8,8 @@ from tests.synthetic import cylinder_with_hemisphere
 
 NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_svg="", pattern_repeats_x=12,
-                  pattern_smooth=True, pattern_resolution=0.05)
+                  pattern_smooth=True, pattern_simplify_mode="VISUAL",
+                  pattern_simplify_tol=0.1, pattern_corner_angle=30.0)
 
 
 def _result():
@@ -30,6 +32,18 @@ def _write_pattern(tmp_path):
     p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
                  'width="20" height="20"><circle cx="10" cy="10" r="6"/></svg>')
     return str(p)
+
+
+def test_resolve_simplify_presets():
+    assert export_job.resolve_simplify("VISUAL", 0.1, 30.0) == (
+        0.1, math.cos(math.radians(30.0)))
+    assert export_job.resolve_simplify("CUTTER", 0.1, 30.0) == (
+        0.00625, math.cos(math.radians(5.0)))
+
+
+def test_resolve_simplify_custom_passes_sliders_through():
+    tol, cos = export_job.resolve_simplify("CUSTOM", 0.25, 12.0)
+    assert tol == 0.25 and cos == math.cos(math.radians(12.0))
 
 
 def test_export_steps_writes_the_svg(tmp_path):
@@ -75,6 +89,28 @@ def test_export_steps_reports_pattern_present(tmp_path):
     summary = _drain(export_job.export_steps(_result(), params,
                                              str(tmp_path / "g.svg")))
     assert summary.pattern_empty is False
+
+
+def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypatch):
+    # With Smooth to Curves off, Simplify Mode is disabled: the warp fits at
+    # cutter resolution (0.00625 mm / 5 deg) regardless of the chosen mode, so
+    # the polyline fallback stays fine (0.6.0 behavior), not coarsened to Visual.
+    captured = {}
+
+    def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
+                  corner_cos):
+        captured["resolution"] = resolution
+        captured["corner_cos"] = corner_cos
+        return iter(())
+
+    monkeypatch.setattr(export_job.pattern_warp, "iter_warp_gores", fake_iter)
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path), "pattern_smooth": False,
+              "pattern_simplify_mode": "VISUAL", "pattern_simplify_tol": 0.1,
+              "pattern_corner_angle": 30.0}
+    _drain(export_job.export_steps(_result(), params, str(tmp_path / "g.svg")))
+    assert captured["resolution"] == 0.00625
+    assert captured["corner_cos"] == math.cos(math.radians(5.0))
 
 
 def test_export_steps_propagates_pattern_error(tmp_path):

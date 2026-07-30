@@ -309,7 +309,9 @@ class GOREWRAP_OT_export(bpy.types.Operator):
                             if props.use_pattern else ""),
             "pattern_repeats_x": props.pattern_repeats_x,
             "pattern_smooth": props.pattern_smooth,
-            "pattern_resolution": props.pattern_resolution,
+            "pattern_simplify_mode": props.pattern_simplify_mode,
+            "pattern_simplify_tol": props.pattern_simplify_tol,
+            "pattern_corner_angle": props.pattern_corner_angle,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
         self._timer = None
