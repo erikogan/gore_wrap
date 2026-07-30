@@ -52,6 +52,14 @@ Originally built for transfering complex patterns onto glass stuff cups.
    angle threshold" measures the *interior* angle (180° − turn): their 150°
    default corresponds to about 30° here.
 
+   Some vector editors simplify with a *curve-precision percentage* instead of
+   a distance. That runs the opposite way — a higher percentage keeps the path
+   *closer* to the original (less simplification) — and it is a relative
+   setting with no real-world unit, so the same percentage deviates by
+   different amounts on different artwork. **Simplify Tol** is an absolute
+   limit in millimetres, so it stays predictable at cut scale regardless of
+   the pattern's size.
+
 ### Fitted mode: where to start applying
 
 Fitted strips are sector-specific, so they must go on in order at the right
