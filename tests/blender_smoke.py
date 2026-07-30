@@ -108,9 +108,14 @@ def main():
         res = bpy.ops.gorewrap.export_svg(filepath=out_pat)
     assert res == {"FINISHED"}, res
     root = ET.parse(out_pat).getroot()
-    ids = {g.get("id") for g in root.findall(f".//{{{SVG_NS}}}g")}
+    groups = root.findall(f".//{{{SVG_NS}}}g")
+    ids = {g.get("id") for g in groups}
     assert "pattern" in ids, f"no pattern layer in export: {ids}"
-    print("[smoke] pattern export ok: pattern layer present")
+    pattern_g = next(g for g in groups if g.get("id") == "pattern")
+    pat_paths = pattern_g.findall(f"{{{SVG_NS}}}path")
+    assert any("C" in p.get("d", "") for p in pat_paths), \
+        "pattern layer not smoothed to bezier curves (default Visual mode)"
+    print("[smoke] pattern export ok: pattern layer smoothed to curves")
     props.use_pattern = False
 
     # Fitted mode with a start angle: preview should highlight gore 1 and 2.

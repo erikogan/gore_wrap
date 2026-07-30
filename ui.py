@@ -61,7 +61,12 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             col.prop(props, "pattern_svg")
             col.prop(props, "pattern_repeats_x")
             col.prop(props, "pattern_smooth")
-            col.prop(props, "pattern_resolution")
+            if props.pattern_smooth:
+                col.prop(props, "pattern_simplify_mode")
+                if props.pattern_simplify_mode == "CUSTOM":
+                    adv = col.column(align=True)
+                    adv.prop(props, "pattern_simplify_tol")
+                    adv.prop(props, "pattern_corner_angle")
             if props.has_preview and props.pattern_repeats_x:
                 per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
                 col.label(text=f"~ {per_gore:.2f} repeats per gore", icon="INFO")

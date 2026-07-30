@@ -86,11 +86,30 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="Fit the warped pattern to smooth cubic bezier curves so the "
                     "cutter does not stutter through many tiny line segments",
         default=True)
-    pattern_resolution: bpy.props.FloatProperty(
-        name="Curve Resolution (mm)",
-        description="Maximum deviation of the fitted curves from the true warped "
-                    "shape",
-        default=0.00625, min=0.001, max=1.0)
+    pattern_simplify_mode: bpy.props.EnumProperty(
+        name="Simplify Mode",
+        description="How aggressively to simplify the warped pattern into "
+                    "smooth cutter curves",
+        items=[
+            ("VISUAL", "Visual",
+             "Fewest nodes, smoothest cut; keeps real corners (0.1 mm, 30°)"),
+            ("CUTTER", "Cutter Resolution",
+             "Exact fidelity for precise cutting (0.00625 mm, 5°)"),
+            ("CUSTOM", "Custom",
+             "Set the tolerance and corner angle by hand"),
+        ],
+        default="VISUAL")
+    pattern_simplify_tol: bpy.props.FloatProperty(
+        name="Simplify Tol (mm)",
+        description="Custom mode: maximum deviation of the fitted curves from "
+                    "the true warped shape",
+        default=0.1, min=0.001, max=1.0)
+    pattern_corner_angle: bpy.props.FloatProperty(
+        name="Corner Angle (deg)",
+        description="Custom mode: keep a join as a sharp corner only if the "
+                    "path turns by more than this many degrees; gentler bends "
+                    "are smoothed into one curve",
+        default=30.0, min=0.0, max=90.0)
 
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
