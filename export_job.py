@@ -70,10 +70,16 @@ def export_steps(result, params, filepath):
         circ = result.dims.bottom_circumference
         n = len(layout.placements)
         pattern_polys = []
-        resolution, corner_cos = resolve_simplify(
-            params["pattern_simplify_mode"],
-            params["pattern_simplify_tol"],
-            params["pattern_corner_angle"])
+        if params["pattern_smooth"]:
+            resolution, corner_cos = resolve_simplify(
+                params["pattern_simplify_mode"],
+                params["pattern_simplify_tol"],
+                params["pattern_corner_angle"])
+        else:
+            # Simplify Mode applies only when smoothing to curves. With it off
+            # the pattern is emitted as a polyline, so fit at cutter resolution
+            # (no aggressive simplification) to keep the polyline fine.
+            resolution, corner_cos = resolve_simplify("CUTTER", 0.0, 0.0)
         for i, subpaths in pattern_warp.iter_warp_gores(
                 pattern, layout.placements, result.outlines, circ,
                 params["pattern_repeats_x"], resolution, corner_cos):

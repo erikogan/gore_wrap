@@ -91,6 +91,28 @@ def test_export_steps_reports_pattern_present(tmp_path):
     assert summary.pattern_empty is False
 
 
+def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypatch):
+    # With Smooth to Curves off, Simplify Mode is disabled: the warp fits at
+    # cutter resolution (0.00625 mm / 5 deg) regardless of the chosen mode, so
+    # the polyline fallback stays fine (0.6.0 behavior), not coarsened to Visual.
+    captured = {}
+
+    def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
+                  corner_cos):
+        captured["resolution"] = resolution
+        captured["corner_cos"] = corner_cos
+        return iter(())
+
+    monkeypatch.setattr(export_job.pattern_warp, "iter_warp_gores", fake_iter)
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path), "pattern_smooth": False,
+              "pattern_simplify_mode": "VISUAL", "pattern_simplify_tol": 0.1,
+              "pattern_corner_angle": 30.0}
+    _drain(export_job.export_steps(_result(), params, str(tmp_path / "g.svg")))
+    assert captured["resolution"] == 0.00625
+    assert captured["corner_cos"] == math.cos(math.radians(5.0))
+
+
 def test_export_steps_propagates_pattern_error(tmp_path):
     empty = tmp_path / "empty.svg"
     empty.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>')
