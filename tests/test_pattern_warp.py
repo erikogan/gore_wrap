@@ -11,6 +11,9 @@ width="40mm" height="20mm">
   <rect x="2" y="2" width="4" height="4"/>
 </svg>'''
 
+GENTLE_BEND_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 40" \
+width="300" height="40"><path d="M0 20 L100 20 L200 38"/></svg>'''
+
 FULL_CELL_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
 width="40" height="20"><rect x="0" y="0" width="40" height="20"/></svg>'''
 
@@ -193,3 +196,48 @@ def test_subpath_geometry_synthesizes_closing_edge(tmp_path):
     assert (closed and len(segs) == 3
             and segs[-1].start == segs[-2].end
             and segs[-1].end == segs[0].start)
+
+
+def test_sample_tol_caps_above_threshold():
+    # Cutter tol is below the cap -> sampling uses it unchanged (0.6.0 behavior);
+    # Visual tol is above the cap -> sampling is capped so the fit stays binding.
+    assert pattern_warp._sample_tol(0.00625) == 0.00625
+    assert pattern_warp._sample_tol(0.1) == pattern_warp._SAMPLE_TOL_CAP
+
+
+def test_subpath_geometry_corner_threshold_merges_gentle_bend(tmp_path):
+    # A ~10 deg turn is a corner at the 5 deg threshold but a smooth join at 30 deg.
+    pattern = pattern_warp.load_pattern(_write(tmp_path, GENTLE_BEND_SVG))
+    _s, tight, _c = pattern_warp._subpath_geometry(
+        pattern.subpaths[0], np.cos(np.radians(5.0)))
+    _s, loose, _c = pattern_warp._subpath_geometry(
+        pattern.subpaths[0], np.cos(np.radians(30.0)))
+    assert tight[1] is True and loose[1] is False
+
+
+def test_subpath_geometry_keeps_sharp_corner_at_loose_angle(tmp_path):
+    # A right-angle cusp stays a corner even at the loose (Visual) threshold.
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CUSP_SVG))
+    _s, corners, _c = pattern_warp._subpath_geometry(
+        pattern.subpaths[0], np.cos(np.radians(30.0)))
+    assert corners[1] is True
+
+
+def test_looser_tol_yields_fewer_cubics_within_tolerance(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, CURVE_SVG))
+    circ = 2 * np.pi * 40.0
+    cutter = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 24,
+        0.00625, np.cos(np.radians(5.0))))
+    visual = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 24,
+        0.1, np.cos(np.radians(30.0))))
+    n_cutter = sum(len(c) for c, _ in cutter[0])
+    n_visual = sum(len(c) for c, _ in visual[0])
+    assert n_visual < n_cutter
+    # The looser fit still tracks the true warped shape within its tolerance.
+    fitted = np.vstack([_bezier_points(c, 20) for c, _ in visual[0]])
+    dense = _dense_warp_gore(pattern, layout.placements, outlines, circ, 24, 0)
+    dmin = np.min(np.linalg.norm(dense[None, :, :] - fitted[:, None, :], axis=2), axis=1)
+    assert dmin.max() <= 6 * 0.1

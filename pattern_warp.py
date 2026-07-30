@@ -149,6 +149,15 @@ def _shape_locator(element, shape_index):
 
 
 _CORNER_COS = np.cos(np.radians(5.0))   # tangent break beyond ~5deg is a corner
+_SAMPLE_TOL_CAP = 0.02   # mm; keep the sampled reference finer than the fit target
+
+
+def _sample_tol(resolution):
+    """Adaptive-sampler tolerance: never coarser than the cap, so the reference
+    polyline stays finer than the fit target and the fit tolerance remains the
+    binding deviation bound. When resolution < cap (cutter mode) this is a
+    no-op and sampling matches 0.6.0 exactly."""
+    return min(resolution, _SAMPLE_TOL_CAP)
 
 
 def _seg_tangent_start(seg):
@@ -166,13 +175,13 @@ def _unit_pt(p):
     return np.array([p.x / n, p.y / n]) if n > 1e-12 else np.zeros(2)
 
 
-def _is_corner(prev_seg, next_seg):
+def _is_corner(prev_seg, next_seg, corner_cos=_CORNER_COS):
     t_in = _seg_tangent_end(prev_seg)
     t_out = _seg_tangent_start(next_seg)
-    return bool(float(np.dot(t_in, t_out)) < _CORNER_COS)   # Python bool
+    return bool(float(np.dot(t_in, t_out)) < corner_cos)   # Python bool
 
 
-def _subpath_geometry(subpath):
+def _subpath_geometry(subpath, corner_cos=_CORNER_COS):
     """Return (segs, seg_start_corner, closed) for a subpath (see interfaces)."""
     closed = False
     segs = []
@@ -192,18 +201,18 @@ def _subpath_geometry(subpath):
             segs.append(Line(e, s))
     corners = [True] * len(segs)
     for i in range(1, len(segs)):
-        corners[i] = _is_corner(segs[i - 1], segs[i])
+        corners[i] = _is_corner(segs[i - 1], segs[i], corner_cos)
     if closed and len(segs) >= 2:
-        corners[0] = _is_corner(segs[-1], segs[0])
+        corners[0] = _is_corner(segs[-1], segs[0], corner_cos)
     return segs, corners, closed
 
 
-def _sample_subpath_master(segs, corners, k, dx, dy, tile_h, warp, resolution):
+def _sample_subpath_master(segs, corners, k, dx, dy, tile_h, warp, sample_tol):
     """Adaptively sample a positioned subpath into master-space points + a
     per-point corner mask, dense only where the WARPED curve bends.
 
     `warp(mx, my) -> (fx, fy)` is the gore warp; sampling stops subdividing when
-    the warped midpoint is within `resolution` of the warped chord.
+    the warped midpoint is within `sample_tol` of the warped chord.
     """
     def master(seg, t):
         p = seg.point(t)
@@ -220,7 +229,7 @@ def _sample_subpath_master(segs, corners, k, dx, dy, tile_h, warp, resolution):
         tm = 0.5 * (t0 + t1)
         mm = master(seg, tm)
         w0, w1, wm = warp(*m0), warp(*m1), warp(*mm)
-        if depth >= 24 or _pt_seg_dist(wm, w0, w1) <= resolution:
+        if depth >= 24 or _pt_seg_dist(wm, w0, w1) <= sample_tol:
             emit(m1, False)
         else:
             rec(seg, t0, tm, m0, mm, depth + 1)
@@ -251,7 +260,7 @@ def _pt_seg_dist(p, a, b):
 
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
-                    resolution):
+                    resolution, corner_cos=_CORNER_COS):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
@@ -262,7 +271,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
     W = circumference / repeats_x
     k = W / pattern.px_width
     tile_h = pattern.px_height * k
-    geoms = [_subpath_geometry(sp) for sp in pattern.subpaths]
+    geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
     for (i, poly), outline in zip(placements, outlines):
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
@@ -290,7 +299,8 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                         if not segs:
                             continue
                         mpts, mmask = _sample_subpath_master(
-                            segs, corners, k, dx, dy, tile_h, warp, resolution)
+                            segs, corners, k, dx, dy, tile_h, warp,
+                            _sample_tol(resolution))
                         cpts, cmask = clip_to_rect_flagged(
                             mpts, mmask, x_lo, x_hi, 0.0, top)
                         if cpts is None:
@@ -315,10 +325,11 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
 
 def warp_into_gores(pattern, placements, outlines, circumference, repeats_x,
-                    resolution):
+                    resolution, corner_cos=_CORNER_COS):
     """Flat list of every gore's (cubics, closed) subpaths."""
     out = []
     for _i, subpaths in iter_warp_gores(pattern, placements, outlines,
-                                        circumference, repeats_x, resolution):
+                                        circumference, repeats_x, resolution,
+                                        corner_cos):
         out.extend(subpaths)
     return out
