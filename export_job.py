@@ -55,7 +55,8 @@ def export_steps(result, params, filepath):
 
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
-    pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle. Returns an ExportSummary via StopIteration.value.
+    pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle. Returns
+    an ExportSummary via StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
     """
     yield 0.0, "Laying out strips…"
