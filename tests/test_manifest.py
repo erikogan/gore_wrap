@@ -15,6 +15,22 @@ ROOT = Path(__file__).resolve().parent.parent
 # to nobody.
 DEV_ONLY = {"conftest.py"}
 
+# Directories that never contribute to the shipped package: dev tooling,
+# docs, vendored wheels, build output, the venv, and dotdirs (caches, .git,
+# .claude, etc). Everything else is scanned recursively so a subpackage
+# (e.g. solvers/newton.py) can't silently slip past the [build].paths guard.
+EXCLUDED_DIRS = {"tests", "docs", "wheels", "dist", ".venv"}
+
+
+def _on_disk_modules():
+    modules = set()
+    for path in ROOT.rglob("*.py"):
+        rel = path.relative_to(ROOT)
+        if any(part in EXCLUDED_DIRS or part.startswith(".") for part in rel.parts[:-1]):
+            continue
+        modules.add(rel.as_posix())
+    return modules - DEV_ONLY
+
 
 def _build_paths():
     with open(ROOT / "blender_manifest.toml", "rb") as fh:
@@ -23,7 +39,7 @@ def _build_paths():
 
 def test_build_paths_matches_root_modules():
     listed = _build_paths()
-    on_disk = {p.name for p in ROOT.glob("*.py")} - DEV_ONLY
+    on_disk = _on_disk_modules()
 
     missing = on_disk - listed
     assert not missing, f"modules on disk but not in [build].paths: {sorted(missing)}"
