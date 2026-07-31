@@ -4,7 +4,7 @@
 
 **Goal:** Turn the `glass` repository into a standalone `gore_wrap` repository at `/tmp/gore_wrap` whose root holds `__init__.py` and `blender_manifest.toml`, with the unit suite, the Blender smoke test, and the extension build all green.
 
-**Architecture:** `git filter-repo --path-rename gore_wrap/:` rewrites all 69 commits and 10 tags so the package contents sit at the repository root. Four follow-up commits then repair what that move breaks — test imports, the smoke test's hardcoded paths, the build file list, and the README — each one restoring a specific check to green.
+**Architecture:** A single `git filter-repo` pass moves the package contents to the repository root and scrubs the machine-local Claude settings file, carrying the whole history and all 10 tags across. Follow-up commits then repair what that move breaks — test imports, the smoke test's hardcoded paths, the build file list, and the README — each one restoring a specific check to green.
 
 **Tech Stack:** git-filter-repo, Python 3.11+ (`importlib`, `tomllib`), pytest 9.x, numpy, svgelements, Blender 4.2+ extension CLI.
 
@@ -55,7 +55,9 @@ git log --oneline | wc -l
 git tag -l | wc -l
 ```
 
-Expected: `72` commits and `10` tags. Note both numbers; Step 6 checks they survive.
+Expected: `10` tags, and a commit count of **at least 72**. Record the exact commit count as `N` — Step 6 checks it against this number.
+
+Do not hardcode `N` from this plan. `glass` keeps receiving commits (the spec and plan documents live there), so the count at the moment you clone is the only one that matters.
 
 - [ ] **Step 4: Run the rewrite**
 
@@ -65,7 +67,7 @@ git filter-repo --invert-paths --path .claude/settings.local.json \
                 --path-rename gore_wrap/:
 ```
 
-Expected: a `Parsed 72 commits` line followed by `New history written`, then `Completely finished after ...`. filter-repo removes the `origin` remote as part of its normal operation — that is expected, not an error.
+Expected: a `Parsed N commits` line (matching Step 3's count) followed by `New history written`, then `Completely finished after ...`. filter-repo removes the `origin` remote as part of its normal operation — that is expected, not an error.
 
 The two operations combine in a single pass: `--invert-paths` applies only to the `--path` selection (dropping the machine-local settings file), and `--path-rename` is applied to what survives. This exact invocation has been verified against this repository — do not split it into two passes.
 
@@ -88,9 +90,18 @@ git log --oneline | wc -l
 git tag -l
 ```
 
-Expected: `71` commits, and all ten tags `v0.1.0 v0.2.0 v0.3.0 v0.3.1 v0.4.0 v0.5.0 v0.5.1 v0.5.2 v0.6.0 v0.7.0`.
+Expected: exactly `N - 1` commits, where `N` is the count recorded in Step 3, and all ten tags `v0.1.0 v0.2.0 v0.3.0 v0.3.1 v0.4.0 v0.5.0 v0.5.1 v0.5.2 v0.6.0 v0.7.0`.
 
-`71`, not `72`, is correct. Exactly one commit — `f9b7b71 "Add the new test to the approved Claude patterns"` — touched *only* `.claude/settings.local.json`. With that file scrubbed the commit is empty, and filter-repo prunes empty commits rather than leaving them. Any other count is a problem: investigate rather than proceeding.
+`N - 1` rather than `N` is correct, and the `- 1` is precisely accounted for: exactly one commit in this history — `f9b7b71 "Add the new test to the approved Claude patterns"` — touched *only* `.claude/settings.local.json`. With that file scrubbed the commit is empty, and filter-repo prunes empty commits rather than leaving them behind.
+
+Any other count means something unexpected was dropped. Investigate before proceeding — do not assume it is benign. To see what filter-repo pruned:
+
+```bash
+cd /Users/erik/work/glass
+git log --format='%h %s' --diff-filter=ACDMR -- .claude/settings.local.json
+```
+
+Cross-check that every commit listed there *also* changed something else; only the ones that did should survive the rewrite.
 
 - [ ] **Step 7: Verify the machine-local settings file is gone from all of history**
 

@@ -15,7 +15,7 @@ else ever landed there. Every tracked path is Gore Wrap:
 
 So there is no subset to carve out. `git filter-repo` has exactly one job —
 move `gore_wrap/*` up to the root — and a single follow-up commit repairs what
-that move breaks. All 69 commits and all 10 tags (`v0.1.0`…`v0.7.0`) carry
+that move breaks. The whole history and all 10 tags (`v0.1.0`…`v0.7.0`) carry
 over.
 
 ## Step 1 — history rewrite
@@ -42,7 +42,8 @@ history in the same pass, and added to `.gitignore` so it cannot come back.
 
 One commit, `f9b7b71 "Add the new test to the approved Claude patterns"`,
 touched *only* that file. filter-repo prunes it rather than leaving an empty
-commit, so the rewritten history is one commit shorter than the original.
+commit, so the rewritten history is exactly one commit shorter than whatever
+`glass` stands at when it is cloned.
 
 Untracked cruft (`.venv/`, `dist/`, `__pycache__/`, `.pytest_cache/`) does not
 exist in a fresh clone.
