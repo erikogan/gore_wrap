@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 *.zip
 .claude/settings.local.json
+dist/
+.superpowers/

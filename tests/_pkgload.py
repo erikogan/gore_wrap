@@ -37,5 +37,12 @@ def load():
     # exec_module resolves against the partially initialised module, which is
     # what the normal import machinery does.
     sys.modules[PKG_NAME] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        # Mirror the stdlib: a failed exec leaves no half-initialised module
+        # behind, so a later load() retries instead of returning the broken
+        # object.
+        del sys.modules[PKG_NAME]
+        raise
     return module
