@@ -41,9 +41,10 @@ exist in a fresh clone.
 ## Step 2 — repair the root-package layout
 
 Once the package root and the repository root are the same directory, four
-things break. All of the repairs below land as one new commit on top of the
-rewritten history — filter-repo rewrites the past, this commit fixes the
-present.
+things break. The repairs below land as new commits on top of the rewritten
+history — filter-repo rewrites the past, these commits fix the present. They
+are grouped so that each one restores a specific check to green (unit suite,
+smoke test, build), rather than as one undifferentiated fixup.
 
 ### a. Test imports
 
