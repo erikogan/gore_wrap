@@ -9,9 +9,10 @@ Originally built for transfering complex patterns onto glass stuff cups.
 
 ## Install
 
-1. Build the extension zip (or use `dist/gore_wrap-0.3.1.zip`):
+1. Build the extension zip:
    ```
-   blender --command extension build --source-dir gore_wrap --output-dir dist
+   mkdir -p dist
+   blender --command extension build --source-dir . --output-dir dist
    ```
 2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
    and pick the zip. Works on Blender 4.2+ (tested on 4.5 LTS and 5.0).
@@ -91,3 +92,8 @@ Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),
 `svg_export.py` (mat layout + SVG), and the bpy shell
 (`properties/operators/ui/registry/__init__`). See
 `docs/superpowers/specs/2026-07-05-gore-wrap-design.md` for the full design.
+
+The extension's `__init__.py` and `blender_manifest.toml` live at the repo
+root, so the repo root is the package. Adding a module means adding it to
+`[build].paths` in `blender_manifest.toml` — `tests/test_manifest.py` fails
+if you forget.
