@@ -1,7 +1,8 @@
 """End-to-end smoke test inside Blender.
 
 Run with:
-    blender --background --python tests/blender_smoke.py
+    blender --background --factory-startup --python-exit-code 1 \\
+        --python tests/blender_smoke.py
 
 Builds a synthetic scan mesh, registers the extension, runs Preview and
 Export, and asserts the preview object and a parseable SVG were produced.
@@ -41,12 +42,27 @@ def _register_manifest_wheels():
             sys.path.insert(0, wheel_path)
 
 
-_register_manifest_wheels()
+gore_wrap = None
+cylinder_with_hemisphere = None
 
-from tests.synthetic import cylinder_with_hemisphere  # noqa: E402
-from tests import _pkgload  # noqa: E402
 
-gore_wrap = _pkgload.load()
+def _setup():
+    """Do the import-time work that can fail: wheels, the synthetic-mesh
+    helper, and the add-on itself.
+
+    This runs from inside the guarded ``try`` below (not at module import
+    time) so that a broken manifest, missing wheel, or loader failure is
+    caught by the same handler that guards ``main()`` and exits non-zero,
+    instead of printing a traceback and exiting 0.
+    """
+    global gore_wrap, cylinder_with_hemisphere
+    _register_manifest_wheels()
+    from tests.synthetic import cylinder_with_hemisphere as _cylinder_with_hemisphere
+    from tests import _pkgload
+
+    cylinder_with_hemisphere = _cylinder_with_hemisphere
+    gore_wrap = _pkgload.load()
+
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -143,6 +159,7 @@ def main():
 
 if __name__ == "__main__":
     try:
+        _setup()
         main()
     except Exception:
         import traceback

@@ -75,7 +75,8 @@ identical, so none of this applies — start anywhere.)
 ## Development
 
 Geometry, layout, pattern warping, and SVG writing are pure
-numpy/svgelements/stdlib and tested without Blender:
+numpy/svgelements/stdlib and tested without Blender. Requires Python 3.11+
+(the test suite reads `blender_manifest.toml` with `tomllib`):
 
 ```
 python -m venv .venv && .venv/bin/pip install numpy svgelements pytest
@@ -85,8 +86,14 @@ python -m venv .venv && .venv/bin/pip install numpy svgelements pytest
 End-to-end smoke test inside Blender:
 
 ```
-blender --background --python tests/blender_smoke.py
+blender --background --factory-startup --python-exit-code 1 \
+    --python tests/blender_smoke.py
 ```
+
+`--factory-startup` skips this machine's installed copy of the add-on so the
+checkout copy being tested doesn't collide with it; `--python-exit-code 1`
+makes Blender itself fail if the script does, as a second line of defence
+behind the script's own exit code.
 
 Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),
 `svg_export.py` (mat layout + SVG), and the bpy shell
