@@ -19,3 +19,25 @@ license = ["SPDX:GPL-3.0-or-later"]
 # ships with Blender, so it needs no wheel.
 wheels = ["./wheels/svgelements-1.9.6-py2.py3-none-any.whl"]
 platforms = ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"]
+
+# An allow list, not an exclude list: a file that is not named here is not
+# packaged. That way new development files (tests, notes, scratch scripts)
+# never ship by accident -- the cost is that a genuinely new module must be
+# added below, which tests/test_manifest.py enforces.
+#
+# blender_manifest.toml and the wheels are deliberately absent: Blender adds
+# both implicitly, and listing them is a validation error.
+[build]
+paths = [
+  "__init__.py",
+  "bezier_fit.py",
+  "export_job.py",
+  "geometry.py",
+  "operators.py",
+  "pattern_warp.py",
+  "pipeline.py",
+  "properties.py",
+  "registry.py",
+  "svg_export.py",
+  "ui.py",
+]
