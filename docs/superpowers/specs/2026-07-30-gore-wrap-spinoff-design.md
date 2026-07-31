@@ -23,7 +23,8 @@ over.
 ```
 git clone --no-local /Users/erik/work/glass /tmp/gore_wrap
 cd /tmp/gore_wrap
-git filter-repo --path-rename gore_wrap/:
+git filter-repo --invert-paths --path .claude/settings.local.json \
+                --path-rename gore_wrap/:
 ```
 
 `--no-local` matters: a plain local clone hardlinks the object store, and the
@@ -34,7 +35,15 @@ rewrite must not be able to reach back into `glass`.
 manifest's existing `./wheels/…` reference, so the `wheels` field needs no
 edit.
 
-`.claude/settings.local.json` is tracked in `glass` and carries over unchanged.
+`.claude/settings.local.json` is tracked in `glass` but is machine-local — a
+permission allow-list naming this machine's paths. It is scrubbed from the
+history in the same pass, and added to `.gitignore` so it cannot come back.
+`.claude/settings.json` (the plugin enable) is kept.
+
+One commit, `f9b7b71 "Add the new test to the approved Claude patterns"`,
+touched *only* that file. filter-repo prunes it rather than leaving an empty
+commit, so the rewritten history is one commit shorter than the original.
+
 Untracked cruft (`.venv/`, `dist/`, `__pycache__/`, `.pytest_cache/`) does not
 exist in a fresh clone.
 

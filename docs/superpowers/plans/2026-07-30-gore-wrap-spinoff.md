@@ -12,6 +12,7 @@
 
 - All work happens in `/tmp/gore_wrap`. **`/Users/erik/work/glass` is never modified** by any task in this plan.
 - The clone must be made with `git clone --no-local`. A plain local clone hardlinks the object store and the rewrite must not be able to reach back into `glass`.
+- `.claude/settings.local.json` must not appear at **any** revision of the new repository — it is a machine-local permission allow-list. `.claude/settings.json` is kept.
 - The package's intra-module imports stay **relative** (`from . import geometry`). Blender loads the extension as a package; converting them to absolute imports breaks installation.
 - `blender_manifest.toml` `[build].paths` must **not** list `blender_manifest.toml` (fatal validation error — inclusion is implicit) and must **not** list the wheel (appended automatically from `manifest.wheels`; listing it trips the duplicate-path check).
 - `[build].paths` entries are exact **files**. Directory entries are not expanded and would emit an empty directory into the zip.
@@ -28,7 +29,7 @@
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `/tmp/gore_wrap` — a git repository whose worktree root contains `__init__.py`, `blender_manifest.toml`, the ten module `.py` files, `wheels/`, `tests/`, `docs/`, `README.md`, `pytest.ini`, `.gitignore`, `.claude/`. All later tasks operate inside this directory.
+- Produces: `/tmp/gore_wrap` — a git repository whose worktree root contains `__init__.py`, `blender_manifest.toml`, the ten module `.py` files, `wheels/`, `tests/`, `docs/`, `README.md`, `pytest.ini`, `.gitignore`, `.claude/settings.json`. All later tasks operate inside this directory.
 
 - [ ] **Step 1: Confirm the destination is clear**
 
@@ -54,16 +55,19 @@ git log --oneline | wc -l
 git tag -l | wc -l
 ```
 
-Expected: `69` commits and `10` tags. Note both numbers; Step 6 checks they survive.
+Expected: `72` commits and `10` tags. Note both numbers; Step 6 checks they survive.
 
 - [ ] **Step 4: Run the rewrite**
 
 ```bash
 cd /tmp/gore_wrap
-git filter-repo --path-rename gore_wrap/:
+git filter-repo --invert-paths --path .claude/settings.local.json \
+                --path-rename gore_wrap/:
 ```
 
-Expected: a `Parsed N commits` line followed by `New history written`, then `Completely finished after ...`. filter-repo removes the `origin` remote as part of its normal operation — that is expected, not an error.
+Expected: a `Parsed 72 commits` line followed by `New history written`, then `Completely finished after ...`. filter-repo removes the `origin` remote as part of its normal operation — that is expected, not an error.
+
+The two operations combine in a single pass: `--invert-paths` applies only to the `--path` selection (dropping the machine-local settings file), and `--path-rename` is applied to what survives. This exact invocation has been verified against this repository — do not split it into two passes.
 
 - [ ] **Step 5: Verify the layout moved**
 
@@ -84,9 +88,21 @@ git log --oneline | wc -l
 git tag -l
 ```
 
-Expected: `69` commits again, and all ten tags `v0.1.0 v0.2.0 v0.3.0 v0.3.1 v0.4.0 v0.5.0 v0.5.1 v0.5.2 v0.6.0 v0.7.0`.
+Expected: `71` commits, and all ten tags `v0.1.0 v0.2.0 v0.3.0 v0.3.1 v0.4.0 v0.5.0 v0.5.1 v0.5.2 v0.6.0 v0.7.0`.
 
-- [ ] **Step 7: Verify the wheel path still matches the manifest**
+`71`, not `72`, is correct. Exactly one commit — `f9b7b71 "Add the new test to the approved Claude patterns"` — touched *only* `.claude/settings.local.json`. With that file scrubbed the commit is empty, and filter-repo prunes empty commits rather than leaving them. Any other count is a problem: investigate rather than proceeding.
+
+- [ ] **Step 7: Verify the machine-local settings file is gone from all of history**
+
+```bash
+cd /tmp/gore_wrap
+git log --all --pretty=format: --name-only | sort -u | grep 'settings.local.json'
+git ls-files .claude
+```
+
+Expected: the `grep` prints **nothing** and exits non-zero — the file appears at no revision, not merely at HEAD. `git ls-files .claude` prints exactly `.claude/settings.json`, which is kept deliberately.
+
+- [ ] **Step 8: Verify the wheel path still matches the manifest**
 
 ```bash
 cd /tmp/gore_wrap
@@ -96,7 +112,41 @@ grep wheels blender_manifest.toml
 
 Expected: `svgelements-1.9.6-py2.py3-none-any.whl` on disk, and the manifest line `wheels = ["./wheels/svgelements-1.9.6-py2.py3-none-any.whl"]`. These must agree — the rename was chosen so no manifest edit is needed here.
 
-- [ ] **Step 8: Verify the old repo is untouched**
+- [ ] **Step 9: Keep the machine-local settings file from coming back**
+
+Scrubbing it from history achieves nothing if the next Claude Code session re-adds it. Append to `/tmp/gore_wrap/.gitignore`:
+
+```
+.claude/settings.local.json
+```
+
+Verify it takes effect:
+
+```bash
+cd /tmp/gore_wrap
+mkdir -p .claude && echo '{}' > .claude/settings.local.json
+git check-ignore -v .claude/settings.local.json
+git status --short
+rm .claude/settings.local.json
+```
+
+Expected: `git check-ignore` prints a line naming `.gitignore` and the pattern, confirming the match. `git status --short` shows only the modified `.gitignore` — the settings file does not appear as untracked.
+
+- [ ] **Step 10: Commit the ignore rule**
+
+```bash
+cd /tmp/gore_wrap
+git add .gitignore
+git commit -m "Ignore the machine-local Claude settings file
+
+.claude/settings.local.json is a per-machine permission allow-list. It
+was scrubbed from history during the split; this keeps it from being
+re-committed.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 11: Verify the old repo is untouched**
 
 ```bash
 cd /Users/erik/work/glass && git log --oneline -1 && ls
@@ -104,7 +154,7 @@ cd /Users/erik/work/glass && git log --oneline -1 && ls
 
 Expected: HEAD is the commit that added this plan, and `gore_wrap/` is still present as a subdirectory. Nothing in `glass` changed.
 
-No commit in this task — filter-repo *is* the commit.
+The rewrite itself produces no commit — filter-repo *is* the history. The only commit in this task is the `.gitignore` rule in Step 10.
 
 ---
 
@@ -639,9 +689,10 @@ Expected: `git status --short` prints nothing (the `dist/` zip and `.venv/` are 
 rm -rf /tmp/verify-spinoff
 git clone -q /tmp/gore_wrap /tmp/verify-spinoff
 cd /tmp/verify-spinoff && ls
+git log --all --pretty=format: --name-only | sort -u | grep 'settings.local.json'
 ```
 
-Expected: the root-level layout, cloned into a directory named nothing like `gore_wrap`.
+Expected: the root-level layout, cloned into a directory named nothing like `gore_wrap`. The `grep` prints nothing and exits non-zero — the machine-local settings file is absent from every revision that a clone would carry.
 
 - [ ] **Step 3: Build a fresh venv and run the unit suite there**
 
