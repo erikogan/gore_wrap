@@ -27,16 +27,16 @@ def _register_manifest_wheels():
 
     A real install (Preferences > Install from Disk, or the extensions repo)
     has Blender read blender_manifest.toml and add each wheel to sys.path
-    itself before the add-on is imported. This script imports `gore_wrap`
-    directly instead of going through that install flow, so it has to
+    itself before the add-on is imported. This script loads the add-on from
+    this checkout instead of going through that install flow, so it has to
     replicate that one step -- otherwise bpy-side modules that need a wheel
     (e.g. pattern_warp's svgelements) can't be imported headlessly.
     """
-    manifest_path = os.path.join(REPO, "gore_wrap", "blender_manifest.toml")
+    manifest_path = os.path.join(REPO, "blender_manifest.toml")
     with open(manifest_path, "rb") as fh:
         manifest = tomllib.load(fh)
     for wheel in manifest.get("wheels", []):
-        wheel_path = os.path.normpath(os.path.join(REPO, "gore_wrap", wheel))
+        wheel_path = os.path.normpath(os.path.join(REPO, wheel))
         if wheel_path not in sys.path:
             sys.path.insert(0, wheel_path)
 
@@ -44,7 +44,9 @@ def _register_manifest_wheels():
 _register_manifest_wheels()
 
 from tests.synthetic import cylinder_with_hemisphere  # noqa: E402
-import gore_wrap  # noqa: E402
+from tests import _pkgload  # noqa: E402
+
+gore_wrap = _pkgload.load()
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
