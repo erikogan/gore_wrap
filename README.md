@@ -47,7 +47,7 @@ TBD.
    - **Strip Angle** — the target angular width of one gore (24° → 15 strips,
      18° → 20 strips, etc.). The **strip count** below it is what that angle
      snapped to, since only a whole number of strips fits around the object.
-   - **Seam Offset** — edge allowance in mm: positive overlaps the neighbouring
+   - **Seam Offset** — edge allowance in mm: positive overlaps the neighboring
      strip, negative leaves a gap, zero is a butt joint.
 4. Choose the **Mode**:
    - **Averaged** — one averaged gore shape is repeated for every strip. The
@@ -59,22 +59,26 @@ TBD.
        from +X seen from above), so you can line gore 1 up with a landmark on
        the object.
      - a reminder that **gore 1 is green and gore 2 is orange** in the Preview
-       — the two colours give you the starting strip and the direction to wind
+       — the two colors give you the starting strip and the direction to wind
        in. See [Fitted mode: where to start
        applying](#fitted-mode-where-to-start-applying) below.
 5. Trim the base and preview:
    - **Bottom Crop** — discard everything below this height.
    - **Preview** — draws a semi-transparent reconstructed surface over the scan
      and fills the **Scale** panel with height / max diameter / bottom
-     circumference and a fit-error.
-6. **Calibrate** so the output comes out at real-world size:
+     circumference and a fit-error. This step is optional, but quite helpful for
+     Fitted Mode cuts.
+6. **Calibrate** to override the dimensions found in the scanned mesh:
    - Measure one real dimension on the object.
    - Pick which dimension it is under *Calibrate By*.
    - Enter it as *Measured Value*, then click *Apply Measured Scale*.
-7. Click **Export SVG** and open the file in Silhouette Studio. Strips are laid
-   out on a common baseline in wrap order; in Fitted mode a separate red labels
-   layer numbers them (exclude it from cutting).
-8. To apply a repeating design, tick **Fill With Pattern**. The pattern is
+7. Click **Export SVG** and open the file in you editor / controller of choice.
+   Strips are laid out on a common baseline in wrap order.
+   - **Number Strips** (on by default) — writes a separate red `labels` layer
+     numbering the strips in wrap order; exclude that layer from cutting.
+     Uncheck it for an outline-only file. Fitted mode only, since Averaged
+     strips are identical and need no numbering.
+8. To apply a repeating design, check **Fill With Pattern**. The pattern is
    warped to each gore — squeezed horizontally so it fills the taper without
    distorting vertically — and written as a separate `pattern` layer.
    - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
@@ -90,20 +94,20 @@ TBD.
      - **Custom** — reveals **Simplify Tol (mm)** (max deviation of the fitted
        curves from the true shape) and **Corner Angle (deg)**.
 
-   The **Corner Angle** is the *turn* angle — how far the path bends at a join.
-   A join is kept as a sharp corner only when it turns by more than this;
-   gentler bends are smoothed into one curve, so a **lower** value smooths more.
-   Note this is the opposite sense from some vector editors, whose "corner
-   angle threshold" measures the *interior* angle (180° − turn): their 150°
-   default corresponds to about 30° here.
+         The **Corner Angle** is the *turn* angle — how far the path bends at a
+         join. A join is kept as a sharp corner only when it turns by more than
+         this; gentler bends are smoothed into one curve, so a **lower** value
+         smooths more. Note this is the opposite sense from some vector editors,
+         whose "corner angle threshold" measures the *interior* angle (180° −
+         turn): their 150° default corresponds to about 30° here.
 
-   Some vector editors simplify with a *curve-precision percentage* instead of
-   a distance. That runs the opposite way — a higher percentage keeps the path
-   *closer* to the original (less simplification) — and it is a relative
-   setting with no real-world unit, so the same percentage deviates by
-   different amounts on different artwork. **Simplify Tol** is an absolute
-   limit in millimetres, so it stays predictable at cut scale regardless of
-   the pattern's size.
+         Some vector editors simplify with a *curve-precision percentage*
+         instead of a distance. That runs the opposite way — a higher percentage
+         keeps the path *closer* to the original (less simplification) — and it
+         is a relative setting with no real-world unit, so the same percentage
+         deviates by different amounts on different artwork. **Simplify Tol** is
+         an absolute limit in millimeters, so it stays predictable at cut scale
+         regardless of the pattern's size.
 
 ### Fitted mode: where to start applying
 
@@ -136,7 +140,7 @@ blender --background --factory-startup --python-exit-code 1 \
 
 `--factory-startup` skips this machine's installed copy of the add-on so the
 checkout copy being tested doesn't collide with it; `--python-exit-code 1`
-makes Blender itself fail if the script does, as a second line of defence
+makes Blender itself fail if the script does, as a second line of defense
 behind the script's own exit code.
 
 Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),

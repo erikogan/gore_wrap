@@ -1,15 +1,15 @@
 schema_version = "1.0.0"
 
 id = "gore_wrap"
-version = "0.7.0"
+version = "0.7.1"
 name = "Gore Wrap"
 tagline = "Flatten scanned meshes into gore strips and export SVG"
 maintainer = "Erik Ogan <erik@ogan.net>"
 type = "add-on"
 
-website = "https://github.com/"
+website = "https://github.com/erikogan/gore_wrap"
 
-tags = ["Mesh", "Import-Export", "3D View"]
+tags = ["Mesh", "Import-Export", "3D View", "SVG"]
 
 blender_version_min = "4.2.0"
 
