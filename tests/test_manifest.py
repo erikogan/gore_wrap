@@ -44,7 +44,10 @@ def test_build_paths_matches_root_modules():
     missing = on_disk - listed
     assert not missing, f"modules on disk but not in [build].paths: {sorted(missing)}"
 
-    stale = listed - on_disk
+    # Checked against the filesystem rather than against on_disk, which only
+    # collects .py files: the allow list also carries shipped non-module
+    # assets (LICENSE, and any icon or data file added later).
+    stale = {p for p in listed if not (ROOT / p).exists()}
     assert not stale, f"[build].paths names files that do not exist: {sorted(stale)}"
 
 

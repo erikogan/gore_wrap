@@ -9,7 +9,13 @@ type = "add-on"
 
 website = "https://github.com/erikogan/gore_wrap"
 
-tags = ["Mesh", "Import-Export", "3D View", "SVG"]
+# Allowed:
+#    3D View, Add Curve, Add Mesh, All, Animation, Bake, Camera, Compositing,
+#    Development, Game Engine, Geometry Nodes, Grease Pencil, Import-Export,
+#    Lighting, Material, Mesh, Modeling, Node, Object, Paint, Physics, Pipeline,
+#    Render, Rigging, Scene, Sculpt, Sequencer, System, Text Editor, Tracking,
+#    UV, User Interface
+tags = ["Mesh", "Import-Export", "3D View"]
 
 blender_version_min = "4.2.0"
 
@@ -29,6 +35,7 @@ platforms = ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"]
 # both implicitly, and listing them is a validation error.
 [build]
 paths = [
+  "LICENSE",
   "__init__.py",
   "bezier_fit.py",
   "export_job.py",
