@@ -46,7 +46,7 @@ runs:
 
     - name: Restore the cached Blender
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/blender
         key: blender-${{ runner.os }}-${{ steps.resolve.outputs.version }}

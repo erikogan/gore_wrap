@@ -43,9 +43,9 @@ jobs:
             python: "3.13"
             numpy: "2.3.4"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -75,7 +75,7 @@ jobs:
         # release -- the three that a breakage would actually be reported on.
         blender: ["4.2", "4.5", "5.2"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-blender
         with:
@@ -95,7 +95,7 @@ jobs:
     name: Build the extension zip
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-blender
         with:
@@ -104,7 +104,7 @@ jobs:
       - name: Build
         run: make
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: extension-zip
           path: dist/*.zip
