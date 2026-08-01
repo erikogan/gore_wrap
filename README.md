@@ -1,5 +1,7 @@
 # Gore Wrap
 
+![Blender Screenshot with rendered stuff cup and Gore Wrap UI](docs/images/ui-preview-readme.png)![Heavy plus sign](docs/images/plus.png)![Floral Pattern](docs/images/pattern-readme.png)![Heavy equals sign](docs/images/equals.png)![Pattern mapped onto vertical gore sections](docs/images/result-readme.png)
+
 A Blender extension that simplifies a scanned mesh (e.g. from Qlone) into
 flat **gore strips** — vertical panels that taper to a point at the top — and
 exports a real-scale SVG for cutting on a Silhouette and wrapping around the
@@ -104,3 +106,9 @@ The extension's `__init__.py` and `blender_manifest.toml` live at the repo
 root, so the repo root is the package. Adding a module means adding it to
 `[build].paths` in `blender_manifest.toml` — `tests/test_manifest.py` fails
 if you forget.
+
+## Credits
+
+The floral pattern shown above is
+[Background pattern seamless texture illustration leaf black print vector floral](https://www.vecteezy.com/vector-art/7892500-background-pattern-seamless-texture-illustration-leaf-black-print-vector-floral)
+by Bambang Ratu Wibowo, via Vecteezy.
