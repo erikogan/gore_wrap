@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  # Branches only. A tag push is already covered: release.yml gates the
+  # release on this workflow, so an unfiltered `push` would run it twice.
+  push:
+    branches: ["**"]
+  pull_request:
+  # So release.yml can gate a release on the very same checks, rather than
+  # keeping a second copy of them that can drift.
+  workflow_call:
+
+# A new push to a branch makes the in-flight run for that branch pointless.
+# Tag runs are exempt: they feed a release and must not be cancelled.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Geometry, layout, pattern warping and SVG writing are pure
+  # numpy/svgelements/stdlib, so they test without Blender at all.
+  pytest:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor: it is what Blender 4.2 ships, and the suite reads
+        # blender_manifest.toml with tomllib. The upper end guards against
+        # breakage on whatever Blender ships next.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # Kept in step with the Development section of the README.
+      - name: Install the test dependencies
+        run: python -m pip install --upgrade pip numpy svgelements pytest
+
+      - name: Run the test suite
+        run: python -m pytest -q
+
+  # End-to-end inside Blender itself: registers the add-on, runs Preview and
+  # Export, and parses the SVG that comes out.
+  smoke:
+    name: Blender ${{ matrix.blender }} smoke test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The minimum the manifest claims, the current LTS, and the newest
+        # release -- the three that a breakage would actually be reported on.
+        blender: ["4.2", "4.5", "5.2"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-blender
+        with:
+          series: ${{ matrix.blender }}
+
+      # --factory-startup skips any installed copy of the add-on so the
+      # checkout is what gets tested; --python-exit-code 1 makes Blender fail
+      # if the script does, behind the script's own exit code.
+      - name: Run the smoke test
+        run: |
+          "$BLENDER" --background --factory-startup --python-exit-code 1 \
+            --python tests/blender_smoke.py
+
+  # The zip is what users install, so build it on every push -- a manifest or
+  # allow-list mistake should fail here, not at tag time.
+  build:
+    name: Build the extension zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-blender
+        with:
+          series: "4.5"
+
+      - name: Build
+        run: make
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: dist/*.zip
+          if-no-files-found: error

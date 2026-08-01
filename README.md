@@ -153,6 +153,24 @@ root, so the repo root is the package. Adding a module means adding it to
 `[build].paths` in `blender_manifest.toml` — `tests/test_manifest.py` fails
 if you forget.
 
+### CI
+
+`.github/workflows/ci.yml` runs on every push and pull request: the `pytest`
+suite on Python 3.11 and 3.13, the Blender smoke test on 4.2 (the manifest
+minimum), 4.5 LTS and 5.2, and a build of the extension zip. Each Blender
+series resolves to its newest patch release at run time and is cached, so a
+new 4.5.x needs no edit.
+
+### Releasing
+
+1. Bump `version` in `blender_manifest.toml` and commit.
+2. Tag it and push: `git tag v0.7.2 && git push origin v0.7.2`.
+
+`.github/workflows/release.yml` then checks the tag against the manifest
+version, runs the full CI suite, and publishes a GitHub release with
+auto-generated notes and the zip CI built attached. A tag that disagrees with
+the manifest fails before anything is published.
+
 ## Credits
 
 The floral pattern shown above is

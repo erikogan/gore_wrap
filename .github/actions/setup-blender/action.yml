@@ -1,0 +1,71 @@
+name: Set up Blender
+description: >-
+  Download and cache a headless Blender, and expose it as the BLENDER
+  environment variable (and on PATH).
+
+inputs:
+  series:
+    description: >-
+      Blender release series, e.g. "4.2" or "5.2". The newest patch release in
+      the series is resolved at run time, so a new 4.5.x needs no edit here.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Resolved first and separately so the cache key is the exact patch
+    # release: a new 4.5.x publishes, the key changes, and the cache refills
+    # instead of silently pinning CI to a stale build.
+    - name: Resolve the newest patch release
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        series='${{ inputs.series }}'
+        base="https://download.blender.org/release/Blender${series}/"
+        # The dots in the series are literal, not "any character".
+        pattern="blender-${series//./\\.}\.[0-9]+-linux-x64\.tar\.xz"
+        file=$(curl -sSfL "$base" | grep -oE "$pattern" | sort -uV | tail -1)
+        [ -n "$file" ] || { echo "no linux-x64 build found under $base" >&2; exit 1; }
+        version=${file#blender-}
+        version=${version%-linux-x64.tar.xz}
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "url=${base}${file}" >> "$GITHUB_OUTPUT"
+        echo "Blender $series -> $version"
+
+    # Blender ships its own Python and libraries, but still links against the
+    # system X/GL stack even for --background.
+    - name: Install the runtime libraries Blender links against
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          libegl1 libgl1 libice6 libsm6 libxfixes3 libxi6 libxkbcommon0 \
+          libxrender1 libxxf86vm1
+
+    - name: Restore the cached Blender
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/blender
+        key: blender-${{ runner.os }}-${{ steps.resolve.outputs.version }}
+
+    - name: Download Blender ${{ steps.resolve.outputs.version }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ~/blender
+        curl -sSfL '${{ steps.resolve.outputs.url }}' \
+          | tar -xJ -C ~/blender --strip-components=1
+
+    - name: Export BLENDER and add it to PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        blender="$HOME/blender/blender"
+        [ -x "$blender" ] || { echo "no executable at $blender" >&2; exit 1; }
+        echo "BLENDER=$blender" >> "$GITHUB_ENV"
+        echo "$HOME/blender" >> "$GITHUB_PATH"
+        "$blender" --version | head -1
