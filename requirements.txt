@@ -1,0 +1,26 @@
+# Test dependencies, pinned to what Blender itself bundles, so the headless
+# suite runs against the same library versions the add-on gets inside Blender.
+#
+# Versions come from build_files/build_environment/cmake/versions.cmake at each
+# release tag (cross-checked against a local 4.5 install, which reports exactly
+# the 4.5 row):
+#
+#     Blender       Python     numpy
+#     4.2 (minimum) 3.11.7     1.24.3
+#     4.5 (LTS)     3.11.11    1.26.4
+#     5.2           3.13.13    2.3.4
+#
+# numpy 2.0 was a breaking release, so the supported range really does span two
+# incompatible majors. The pin below tracks 4.5 LTS -- the default development
+# target -- and CI runs the suite against all three rows, so a numpy 1-vs-2
+# regression fails there rather than in someone's Blender.
+numpy==1.26.4
+
+# Not bundled by Blender: this ships as the wheel in wheels/, which the manifest
+# declares and Blender puts on sys.path when the extension is installed. Pinned
+# to that exact wheel so the tests import the version users actually get.
+svgelements==1.9.6
+
+# Dev only. Never imported by the add-on, and not present in Blender at all, so
+# there is no bundled version to match -- just a floor.
+pytest>=8.0

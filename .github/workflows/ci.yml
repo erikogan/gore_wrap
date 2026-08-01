@@ -23,15 +23,25 @@ jobs:
   # Geometry, layout, pattern warping and SVG writing are pure
   # numpy/svgelements/stdlib, so they test without Blender at all.
   pytest:
-    name: pytest (Python ${{ matrix.python }})
+    name: pytest (Blender ${{ matrix.blender }} — Python ${{ matrix.python }}, numpy ${{ matrix.numpy }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 3.11 is the floor: it is what Blender 4.2 ships, and the suite reads
-        # blender_manifest.toml with tomllib. The upper end guards against
-        # breakage on whatever Blender ships next.
-        python: ["3.11", "3.13"]
+        # One row per supported Blender, each running the Python and numpy that
+        # Blender actually bundles -- see the table in requirements.txt. numpy
+        # 2.0 was a breaking release, so 4.2 and 5.2 sit on either side of a
+        # major boundary and both have to stay green.
+        include:
+          - blender: "4.2"
+            python: "3.11"
+            numpy: "1.24.3"
+          - blender: "4.5 LTS"
+            python: "3.11"
+            numpy: "1.26.4"
+          - blender: "5.2"
+            python: "3.13"
+            numpy: "2.3.4"
     steps:
       - uses: actions/checkout@v4
 
@@ -40,9 +50,15 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
 
-      # Kept in step with the Development section of the README.
       - name: Install the test dependencies
-        run: python -m pip install --upgrade pip numpy svgelements pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          # Second step, not a command-line addition: pip rejects a version
+          # given both on the command line and in a requirements file. This
+          # swaps the file's 4.5 LTS pin for the numpy this row's Blender has.
+          python -m pip install "numpy==${{ matrix.numpy }}"
+          python -m pip list
 
       - name: Run the test suite
         run: python -m pytest -q

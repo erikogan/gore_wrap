@@ -127,9 +127,14 @@ numpy/svgelements/stdlib and tested without Blender. Requires Python 3.11+
 (the test suite reads `blender_manifest.toml` with `tomllib`):
 
 ```
-python -m venv .venv && .venv/bin/pip install numpy svgelements pytest
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest
 ```
+
+`requirements.txt` pins numpy to the version Blender bundles and svgelements to
+the wheel in `wheels/`, so the headless suite runs against the same libraries
+the add-on gets inside Blender. The pin tracks 4.5 LTS; the file lists what
+every supported Blender ships, and CI runs the suite against each.
 
 End-to-end smoke test inside Blender:
 
@@ -156,10 +161,12 @@ if you forget.
 ### CI
 
 `.github/workflows/ci.yml` runs on every push and pull request: the `pytest`
-suite on Python 3.11 and 3.13, the Blender smoke test on 4.2 (the manifest
-minimum), 4.5 LTS and 5.2, and a build of the extension zip. Each Blender
-series resolves to its newest patch release at run time and is cached, so a
-new 4.5.x needs no edit.
+suite once per supported Blender, on the Python and numpy that Blender bundles
+(4.2 → 3.11 + numpy 1.24, 4.5 LTS → 3.11 + numpy 1.26, 5.2 → 3.13 + numpy 2.3,
+so both sides of the numpy 2.0 break stay covered); the in-Blender smoke test
+on those same three; and a build of the extension zip. Each Blender series
+resolves to its newest patch release at run time and is cached, so a new 4.5.x
+needs no edit.
 
 ### Releasing
 
