@@ -2,51 +2,93 @@
 
 ![Blender Screenshot with rendered stuff cup and Gore Wrap UI](docs/images/ui-preview-readme.png)![Heavy plus sign](docs/images/plus.png)![Floral Pattern](docs/images/pattern-readme.png)![Heavy equals sign](docs/images/equals.png)![Pattern mapped onto vertical gore sections](docs/images/result-readme.png)
 
-A Blender extension that simplifies a scanned mesh (e.g. from Qlone) into
-flat **gore strips** — vertical panels that taper to a point at the top — and
-exports a real-scale SVG for cutting on a Silhouette and wrapping around the
-object.
+A Blender extension that simplifies a scanned mesh into flat **gore strips** —
+vertical panels that taper to a point at the top — and exports a real-scale SVG
+for cutting on a CNC or desktop cutter for wrapping around the scanned object.
 
-Originally built for transfering complex patterns onto glass stuff cups.
+An optional SVG pattern can be included and a separate pattern object will be mapped onto the gores such that the pattern will line up when wrapped.
+
+Originally built for transferring complex patterns onto glass stuff-cups.
 
 ## Install
 
-1. Build the extension zip:
-   ```
-   mkdir -p dist
-   blender --command extension build --source-dir . --output-dir dist
-   ```
+### From Blender Marketplace
+
+TBD.
+
+###  From Source
+1. Build the extension zip into the `dist/` directory (pick one):
+   - If you have make and Python installed:
+      ```
+      make
+      ```
+      The Makefile finds Blender on `PATH` or in the usual macOS / Linux /
+      Windows install locations; override it with `make BLENDER=/path/to/blender`
+      (`make blender-path` shows which one it picked).
+
+   - _**-OR-**_ By hand with only blender installed:
+      ```
+      mkdir -p dist
+      <path-to-blender>/blender --factory-startup --command extension build \
+          --source-dir . --output-dir dist
+      ```
+      `--factory-startup` builds with none of your add-ons or preferences
+      loaded, so the zip cannot depend on local configuration; it has to come
+      before `--command`, which swallows every argument after it.
 2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
    and pick the zip. Works on Blender 4.2+ (tested on 4.5 LTS and 5.0).
 
 ## Use
 
-1. Orient the scan **Z-up** and delete obvious base junk.
+1. Orient the scan **Z-up**, centered on the **X** & **Y** axes and delete
+   obvious base junk.
 2. Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`).
-3. Set the **strip angle** (24° → 15 strips), **mode** (Averaged or Fitted),
-   and **seam offset** (mm: + overlap, − gap, 0 butt joint).
-4. Use **Bottom Crop** to trim below the base, then click **Preview** — a
-   semi-transparent reconstructed surface appears over the scan and the Scale
-   panel fills in height / max diameter / bottom circumference and a fit-error.
-5. **Calibrate**: measure one real dimension, pick it under *Calibrate By*,
-   enter the value, and click *Apply Measured Scale* to rescale the output.
-6. Click **Export SVG** and open the file in Silhouette Studio. Strips are laid
+3. Set the strip geometry in the **Strips** panel:
+   - **Strip Angle** — the target angular width of one gore (24° → 15 strips,
+     18° → 20 strips, etc.). The **strip count** below it is what that angle
+     snapped to, since only a whole number of strips fits around the object.
+   - **Seam Offset** — edge allowance in mm: positive overlaps the neighbouring
+     strip, negative leaves a gap, zero is a butt joint.
+4. Choose the **Mode**:
+   - **Averaged** — one averaged gore shape is repeated for every strip. The
+     strips are interchangeable, so they can go on in any order, anywhere.
+   - **Fitted** — each gore is fitted to its own angular sector of the scan, so
+     it tracks local bumps and dents. The strips all differ, so they have to be
+     applied in order at the right place. Choosing it adds two things:
+     - **Start Angle** — which sector becomes gore 1 (degrees counter-clockwise
+       from +X seen from above), so you can line gore 1 up with a landmark on
+       the object.
+     - a reminder that **gore 1 is green and gore 2 is orange** in the Preview
+       — the two colours give you the starting strip and the direction to wind
+       in. See [Fitted mode: where to start
+       applying](#fitted-mode-where-to-start-applying) below.
+5. Trim the base and preview:
+   - **Bottom Crop** — discard everything below this height.
+   - **Preview** — draws a semi-transparent reconstructed surface over the scan
+     and fills the **Scale** panel with height / max diameter / bottom
+     circumference and a fit-error.
+6. **Calibrate** so the output comes out at real-world size:
+   - Measure one real dimension on the object.
+   - Pick which dimension it is under *Calibrate By*.
+   - Enter it as *Measured Value*, then click *Apply Measured Scale*.
+7. Click **Export SVG** and open the file in Silhouette Studio. Strips are laid
    out on a common baseline in wrap order; in Fitted mode a separate red labels
    layer numbers them (exclude it from cutting).
-7. To apply a repeating design, tick **Fill With Pattern**, choose a seamless
-   (tileable) **Pattern SVG** (export EPS to SVG from your vector editor first),
-   and set **Repeats Around** (how many times it tiles around the object). The
-   pattern is warped to each gore — squeezed horizontally so it fills the taper
-   without distorting vertically — and written as a separate `pattern` layer.
-   With **Smooth to Curves** on, the warped pattern is fitted to smooth bezier
-   curves so the cutter does not stutter through many tiny line segments.
-   **Simplify Mode** controls how aggressively:
-   - **Visual** (default) — fewest nodes and the smoothest cut, while keeping
-     genuine corners crisp.
-   - **Cutter Resolution** — hugs the true warped shape to cutter precision;
-     more nodes, use it when exact fidelity matters.
-   - **Custom** — reveals **Simplify Tol (mm)** (max deviation of the fitted
-     curves from the true shape) and **Corner Angle (deg)**.
+8. To apply a repeating design, tick **Fill With Pattern**. The pattern is
+   warped to each gore — squeezed horizontally so it fills the taper without
+   distorting vertically — and written as a separate `pattern` layer.
+   - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
+     vector editor first.
+   - **Repeats Around** — how many times the pattern tiles around the object.
+   - **Smooth to Curves** — fit the warped pattern to smooth bezier curves so
+     the cutter does not stutter through many tiny line segments.
+   - **Simplify Mode** — with **Smooth to Curves** on, how aggressively to fit:
+     - **Visual** (default) — fewest nodes and the smoothest cut, while keeping
+       genuine corners crisp.
+     - **Cutter Resolution** — hugs the true warped shape to cutter precision;
+       more nodes, use it when exact fidelity matters.
+     - **Custom** — reveals **Simplify Tol (mm)** (max deviation of the fitted
+       curves from the true shape) and **Corner Angle (deg)**.
 
    The **Corner Angle** is the *turn* angle — how far the path bends at a join.
    A join is kept as a sharp corner only when it turns by more than this;

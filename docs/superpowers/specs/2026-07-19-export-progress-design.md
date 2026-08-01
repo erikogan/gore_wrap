@@ -1,6 +1,6 @@
 # Export Progress Feedback — design spec
 
-Make the SVG export show responsive, cancellable progress instead of freezing
+Make the SVG export show responsive, cancelable progress instead of freezing
 Blender ("hang and spin") during a long pattern warp.
 
 ## Problem
@@ -31,7 +31,7 @@ Extract the export work into a pure-Python generator that performs the job step 
 and `yield`s `(fraction, label)` progress tuples. The operator drives it two ways:
 
 - **Interactive:** a modal timer pumps the generator, updating the status bar and cursor
-  between ticks — responsive and cancellable.
+  between ticks — responsive and cancelable.
 - **Background** (`bpy.app.background`: `--background`, scripts, the smoke test): modal
   timers do not fire headlessly, so the operator **drains the generator synchronously**
   and returns `FINISHED`.
@@ -107,7 +107,7 @@ Raised from the generator and surfaced by the operator (report + cancel, no file
 
 Other:
 
-- `ESC` during the run → cancelled, status/cursor cleared, no file.
+- `ESC` during the run → canceled, status/cursor cleared, no file.
 - Empty warped pattern (degenerate) → `{'WARNING'}` and outline-only export, as today
   (the generator still writes the outline-only file; the warning is reported by the
   operator on completion).

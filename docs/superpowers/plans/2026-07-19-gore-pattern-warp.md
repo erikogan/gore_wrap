@@ -12,11 +12,11 @@
 
 - Logic modules (`geometry.py`, `svg_export.py`, `pattern_warp.py`) import only numpy + stdlib + `svgelements`; they must run under plain pytest with no Blender. (`bpy` only in `properties/operators/ui/registry/__init__`.)
 - `svgelements` is the only new runtime dependency: pure-Python `py3-none-any` universal wheel, no transitive deps, vendored under `gore_wrap/wheels/` and listed in `blender_manifest.toml`.
-- All coordinates are millimetres; SVG document is 610×610 mm (24″ mat).
+- All coordinates are millimeters; SVG document is 610×610 mm (24″ mat).
 - Pattern input is **SVG only**; EPS is exported to SVG in Illustrator first.
 - When the pattern is off, exported SVG output is **byte-for-byte identical** to today's.
 - Blender 4.2+; license `SPDX:GPL-3.0-or-later`.
-- Tests: one behavioural assertion per test (match existing style in `tests/`).
+- Tests: one behavioral assertion per test (match existing style in `tests/`).
 - **Runtime skew:** Blender 4.5 LTS and 5.0 both bundle **numpy 1.26.4 on Python 3.11**; the dev venv runs **numpy 2.5.1 on Python 3.14**. All code (and tests) must use only APIs common to both — e.g. `np.ptp(x)`, never the `ndarray.ptp()` method removed in numpy 2.0 — and Python 3.11-compatible syntax.
 
 ---
@@ -116,7 +116,7 @@ Expected: FAIL (module `pattern_warp` has no attribute `clip_to_rect`).
 """Warp a seamless vector pattern to fill flat gore outlines.
 
 Pure numpy + svgelements (no Blender), so it runs under plain pytest. All
-output coordinates are millimetres, matching svg_export.
+output coordinates are millimeters, matching svg_export.
 """
 
 import numpy as np
@@ -342,7 +342,7 @@ git commit -m "Parse pattern SVG into reified subpaths"
 **Interfaces:**
 - Consumes: `Pattern` from Task 3.
 - Produces:
-  - `build_field(pattern, circumference, gore_height, repeats_x, flatten_tol) -> list[np.ndarray]` — the pattern flattened to polylines and tiled across master coordinates: x in `[-W, circumference + W]` (one wrap tile of padding each side; `W = circumference / repeats_x`), y up from the base (`y = 0`) past `gore_height`. Each returned `(K,2)` polygon is in millimetres, y-up. Tile height `H = px_height · W / px_width` preserves the pattern's aspect at the base.
+  - `build_field(pattern, circumference, gore_height, repeats_x, flatten_tol) -> list[np.ndarray]` — the pattern flattened to polylines and tiled across master coordinates: x in `[-W, circumference + W]` (one wrap tile of padding each side; `W = circumference / repeats_x`), y up from the base (`y = 0`) past `gore_height`. Each returned `(K,2)` polygon is in millimeters, y-up. Tile height `H = px_height · W / px_width` preserves the pattern's aspect at the base.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -706,7 +706,7 @@ In `gore_wrap/ui.py`, between the Scale box (ends line 54, `box.operator("gorewr
 - [ ] **Step 3: Byte-compile check (no bpy needed)**
 
 Run: `.venv/bin/python -m py_compile gore_wrap/properties.py gore_wrap/ui.py && echo OK`
-Expected: `OK` (syntax valid; full behaviour is verified by the smoke test in Task 8).
+Expected: `OK` (syntax valid; full behavior is verified by the smoke test in Task 8).
 
 - [ ] **Step 4: Commit**
 
@@ -864,7 +864,7 @@ In `README.md`, add a step under **Use** (after the Export SVG step) and a line 
 
 Under Use:
 ```markdown
-7. To apply a repeating design, tick **Fill With Pattern**, choose a seamless
+7. To apply a repeating design, check **Fill With Pattern**, choose a seamless
    **Pattern SVG** (export EPS to SVG from your vector editor first), and set
    **Repeats Around** (how many times it tiles around the object). The pattern is
    warped to each gore and written as a separate `pattern` layer in the SVG.

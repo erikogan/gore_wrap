@@ -242,7 +242,7 @@ def load():
     )
     module = importlib.util.module_from_spec(spec)
     # Register before executing so that any circular submodule import during
-    # exec_module resolves against the partially initialised module, which is
+    # exec_module resolves against the partially initialized module, which is
     # what the normal import machinery does.
     sys.modules[PKG_NAME] = module
     spec.loader.exec_module(module)

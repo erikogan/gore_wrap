@@ -13,7 +13,7 @@
 - `gore_wrap/pattern_warp.py` and `gore_wrap/export_job.py` import only numpy + stdlib + svgelements — NO bpy — so they run under plain pytest.
 - Runtime skew: Blender 4.5/5.0 bundle numpy 1.26.4 / Python 3.11; dev venv runs numpy 2.5.1 / Python 3.14. Use only APIs common to both (`np.ptp(x)`, `np.floor`, etc.) and Python 3.11-compatible syntax.
 - The pruned warp output must be **geometrically equivalent** to the current full-field warp for any input (same warped polygons ⇒ the SVG for a given pattern/gore set is unchanged).
-- Tests: one behavioural assertion per test (match existing style in `tests/`).
+- Tests: one behavioral assertion per test (match existing style in `tests/`).
 - Blender not on PATH — smoke via `"/Applications/Blender 4.app/Contents/MacOS/Blender"` (5.0 at `"/Applications/Blender 5.app/..."`).
 
 ---
@@ -25,7 +25,7 @@
 - Test: `tests/test_pattern_warp.py`
 
 **Interfaces:**
-- Produces: `_sample_base_tile(pattern, tile_w, flatten_tol) -> (base_polys, tile_h)` — flattens each subpath and scales reified px to tile millimetres (`k = tile_w / pattern.px_width`); returns `base_polys` (list of `(K,2)` arrays, y-down, in `[0, tile_w] × [0, tile_h]`) and `tile_h = pattern.px_height · k`.
+- Produces: `_sample_base_tile(pattern, tile_w, flatten_tol) -> (base_polys, tile_h)` — flattens each subpath and scales reified px to tile millimeters (`k = tile_w / pattern.px_width`); returns `base_polys` (list of `(K,2)` arrays, y-down, in `[0, tile_w] × [0, tile_h]`) and `tile_h = pattern.px_height · k`.
 - Keeps: `build_field(pattern, circumference, gore_height, repeats_x, flatten_tol)` unchanged in behavior (now built on `_sample_base_tile`).
 
 - [ ] **Step 1: Write the failing tests**

@@ -1,7 +1,7 @@
 """Panel parameters and readouts for Gore Wrap.
 
 Distances the user thinks about in real units (seam offset, tolerance, measured
-value) are millimetres. Crop and smoothing are in the mesh's own units/bands.
+value) are millimeters. Crop and smoothing are in the mesh's own units/bands.
 """
 
 import bpy
@@ -35,7 +35,7 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
 
     seam_offset: bpy.props.FloatProperty(
         name="Seam Offset (mm)",
-        description="Signed edge allowance: positive overlaps neighbours, "
+        description="Signed edge allowance: positive overlaps neighbors, "
                     "negative leaves a gap, zero is a butt joint",
         default=0.0, min=-5.0, max=5.0)
 
@@ -113,7 +113,7 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
 
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
-        description="Multiplier from mesh units to millimetres",
+        description="Multiplier from mesh units to millimeters",
         default=1.0, min=1e-6)
 
     calibrate_dim: bpy.props.EnumProperty(

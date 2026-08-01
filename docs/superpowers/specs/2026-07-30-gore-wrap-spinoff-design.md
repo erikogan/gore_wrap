@@ -95,7 +95,7 @@ Fix: delete `tests/__init__.py` and add `addopts = --import-mode=importlib` to
 `from tests.synthetic import cylinder_with_hemisphere` working in the Blender
 smoke test.
 
-This is a behavioural claim about pytest, not a certainty. It is verified by
+This is a behavioral claim about pytest, not a certainty. It is verified by
 running the suite, not by assumption.
 
 ### c. `tests/blender_smoke.py`

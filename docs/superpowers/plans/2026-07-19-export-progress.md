@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the SVG export show responsive, cancellable progress instead of freezing Blender during a long pattern warp.
+**Goal:** Make the SVG export show responsive, cancelable progress instead of freezing Blender during a long pattern warp.
 
 **Architecture:** Extract the slow export work (layout → pattern → write) into a bpy-free generator `export_job.export_steps` that yields `(fraction, label)` and writes the file only at the end. The export operator drives it two ways: a modal timer that pumps it (interactive, with status-bar + cursor progress, Esc to cancel) or a synchronous drain (`--background`/scripts/smoke test). To yield per gore, `pattern_warp.warp_into_gores` is refactored onto a per-gore generator.
 
@@ -15,7 +15,7 @@
 - **Dual-mode:** interactive modal and background synchronous-drain must run the *same* generator.
 - **No partial file:** the SVG is written only in the generator's final step; abandoning it earlier leaves no file.
 - **Byte-for-byte:** a no-pattern export must produce the same SVG as today.
-- Tests: one behavioural assertion per test (match existing style in `tests/`).
+- Tests: one behavioral assertion per test (match existing style in `tests/`).
 - Blender is not on PATH — run it via the full app path (mind the space): `"/Applications/Blender 4.app/Contents/MacOS/Blender"` (5.0 at `"/Applications/Blender 5.app/..."`).
 
 ---
@@ -413,7 +413,7 @@ Replace the entire `execute` method (lines 270 onward, through the end of the cu
     def _cancel(self, context):
         self._gen.close()
         self._finish(context)
-        self.report({"INFO"}, "Export cancelled.")
+        self.report({"INFO"}, "Export canceled.")
         return {"CANCELLED"}
 
     def _finish(self, context):

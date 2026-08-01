@@ -16,7 +16,7 @@
 - `pattern_smooth` (bool) default **True**.
 - Corner angle threshold: **~5°**.
 - No-pattern export stays byte-for-byte unchanged; smoothing-off falls back to today's polyline output.
-- Tests: one behavioural assertion per test (match existing style).
+- Tests: one behavioral assertion per test (match existing style).
 - Blender not on PATH — smoke via `"/Applications/Blender 4.app/Contents/MacOS/Blender"` (and `Blender 5.app`).
 
 ---
@@ -713,7 +713,7 @@ Replace the pattern emit loop in `write_svg` (the `for poly in pattern_polys:` b
 
 - [ ] **Step 4: Update export_job, properties, ui, operators**
 
-`gore_wrap/export_job.py` — `iter_warp_gores` fuses warp+fit and yields once per gore, so there is one progress step per gore (labelled to name both actions). When `pattern_smooth` is False, flatten each cubic back to a short polyline for output. Replace the pattern loop:
+`gore_wrap/export_job.py` — `iter_warp_gores` fuses warp+fit and yields once per gore, so there is one progress step per gore (labeled to name both actions). When `pattern_smooth` is False, flatten each cubic back to a short polyline for output. Replace the pattern loop:
 
 ```python
     pattern_polys = None
@@ -828,5 +828,5 @@ git commit -m "Emit fitted bezier pattern, wire params and progress labels"
 
 - **Correctness anchor:** `test_fit_semicircle_within_resolution` (T1) and `test_warp_beziers_stay_in_gore_bounds` (T4) are the key guards. Do not change the warp formula (`x = tx + (X−xc)·right_x(Y)/hw0`, `y = base_y − Y`); only sampling/output change.
 - **Version bump belongs in the finish step, not here** — bump the manifest to the next version when building the test zip after the plan completes (as in prior features), so the reviewer sees code first.
-- **Out of scope:** `load_pattern` parse speed; the spurious "Export cancelled"; smoothing the gore outlines. Do not touch these.
+- **Out of scope:** `load_pattern` parse speed; the spurious "Export canceled"; smoothing the gore outlines. Do not touch these.
 - If `_max_error`/`_fit_run` ever recurse pathologically on a self-intersecting warped run, the `depth > 32` guard (T1) and `depth >= 24` guard (T4) bound it; a run that can't reach tolerance still terminates with its finest split.

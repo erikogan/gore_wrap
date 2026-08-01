@@ -1,6 +1,6 @@
 """Lay out gore outlines on the cutter mat and write a real-scale SVG.
 
-Pure stdlib + numpy so it runs under plain pytest. Coordinates are millimetres.
+Pure stdlib + numpy so it runs under plain pytest. Coordinates are millimeters.
 The layout mirrors how the strips wrap the object: all bases sit on a common
 baseline in wrap order, and adjacent strips are spaced to match the on-object
 seam (touching at butt joints, gapped by |offset| otherwise).

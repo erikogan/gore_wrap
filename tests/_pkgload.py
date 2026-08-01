@@ -34,13 +34,13 @@ def load():
     )
     module = importlib.util.module_from_spec(spec)
     # Register before executing so that any circular submodule import during
-    # exec_module resolves against the partially initialised module, which is
+    # exec_module resolves against the partially initialized module, which is
     # what the normal import machinery does.
     sys.modules[PKG_NAME] = module
     try:
         spec.loader.exec_module(module)
     except BaseException:
-        # Mirror the stdlib: a failed exec leaves no half-initialised module
+        # Mirror the stdlib: a failed exec leaves no half-initialized module
         # behind, so a later load() retries instead of returning the broken
         # object.
         del sys.modules[PKG_NAME]

@@ -1,7 +1,7 @@
 """Pure-numpy geometry for turning a scanned point cloud into flat gore strips.
 
 No Blender imports live here so the whole pipeline runs under plain pytest.
-All lengths are in the mesh's own units (millimetres, once calibrated).
+All lengths are in the mesh's own units (millimeters, once calibrated).
 """
 
 from dataclasses import dataclass
@@ -188,7 +188,7 @@ def unwrap_gore(z, r, n_strips, seam_offset=0.0):
     surface distance from the base measured up the profile, so the shape is
     what the vinyl follows once wrapped. Half-width at each sample is
     pi*r/N + seam_offset/2, i.e. a full strip is circumference/N wide plus the
-    signed seam offset (positive overlaps its neighbour, negative leaves a gap).
+    signed seam offset (positive overlaps its neighbor, negative leaves a gap).
 
     Returns an (M, 2) array of outline points: the right edge from base to
     apex followed by the left edge from apex back to base. The closing segment

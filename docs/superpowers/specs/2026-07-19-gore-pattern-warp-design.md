@@ -97,7 +97,7 @@ svgelements reifies the **full** transform chain, including the SVG viewport tra
 that maps the `viewBox` onto the document's physical `width`/`height`. So a pattern
 declared `width="40mm" viewBox="0 0 40 20"` yields reified coordinates in **rendered
 pixels** (here 96 dpi → a 3.78× scale), not viewBox units. Rather than undo that,
-`build_field` folds it out for free: reified pixels map straight to tile-millimetres via
+`build_field` folds it out for free: reified pixels map straight to tile-millimeters via
 
     k = W / px_width          (px_width = reified doc.width)
     tile_mm = px_coord · k

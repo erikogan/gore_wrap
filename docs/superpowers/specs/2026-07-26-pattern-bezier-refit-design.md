@@ -137,6 +137,6 @@ Pure-numpy/stdlib+svgelements under pytest:
 ## Out of scope
 
 - `load_pattern` SVG-parse speed (separate concern).
-- The spurious "Export cancelled" (fileselect→modal) — appears resolved; revisit only if it
+- The spurious "Export canceled" (fileselect→modal) — appears resolved; revisit only if it
   recurs.
 - Applying bezier fitting to the gore outlines (they already cut smoothly).

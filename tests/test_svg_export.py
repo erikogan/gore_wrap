@@ -28,7 +28,7 @@ def base_span(poly):
 
 
 def adjacent_base_gaps(result):
-    """Horizontal gap between the bases of each pair of neighbouring strips."""
+    """Horizontal gap between the bases of each pair of neighboring strips."""
     polys = [p for _, p in result.placements]
     return [base_span(polys[i + 1])[0] - base_span(polys[i])[1]
             for i in range(len(polys) - 1)]

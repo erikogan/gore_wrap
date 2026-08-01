@@ -58,7 +58,7 @@ after pruning, a complex pattern is still too slow.
 Refactor `gore_wrap/pattern_warp.py` (bpy-free):
 
 - **`_sample_base_tile(pattern, tile_w, flatten_tol) → (base_polys, tile_h)`** — flatten
-  each subpath and scale reified px to tile millimetres (`k = tile_w / pattern.px_width`),
+  each subpath and scale reified px to tile millimeters (`k = tile_w / pattern.px_width`),
   returning the base tile polygons (y-down, in `[0, tile_w] × [0, tile_h]`) and
   `tile_h = pattern.px_height · k`. This is the sampling/scaling half of today's
   `build_field`.
@@ -108,7 +108,7 @@ Pure-numpy/stdlib+svgelements under pytest:
 
 - Vectorized `clip_to_rect` (deferred; revisit after measuring).
 - Multi-core parallelism (unnecessary if pruning suffices).
-- The progress-UI bugs (label ordering, spurious "Export cancelled" from the
+- The progress-UI bugs (label ordering, spurious "Export canceled" from the
   fileselect→modal handoff) — re-verified in the GUI after pruning lands, since small
   per-gore chunks should restore modal responsiveness; addressed then only if still
   present.

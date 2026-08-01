@@ -357,7 +357,7 @@ class GOREWRAP_OT_export(bpy.types.Operator):
     def _cancel(self, context):
         self._gen.close()
         self._finish(context)
-        self.report({"INFO"}, "Export cancelled.")
+        self.report({"INFO"}, "Export canceled.")
         return {"CANCELLED"}
 
     def _finish(self, context):

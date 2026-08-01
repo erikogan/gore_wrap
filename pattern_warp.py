@@ -1,7 +1,7 @@
 """Warp a seamless vector pattern to fill flat gore outlines.
 
 Pure numpy + svgelements (no Blender), so it runs under plain pytest. All
-output coordinates are millimetres, matching svg_export.
+output coordinates are millimeters, matching svg_export.
 """
 
 from dataclasses import dataclass

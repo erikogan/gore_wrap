@@ -451,7 +451,7 @@ In `gore_wrap/blender_manifest.toml`, change `version = "0.6.0"` to `version = "
 In `README.md`, replace the pattern paragraph (currently lines 33-37) with:
 
 ```markdown
-7. To apply a repeating design, tick **Fill With Pattern**, choose a seamless
+7. To apply a repeating design, check **Fill With Pattern**, choose a seamless
    (tileable) **Pattern SVG** (export EPS to SVG from your vector editor first),
    and set **Repeats Around** (how many times it tiles around the object). The
    pattern is warped to each gore — squeezed horizontally so it fills the taper
