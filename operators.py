@@ -31,7 +31,16 @@ def _world_points(obj, depsgraph):
         eval_obj.to_mesh_clear()
     mw = np.array(obj.matrix_world, dtype=np.float64)
     co4 = np.column_stack([co, np.ones(len(co))])
-    return (co4 @ mw.T)[:, :3]
+    # errstate because on macOS numpy links against Accelerate, whose BLAS
+    # leaves the FPU exception flags set on lanes it padded rather than
+    # computed. numpy reports those as divide-by-zero/overflow/invalid even
+    # though both operands and the result are finite -- a scan of any real size
+    # crosses the threshold where matmul dispatches to BLAS, so every Preview
+    # printed three bogus RuntimeWarnings. A genuinely non-finite vertex still
+    # produces a non-finite coordinate here, which is the signal worth having;
+    # only the flag noise is dropped.
+    with np.errstate(all="ignore"):
+        return (co4 @ mw.T)[:, :3]
 
 
 def _params(props):
