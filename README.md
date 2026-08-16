@@ -154,6 +154,10 @@ checkout copy being tested doesn't collide with it; `--python-exit-code 1`
 makes Blender itself fail if the script does, as a second line of defense
 behind the script's own exit code.
 
+`make smoke` runs exactly that, locating Blender the same way the build does —
+PATH first, then the usual install locations, overridable with
+`make smoke BLENDER=/path/to/blender`.
+
 Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),
 `svg_export.py` (mat layout + SVG), and the bpy shell
 (`properties/operators/ui/registry/__init__`). See

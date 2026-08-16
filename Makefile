@@ -2,6 +2,7 @@
 #
 #   make            # build dist/<id>-<version>.zip
 #   make test       # run the headless pytest suite
+#   make smoke      # run the end-to-end smoke test inside Blender
 #   make clean      # remove dist/
 #
 # Blender is located automatically (PATH first, then the usual macOS, Linux
@@ -53,16 +54,19 @@ BLENDER ?= $(shell { command -v blender; printf '%s\n' \
 	; } 2>/dev/null \
 	| while IFS= read -r p; do [ -x "$$p" ] && { printf '%s\n' "$$p"; break; }; done)
 
-.PHONY: all build test clean blender-path
+# Every Blender-driven target opens with this, so it lives in one place.
+CHECK_BLENDER = [ -n '$(BLENDER)' ] || { \
+	  echo 'Blender not found. Install it or run: make BLENDER=/path/to/blender' >&2; \
+	  exit 1; }
+
+.PHONY: all build test smoke clean blender-path
 
 all: build
 
 build: $(ZIP)
 
 $(ZIP): $(SOURCES)
-	@[ -n '$(BLENDER)' ] || { \
-	  echo 'Blender not found. Install it or run: make BLENDER=/path/to/blender' >&2; \
-	  exit 1; }
+	@$(CHECK_BLENDER)
 	@mkdir -p $(DIST)
 # --factory-startup builds with none of this machine's add-ons or preferences
 # loaded, so the zip cannot depend on local configuration. It has to precede
@@ -76,6 +80,15 @@ $(ZIP): $(SOURCES)
 # unambiguously the one chosen above.
 test:
 	'$(TEST_PYTHON)' -m pytest $(PYTEST_ARGS)
+
+# End-to-end inside Blender: registers the add-on, runs Preview and Export and
+# parses the SVG that comes out. --factory-startup skips any installed copy of
+# the add-on so the checkout is what gets tested; --python-exit-code 1 makes
+# Blender itself fail if the script does, behind the script's own exit code.
+smoke:
+	@$(CHECK_BLENDER)
+	'$(BLENDER)' --background --factory-startup --python-exit-code 1 \
+	    --python tests/blender_smoke.py
 
 # Which Blender the build would use.
 blender-path:
