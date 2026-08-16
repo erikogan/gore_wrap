@@ -1,6 +1,7 @@
 # Build the Blender extension zip.
 #
 #   make            # build dist/<id>-<version>.zip
+#   make test       # run the headless pytest suite
 #   make clean      # remove dist/
 #
 # Blender is located automatically (PATH first, then the usual macOS, Linux
@@ -17,6 +18,16 @@ ZIP     := $(DIST)/$(ID)-$(VERSION).zip
 ifeq ($(strip $(VERSION)),)
 $(error could not read $(MANIFEST) -- needs $(PYTHON) 3.11+ for tomllib)
 endif
+
+# The documented dev setup is a .venv at the repo root holding the pinned test
+# dependencies, so prefer its interpreter when it exists. $(PYTHON) is the
+# fallback for an already-activated environment, and overriding either variable
+# still wins: `make test PYTHON=python3.13` with no .venv, or
+# `make test TEST_PYTHON=/path/to/python` to bypass the .venv entirely.
+VENV_PYTHON := .venv/bin/python
+TEST_PYTHON ?= $(if $(wildcard $(VENV_PYTHON)),$(VENV_PYTHON),$(PYTHON))
+# Extra flags for a single run, e.g. `make test PYTEST_ARGS='-k geometry -vv'`.
+PYTEST_ARGS ?=
 
 # [build].paths is an allow list of everything that ships, so it doubles as
 # the zip's dependency list. The manifest and wheels are packaged implicitly.
@@ -42,7 +53,7 @@ BLENDER ?= $(shell { command -v blender; printf '%s\n' \
 	; } 2>/dev/null \
 	| while IFS= read -r p; do [ -x "$$p" ] && { printf '%s\n' "$$p"; break; }; done)
 
-.PHONY: all build clean blender-path
+.PHONY: all build test clean blender-path
 
 all: build
 
@@ -58,6 +69,13 @@ $(ZIP): $(SOURCES)
 # --command, which swallows every argument after it.
 	'$(BLENDER)' --factory-startup --command extension build \
 	    --source-dir . --output-dir $(DIST)
+
+# Geometry, layout, pattern warping and SVG writing are pure
+# numpy/svgelements/stdlib, so the suite runs without Blender. `-m pytest`
+# rather than the `pytest` script so the interpreter running the tests is
+# unambiguously the one chosen above.
+test:
+	'$(TEST_PYTHON)' -m pytest $(PYTEST_ARGS)
 
 # Which Blender the build would use.
 blender-path:

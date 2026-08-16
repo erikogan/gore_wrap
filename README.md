@@ -131,6 +131,12 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest
 ```
 
+`make test` runs that same suite: it picks `.venv/bin/python` when the venv
+above exists and falls back to `$PYTHON` (default `python3`) otherwise, so it
+also works inside an already-activated environment. Pass extra flags with
+`make test PYTEST_ARGS='-k geometry -vv'`, or point it at a specific
+interpreter with `make test TEST_PYTHON=/path/to/python`.
+
 `requirements.txt` pins numpy to the version Blender bundles and svgelements to
 the wheel in `wheels/`, so the headless suite runs against the same libraries
 the add-on gets inside Blender. The pin tracks 4.5 LTS; the file lists what
