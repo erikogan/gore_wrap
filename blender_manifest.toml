@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "gore_wrap"
-version = "0.7.3"
+version = "0.7.4"
 name = "Gore Wrap"
 tagline = "Flatten scanned meshes into gore strips and export SVG"
 maintainer = "Erik Ogan <erik@ogan.net>"
@@ -22,9 +22,10 @@ blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 # svgelements is a pure-Python universal wheel (no transitive deps); numpy
-# ships with Blender, so it needs no wheel.
+# numpy ships with Blender, so it needs no wheel.
 wheels = ["./wheels/svgelements-1.9.6-py2.py3-none-any.whl"]
-platforms = ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"]
+# We only need to specify platforms if imported wheels are not pure Python
+# platforms = ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"]
 
 # An allow list, not an exclude list: a file that is not named here is not
 # packaged. That way new development files (tests, notes, scratch scripts)
