@@ -91,6 +91,16 @@ def _validate(obj, context):
     props = context.scene.gore_wrap
     depsgraph = context.evaluated_depsgraph_get()
     points = _world_points(obj, depsgraph)
+    # A NaN or infinite coordinate propagates through every downstream step
+    # without ever raising, so the failure surfaces as an empty preview or an
+    # SVG full of NaN path data. Reject it here, where the cause is still
+    # findable. Note this has to precede the crop: `>=` is False for NaN, so a
+    # crop would quietly drop the bad vertices and change the count instead.
+    n_bad = int(np.count_nonzero(~np.isfinite(points).all(axis=1)))
+    if n_bad:
+        return (f"{n_bad} of {len(points)} vertices have non-finite coordinates "
+                f"(NaN or infinity). Clean the scan, or check the object's "
+                f"modifiers and transform.")
     kept = points[points[:, 2] >= props.crop_z] if props.crop_z else points
     if len(kept) < MIN_VERTS:
         return (f"Only {len(kept)} vertices above the crop plane; need at least "

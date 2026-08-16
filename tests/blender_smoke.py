@@ -9,10 +9,12 @@ Export, and asserts the preview object and a parseable SVG were produced.
 Exits non-zero on failure so it can gate CI.
 """
 
+import contextlib
 import os
 import sys
 import tempfile
 import tomllib
+import warnings
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -65,6 +67,28 @@ def _setup():
 
 
 SVG_NS = "http://www.w3.org/2000/svg"
+
+
+@contextlib.contextmanager
+def no_addon_runtime_warnings():
+    """Fail if add-on code emits a RuntimeWarning during the block.
+
+    numpy reports divide-by-zero, overflow and invalid-value as RuntimeWarning
+    rather than raising, so a real numerical bug can reach an SVG with nothing
+    but a line on stderr to show for it. Only warnings whose frame is a file in
+    this checkout count: warnings from Blender's own modules or from a
+    dependency aren't this add-on's to fix, and failing on them would make the
+    smoke test hostage to every library it loads.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        yield
+    ours = [w for w in caught
+            if issubclass(w.category, RuntimeWarning)
+            and os.path.abspath(w.filename).startswith(REPO + os.sep)]
+    assert not ours, "RuntimeWarning from add-on code: " + "; ".join(
+        f"{os.path.relpath(w.filename, REPO)}:{w.lineno} {w.message}"
+        for w in ours)
 
 
 def build_scan_object():
@@ -154,13 +178,48 @@ def main():
         f"next material not orange in viewport: {next_col[:]}"
     print(f"[smoke] fitted highlight ok: material indices {sorted(used)}, "
           f"viewport colors set")
-    print("[smoke] PASS")
+
+    check_non_finite_rejected(obj)
+
+
+def check_non_finite_rejected(obj):
+    """A NaN vertex must stop Preview outright.
+
+    Nothing downstream raises on NaN -- it propagates to an empty preview and
+    to NaN path data in the SVG -- so the operator refusing to run is the only
+    thing standing between a corrupt scan and a corrupt cut file.
+    """
+    mesh = obj.data
+    saved = mesh.vertices[0].co.copy()
+    mesh.vertices[0].co.x = float("nan")
+    stale = bpy.data.objects.get("GoreWrap Preview")
+    if stale is not None:
+        bpy.data.objects.remove(stale, do_unlink=True)
+    try:
+        with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+            try:
+                res = bpy.ops.gorewrap.preview()
+            except RuntimeError as exc:
+                # bpy turns a reported {"ERROR"} into RuntimeError; either way
+                # the point is that the operator refused, not how it said so.
+                res = {"CANCELLED"}
+                print(f"[smoke] non-finite vertex rejected: {exc}")
+        assert res == {"CANCELLED"}, f"NaN vertex accepted: {res}"
+        assert bpy.data.objects.get("GoreWrap Preview") is None, \
+            "preview built from a mesh with a NaN vertex"
+    finally:
+        mesh.vertices[0].co = saved
+    print("[smoke] non-finite rejection ok")
 
 
 if __name__ == "__main__":
     try:
         _setup()
-        main()
+        # PASS prints after the guard closes: the warning check runs on the way
+        # out of the block, so it can still fail a run whose asserts all passed.
+        with no_addon_runtime_warnings():
+            main()
+        print("[smoke] PASS")
     except Exception:
         import traceback
         traceback.print_exc()
