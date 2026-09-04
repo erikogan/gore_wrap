@@ -27,10 +27,6 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
                       icon="INFO")
 
         box = layout.box()
-        box.label(text="Prep", icon="MOD_BEVEL")
-        box.prop(props, "crop_z")
-
-        box = layout.box()
         box.label(text="Quality", icon="MODIFIER")
         box.prop(props, "smoothing_sigma")
         box.prop(props, "tolerance")
@@ -42,6 +38,7 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Scale", icon="DRIVER_DISTANCE")
+        box.prop(props, "crop_z")
         if props.has_preview:
             col = box.column(align=True)
             col.label(text=f"Height: {props.derived_height:.1f} mm")
