@@ -19,7 +19,7 @@ DEV_ONLY = {"conftest.py"}
 # docs, vendored wheels, build output, the venv, and dotdirs (caches, .git,
 # .claude, etc). Everything else is scanned recursively so a subpackage
 # (e.g. solvers/newton.py) can't silently slip past the [build].paths guard.
-EXCLUDED_DIRS = {"tests", "docs", "wheels", "dist", ".venv"}
+EXCLUDED_DIRS = {"tests", "tools", "docs", "wheels", "dist", ".venv"}
 
 
 def _on_disk_modules():

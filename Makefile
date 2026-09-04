@@ -73,6 +73,19 @@ $(ZIP): $(SOURCES)
 # --command, which swallows every argument after it.
 	'$(BLENDER)' --factory-startup --command extension build \
 	    --source-dir . --output-dir $(DIST)
+# Blender writes each declared wheel into the zip twice whenever the manifest
+# also has a [build].paths allow list, and zipfile warns about the duplicate
+# name as it does so. The warning above is expected and comes from inside
+# Blender; this repairs the archive it leaves behind.
+#
+# Upstream bug, fixed in 5.0 by 688c389e (blender/blender#148051) but not
+# backported to 4.5 LTS, which is what blender_version_min targets. Harmless
+# to keep in the meantime: it no-ops on an archive that has no duplicates.
+#
+# Retire it when 4.5 LTS support ends on 2027-07-14 -- raise
+# blender_version_min, then delete this step, tools/zip_dedupe.py and
+# tests/test_zip_dedupe.py.
+	@$(PYTHON) tools/zip_dedupe.py $(ZIP)
 
 # Geometry, layout, pattern warping and SVG writing are pure
 # numpy/svgelements/stdlib, so the suite runs without Blender. `-m pytest`
