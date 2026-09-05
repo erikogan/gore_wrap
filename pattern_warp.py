@@ -307,8 +307,27 @@ class GoreFrame:
     tile_h: float
 
 
+def _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset=(0.0, 0.0)):
+    """Origins of every tile overlapping the gore rect, in master mm.
+
+    A tile at (dx, dy) covers x in [dx, dx + W] and y in [dy, dy + tile_h].
+    `offset` shifts the whole grid: a positive phi_y lifts it off the baseline,
+    so the row range is derived from the offset instead of starting at 0 --
+    otherwise the bottom of the gore would be left uncovered. At offset (0, 0)
+    this reproduces the pre-offset tile list exactly, order included.
+    """
+    phi_x, phi_y = offset
+    c_lo = int(np.floor((x_lo - phi_x) / W)) - 1
+    c_hi = int(np.floor((x_hi - phi_x) / W)) + 1
+    r_lo = int(np.floor(-phi_y / tile_h))
+    r_hi = int(np.ceil((pattern_top - phi_y) / tile_h))
+    return [(c * W + phi_x, r * tile_h + phi_y)
+            for c in range(c_lo, c_hi + 1)
+            for r in range(r_lo, r_hi + 1)]
+
+
 def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
-                      top_inset=0.0):
+                      top_inset=0.0, offset=(0.0, 0.0)):
     """Yield (index, GoreFrame) per gore; the frame is None if degenerate.
 
     A gore is degenerate when it has no width at the base or the pattern's
@@ -338,18 +357,15 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
             return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
 
         x_lo, x_hi = xc - hw0, xc + hw0
-        c_lo = int(np.floor(x_lo / W)) - 1
-        c_hi = int(np.floor(x_hi / W)) + 1
-        n_rows = int(np.ceil(pattern_top / tile_h)) + 1
-        tiles = [(c * W, r * tile_h)
-                 for c in range(c_lo, c_hi + 1) for r in range(n_rows)]
+        tiles = _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset)
         yield i, GoreFrame(index=i, warp=warp, x_lo=x_lo, x_hi=x_hi,
                            pattern_top=pattern_top, tiles=tiles, k=k,
                            tile_h=tile_h)
 
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
-                    resolution, corner_cos=_CORNER_COS, top_inset=0.0):
+                    resolution, corner_cos=_CORNER_COS, top_inset=0.0,
+                    offset=(0.0, 0.0)):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
@@ -358,10 +374,16 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
     `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
     rect, so the pattern stops short of the top; 0 fills the whole gore.
+
+    `offset` is (phi_x, phi_y) in mm of master space: phi_x spins the pattern
+    around the object (period W = circumference/repeats_x), phi_y slides it up
+    the strip (period tile_h). Both are periodic, so any value is as valid as
+    any other -- the tiling stays seamless.
     """
     geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
     for i, frame in _iter_gore_frames(pattern, placements, outlines,
-                                      circumference, repeats_x, top_inset):
+                                      circumference, repeats_x, top_inset,
+                                      offset):
         subpaths = []
         if frame is not None:
             for dx, dy in frame.tiles:
