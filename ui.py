@@ -2,6 +2,8 @@
 
 import bpy
 
+from . import operators
+
 
 # `separator(type=...)` post-dates 4.2, the version floor in the manifest, so
 # ask the RNA rather than guessing from a version number.
@@ -88,6 +90,32 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             if props.has_preview and props.pattern_repeats_x:
                 per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
                 col.label(text=f"~ {per_gore:.2f} repeats per gore", icon="INFO")
+
+            _divider(box)
+            col = box.column(align=True)
+            _labeled(col, props, "pattern_placement_mode")
+            if props.pattern_placement_mode == "AUTO":
+                _labeled(col, props, "pattern_min_feature")
+                col.prop(props, "pattern_slide_vertically")
+                col.operator("gorewrap.optimize_placement", icon="SHADERFX")
+                stale = (props.has_pattern_fit
+                         and props.pattern_fit_stamp
+                         != operators.placement_stamp(props,
+                                                      context.active_object))
+                if not props.has_pattern_fit:
+                    col.label(text="Not optimized", icon="INFO")
+                elif stale:
+                    col.label(text="Placement is stale", icon="ERROR")
+                else:
+                    col.label(text=f"{props.pattern_orphans} orphans "
+                                   f"(was {props.pattern_orphans_base})",
+                              icon="CHECKMARK")
+                col.label(text=f"at {props.pattern_rotation:.1f}°, "
+                               f"rise {props.pattern_rise:.1f} mm")
+            else:
+                adv = col.column(align=True)
+                adv.prop(props, "pattern_rotation")
+                adv.prop(props, "pattern_rise")
 
             _divider(box)
             col = box.column(align=True)

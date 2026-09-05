@@ -81,6 +81,35 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="How many times the pattern tiles around the full "
                     "circumference (fit exactly, for seamlessness)",
         default=12, min=1, soft_max=64)
+    pattern_placement_mode: bpy.props.EnumProperty(
+        name="Placement",
+        description="How the pattern is positioned on the gores",
+        items=[
+            ("AUTO", "Automatic",
+             "Search for a placement that minimizes orphaned fragments"),
+            ("MANUAL", "Manual", "Place the pattern by hand"),
+        ],
+        default="AUTO")
+    pattern_min_feature: bpy.props.FloatProperty(
+        name="Min Feature (mm)",
+        description="Smallest fragment of material that survives weeding and "
+                    "transfer; the search avoids leaving anything smaller",
+        default=3.0, min=0.05, max=20.0)
+    pattern_slide_vertically: bpy.props.BoolProperty(
+        name="Slide Vertically",
+        description="Also search up and down the strip, not just around the "
+                    "object. Slower, and it moves what the base and top cuts "
+                    "pass through",
+        default=False)
+    pattern_rotation: bpy.props.FloatProperty(
+        name="Rotation",
+        description="Spin the pattern around the object (degrees); the tiling "
+                    "repeats every 360 / Repeats Around",
+        default=0.0)
+    pattern_rise: bpy.props.FloatProperty(
+        name="Rise (mm)",
+        description="Slide the pattern up the strip",
+        default=0.0)
     pattern_smooth: bpy.props.BoolProperty(
         name="Smooth to Curves",
         description="Fit the warped pattern to smooth cubic bezier curves so the "
@@ -158,3 +187,9 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
     derived_circumference: bpy.props.FloatProperty(default=0.0)
     fit_error_mm: bpy.props.FloatProperty(default=0.0)
     interp_fraction: bpy.props.FloatProperty(default=0.0)
+
+    # Readouts written by the Optimize Placement operator.
+    has_pattern_fit: bpy.props.BoolProperty(default=False)
+    pattern_orphans: bpy.props.IntProperty(default=0)
+    pattern_orphans_base: bpy.props.IntProperty(default=0)
+    pattern_fit_stamp: bpy.props.StringProperty(default="")
