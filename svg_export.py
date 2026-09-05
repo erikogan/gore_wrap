@@ -162,10 +162,19 @@ def _xml_comment_safe(text):
     """Make any string legal inside an XML comment.
 
     `--` cannot appear in a comment and one cannot end in `-`. Callers here
-    only pass numbers, but the guard costs two lines and means write_svg can
+    only pass numbers, but the guard costs a few lines and means write_svg can
     never emit a malformed file whatever it is handed.
+
+    A single `str.replace("--", "- -")` pass is NOT enough: replace() matches
+    non-overlapping left to right, so on an odd run of 3+ hyphens the leftover
+    hyphen recombines with the inserted space's trailing hyphen and re-forms
+    "--" (e.g. "---" -> "- --", still illegal). Looping until no "--" remains
+    fixes that; each pass strictly reduces the count of adjacent hyphen pairs,
+    so it terminates.
     """
-    return text.replace("--", "- -").rstrip("-")
+    while "--" in text:
+        text = text.replace("--", "- -")
+    return text.rstrip("-")
 
 
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,

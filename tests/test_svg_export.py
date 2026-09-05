@@ -203,7 +203,16 @@ def test_write_svg_without_a_comment_emits_none(zero_layout, tmp_path):
     assert "<!--" not in path.read_text()
 
 
-def test_write_svg_neutralizes_double_hyphens(zero_layout, tmp_path):
+@pytest.mark.parametrize("comment", [
+    "a -- b ---",       # the original case: residual pair lands at the end
+    "a --- b",          # odd run of 3 in the middle: naive replace leaves "--"
+    "x ----- y",        # odd run of 5 in the middle
+    "ends with -",      # single trailing hyphen, no pair at all
+    "---",              # all hyphens, nothing else
+])
+def test_write_svg_neutralizes_arbitrary_hyphen_runs(zero_layout, tmp_path, comment):
     path = tmp_path / "out.svg"
-    svg_export.write_svg(str(path), zero_layout, comment="a -- b ---")
-    ET.fromstring(path.read_text())   # would raise on an illegal comment
+    svg_export.write_svg(str(path), zero_layout, comment=comment)
+    text = path.read_text()
+    assert "--" not in text.split("-->")[0].split("<!--")[1]
+    ET.fromstring(text)   # would raise on an illegal comment
