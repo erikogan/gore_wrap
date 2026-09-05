@@ -114,7 +114,7 @@ class GoreFrame:
 
 def _iter_gore_frames(pattern, placements, outlines, circumference,
                       repeats_x, top_inset=0.0):
-    """Yield one GoreFrame per gore, or None for a degenerate gore."""
+    """Yield (index, GoreFrame) per gore; the frame is None if degenerate."""
 ```
 
 This is the refactor commit's signature, with no `offset` parameter — the
@@ -215,6 +215,10 @@ is the right answer.
    phase against the tile grid is `xc_i mod W`, repeating with period
    `n / gcd(n, repeats_x)`. Twelve strips at six repeats needs two gores scored,
    not twelve. In fitted mode every outline differs, so all `n` are scored.
+   **Held back pending measurement**, like the batched clip below: it needs the
+   per-phase weighting to be right to stay correct, and that is not a risk worth
+   taking for an unknown gain. If the measured search proves uncomfortable this
+   is the first lever to reach for, ahead of a batched clip.
 
 **Search cost is unmeasured.** The estimate is single-digit seconds for a 2-D
 search on a typical averaged cup, but that rests on a guess at Python-level
@@ -240,7 +244,9 @@ class FitScore:
     worst: float      # smallest q seen, for diagnostics
 
 def score_placement(pattern, placements, outlines, circumference, repeats_x,
-                    min_feature, offset=(0.0, 0.0), top_inset=0.0) -> FitScore
+                    min_feature, offset=(0.0, 0.0), top_inset=0.0,
+                    prepared=None) -> FitScore
+    # `prepared` carries the sample-once result across a search's many calls
 
 def search_placement(pattern, placements, outlines, circumference, repeats_x,
                      min_feature, slide_vertically, top_inset=0.0):
@@ -251,7 +257,7 @@ def fingerprint(**values) -> str:
 ```
 
 `search_placement` is a generator that yields progress and returns its result,
-matching the shape of `export_job.run`, so the existing modal progress and
+matching the shape of `export_job.export_steps`, so the existing modal progress and
 Esc-to-cancel machinery in `operators.py` is reused rather than reinvented. The
 baseline `FitScore` at offset `(0, 0)` is what lets the UI say "3 orphans, was
 47".
@@ -367,7 +373,9 @@ predictable, and the placement in the file is always the one the user can see.
 Export operators: `_validate`, then `_run(obj, context)` for the `GoreResult`,
 `svg_export.layout(...)` for placements, `load_pattern`, and
 `resolve_top_inset`. It drives `search_placement` through the same modal
-progress and Esc-to-cancel machinery `export_job.run` already uses. On success
+progress and Esc-to-cancel machinery `GOREWRAP_OT_export` already uses --
+extracted into a shared `_ModalJob` mixin so both operators drive it from one
+implementation. On success
 it converts `phi_x` to degrees and writes the five readout properties.
 Cancelling leaves every property untouched.
 
