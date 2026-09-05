@@ -1,3 +1,5 @@
+import hashlib
+
 import numpy as np
 import pytest
 
@@ -299,3 +301,82 @@ def test_top_edge_line_is_none_when_inset_exceeds_the_gore():
     top = float(outlines[0][:, 1].max())
     assert pattern_warp.top_edge_line(
         layout.placements[0][1], outlines[0], top + 1.0) is None
+
+
+def _warp_digest(tmp_path, svg, repeats, resolution, top_inset):
+    """Exact fingerprint of every control point iter_warp_gores emits."""
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, svg))
+    h = hashlib.sha1()
+    for i, subpaths in pattern_warp.iter_warp_gores(
+            pattern, layout.placements, outlines, 2 * np.pi * 40.0, repeats,
+            resolution, top_inset=top_inset):
+        h.update(f"gore{i}|".encode())
+        for cubics, closed in subpaths:
+            h.update(f"sub{closed}|".encode())
+            for pt in np.asarray(cubics).reshape(-1, 2):
+                h.update(f"{pt[0]:.6f},{pt[1]:.6f}|".encode())
+    return h.hexdigest()
+
+
+# Pins the exact warp output so the frame extraction is provably inert. If a
+# deliberate change to the warp makes these fail, regenerate them with
+#   make test PYTEST_ARGS='-k print_warp_digests -s'
+# and state in the commit message why the geometry changed.
+WARP_GOLDEN = {
+    ("SIMPLE", 24, 0.05, 0.0): "393d875155bb23f27e17f8dd183b763ba6a60daa",
+    ("CURVE", 24, 0.02, 0.0): "d6386dbbf874839a64b7d01fca9463ee3cfae2c3",
+    ("CURVE", 8, 0.02, 30.0): "f58784e6cd8747b3dc26247162c7518d2fdc61ba",
+    ("FULL_CELL", 12, 0.05, 0.0): "2ac470ec91a323fd0e4c574e47830d8320b18e29",
+}
+
+_GOLDEN_SVGS = {"SIMPLE": SIMPLE_SVG, "CURVE": CURVE_SVG,
+                "FULL_CELL": FULL_CELL_SVG}
+
+
+@pytest.mark.parametrize("key", list(WARP_GOLDEN))
+def test_warp_output_matches_golden(tmp_path, key):
+    name, repeats, resolution, top_inset = key
+    got = _warp_digest(tmp_path, _GOLDEN_SVGS[name], repeats, resolution,
+                       top_inset)
+    assert got == WARP_GOLDEN[key]
+
+
+@pytest.mark.skip(reason="regenerates WARP_GOLDEN; run with -s when needed")
+def test_print_warp_digests(tmp_path):
+    for key in WARP_GOLDEN:
+        name, repeats, resolution, top_inset = key
+        print(f'    {key!r}: '
+              f'"{_warp_digest(tmp_path, _GOLDEN_SVGS[name], repeats, resolution, top_inset)}",')
+
+
+def test_gore_frame_is_none_when_pattern_top_is_cut_away(tmp_path):
+    # A top_inset past the apex leaves no room for the pattern at all.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+    top = float(outlines[0][:, 1].max())
+    frames = list(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24,
+        top_inset=top + 1.0))
+    assert all(frame is None for _i, frame in frames)
+    assert [i for i, _f in frames] == list(range(len(layout.placements)))
+
+
+def test_iter_warp_gores_yields_empty_for_degenerate_gores(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+    top = float(outlines[0][:, 1].max())
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.05,
+        top_inset=top + 1.0))
+    assert all(v == [] for v in groups.values())
+
+
+def test_gore_frames_cover_the_rect_vertically(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+    _i, frame = next(iter(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24)))
+    ys = sorted({dy for _dx, dy in frame.tiles})
+    assert ys[0] <= 0.0 < ys[0] + frame.tile_h
+    assert ys[-1] + frame.tile_h >= frame.pattern_top

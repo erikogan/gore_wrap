@@ -277,6 +277,77 @@ def top_edge_line(poly, outline, top_inset):
                      [tx + float(right_x(y)), base_y - y]])
 
 
+def _tile_metrics(pattern, circumference, repeats_x):
+    """Return (W, k, tile_h): tile width in mm, pattern px -> mm, tile height.
+
+    Named because three callers need it independently -- frame construction,
+    the placement search (which needs W to know its own period), and the UI
+    (which converts that period to degrees).
+    """
+    W = circumference / repeats_x
+    k = W / pattern.px_width
+    return W, k, pattern.px_height * k
+
+
+@dataclass
+class GoreFrame:
+    """Everything needed to place pattern tiles into one gore.
+
+    Bundled rather than passed as loose arguments: these values always travel
+    together, and threading eight of them through every caller is how the
+    exporter and the scorer would drift apart.
+    """
+    index: int
+    warp: object        # (mx, my) -> (fx, fy); scalars or numpy arrays
+    x_lo: float         # master-space gore rect
+    x_hi: float
+    pattern_top: float
+    tiles: list         # [(dx, dy), ...] tile origins overlapping the rect
+    k: float
+    tile_h: float
+
+
+def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
+                      top_inset=0.0):
+    """Yield (index, GoreFrame) per gore; the frame is None if degenerate.
+
+    A gore is degenerate when it has no width at the base or the pattern's
+    ceiling has been pushed to or below the baseline; it gets no tiles at all.
+    """
+    n = len(placements)
+    W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    for (i, poly), outline in zip(placements, outlines):
+        tx = poly[0, 0] - outline[0, 0]
+        base_y = poly[0, 1] + outline[0, 1]
+        top, _left_x, right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
+        hw0 = float(right_x(0.0))
+        if hw0 <= 1e-9 or pattern_top <= 0.0:
+            yield i, None
+            continue
+        xc = (i + 0.5) * circumference / n
+
+        # Defaults bind the loop variables at definition time. The old inline
+        # closure was consumed in the same iteration so late binding never
+        # showed; a caller that collects frames first would see every warp use
+        # the last gore's values.
+        def warp(mx, my, tx=tx, xc=xc, hw0=hw0, right_x=right_x, base_y=base_y):
+            # Works for scalars (adaptive sampler) and numpy arrays (final
+            # pass) -- np.interp inside right_x handles both. One definition,
+            # so the sampler and the final warp can never drift apart.
+            return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
+
+        x_lo, x_hi = xc - hw0, xc + hw0
+        c_lo = int(np.floor(x_lo / W)) - 1
+        c_hi = int(np.floor(x_hi / W)) + 1
+        n_rows = int(np.ceil(pattern_top / tile_h)) + 1
+        tiles = [(c * W, r * tile_h)
+                 for c in range(c_lo, c_hi + 1) for r in range(n_rows)]
+        yield i, GoreFrame(index=i, warp=warp, x_lo=x_lo, x_hi=x_hi,
+                           pattern_top=pattern_top, tiles=tiles, k=k,
+                           tile_h=tile_h)
+
+
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                     resolution, corner_cos=_CORNER_COS, top_inset=0.0):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
@@ -288,61 +359,39 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
     `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
     rect, so the pattern stops short of the top; 0 fills the whole gore.
     """
-    n = len(placements)
-    W = circumference / repeats_x
-    k = W / pattern.px_width
-    tile_h = pattern.px_height * k
     geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
-    for (i, poly), outline in zip(placements, outlines):
-        tx = poly[0, 0] - outline[0, 0]
-        base_y = poly[0, 1] + outline[0, 1]
-        top, _left_x, right_x = _edge_profiles(outline)
-        pattern_top = top - top_inset if top_inset > 0.0 else top
-        hw0 = float(right_x(0.0))
+    for i, frame in _iter_gore_frames(pattern, placements, outlines,
+                                      circumference, repeats_x, top_inset):
         subpaths = []
-        if hw0 > 1e-9 and pattern_top > 0.0:
-            xc = (i + 0.5) * circumference / n
-            x_lo, x_hi = xc - hw0, xc + hw0
-
-            def warp(mx, my):
-                # Works for scalars (adaptive sampler) and numpy arrays (final
-                # pass) — np.interp inside right_x handles both. One definition,
-                # so the sampler and the final warp can never drift apart.
-                return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
-
-            c_lo = int(np.floor(x_lo / W)) - 1
-            c_hi = int(np.floor(x_hi / W)) + 1
-            n_rows = int(np.ceil(pattern_top / tile_h)) + 1
-            for c in range(c_lo, c_hi + 1):
-                dx = c * W
-                for r in range(n_rows):
-                    dy = r * tile_h
-                    for segs, corners, closed in geoms:
-                        if not segs:
-                            continue
-                        mpts, mmask = _sample_subpath_master(
-                            segs, corners, k, dx, dy, tile_h, warp,
-                            _sample_tol(resolution))
-                        cpts, cmask = clip_to_rect_flagged(
-                            mpts, mmask, x_lo, x_hi, 0.0, pattern_top)
-                        if cpts is None:
-                            continue
-                        fx, fy = warp(cpts[:, 0], cpts[:, 1])
-                        wpts = np.column_stack([fx, fy])
-                        corner_idx = np.nonzero(cmask)[0]
-                        # fit_beziers is always called with closed=False: a
-                        # closed subpath's implicit Close edge is already
-                        # sampled (see _subpath_geometry, which appends it as a
-                        # real Line), so the point run returns to ~the start on
-                        # its own and open-run fitting covers the whole loop.
-                        # The subpath's real `closed` flag rides in the tuple
-                        # below so the renderer still emits a (now ~zero-length)
-                        # `Z`. Passing closed=True instead would mishandle the
-                        # duplicated start point where the run rejoins itself.
-                        cubics = bezier_fit.fit_beziers(
-                            wpts, corner_idx, False, resolution)
-                        if cubics:
-                            subpaths.append((cubics, closed))
+        if frame is not None:
+            for dx, dy in frame.tiles:
+                for segs, corners, closed in geoms:
+                    if not segs:
+                        continue
+                    mpts, mmask = _sample_subpath_master(
+                        segs, corners, frame.k, dx, dy, frame.tile_h,
+                        frame.warp, _sample_tol(resolution))
+                    cpts, cmask = clip_to_rect_flagged(
+                        mpts, mmask, frame.x_lo, frame.x_hi, 0.0,
+                        frame.pattern_top)
+                    if cpts is None:
+                        continue
+                    fx, fy = frame.warp(cpts[:, 0], cpts[:, 1])
+                    wpts = np.column_stack([fx, fy])
+                    corner_idx = np.nonzero(cmask)[0]
+                    # fit_beziers is always called with closed=False: a closed
+                    # subpath's implicit Close edge is already sampled (see
+                    # _subpath_geometry, which appends it as a real Line), so
+                    # the point run returns to ~the start on its own and
+                    # open-run fitting covers the whole loop. The subpath's
+                    # real `closed` flag rides in the tuple below so the
+                    # renderer still emits a (now ~zero-length) `Z`. Passing
+                    # closed=True instead would mishandle the duplicated start
+                    # point where the run rejoins itself.
+                    cubics = bezier_fit.fit_beziers(wpts, corner_idx, False,
+                                                    resolution)
+                    if cubics:
+                        subpaths.append((cubics, closed))
         yield i, subpaths
 
 
