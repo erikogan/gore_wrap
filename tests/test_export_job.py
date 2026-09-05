@@ -12,7 +12,9 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_smooth=True, pattern_simplify_mode="VISUAL",
                   pattern_simplify_tol=0.1, pattern_corner_angle=30.0,
                   pattern_limit_top=False, pattern_top_offset=0.0,
-                  pattern_top_mode="SURFACE")
+                  pattern_top_mode="SURFACE",
+                  pattern_rotation=0.0, pattern_rise=0.0,
+                  pattern_min_feature=3.0)
 
 
 def _result():
@@ -101,7 +103,7 @@ def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypat
     captured = {}
 
     def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
-                  corner_cos, top_inset=0.0):
+                  corner_cos, top_inset=0.0, offset=(0.0, 0.0)):
         captured["resolution"] = resolution
         captured["corner_cos"] = corner_cos
         return iter(())
@@ -174,3 +176,32 @@ def test_export_steps_limit_past_the_apex_leaves_no_pattern(tmp_path):
         _result(), _limited(tmp_path, pattern_top_offset=1000.0),
         str(tmp_path / "g.svg")))
     assert summary.pattern_empty is True
+
+
+# --- placement comment -------------------------------------------------------
+
+def test_export_writes_a_placement_comment(tmp_path):
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_rotation": 12.4, "pattern_rise": 3.0}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    text = open(out).read()
+    assert "rotation 12.400 deg" in text and "rise 3.000 mm" in text
+
+
+def test_no_placement_comment_without_a_pattern(tmp_path):
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), NO_PATTERN, out))
+    assert "<!--" not in open(out).read()
+
+
+def test_rotation_moves_the_pattern(tmp_path):
+    # A non-zero rotation must actually change the emitted geometry.
+    base_params = {**NO_PATTERN, "use_pattern": True,
+                   "pattern_svg": _write_pattern(tmp_path)}
+    a, b = str(tmp_path / "a.svg"), str(tmp_path / "b.svg")
+    _drain(export_job.export_steps(_result(), base_params, a))
+    _drain(export_job.export_steps(
+        _result(), {**base_params, "pattern_rotation": 7.5}, b))
+    assert open(a).read() != open(b).read()
