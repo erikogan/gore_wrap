@@ -158,8 +158,18 @@ def _bezier_path_d(cubics, closed):
     return " ".join(cmds)
 
 
+def _xml_comment_safe(text):
+    """Make any string legal inside an XML comment.
+
+    `--` cannot appear in a comment and one cannot end in `-`. Callers here
+    only pass numbers, but the guard costs two lines and means write_svg can
+    never emit a malformed file whatever it is handed.
+    """
+    return text.replace("--", "- -").rstrip("-")
+
+
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
-              edge_lines=None):
+              edge_lines=None, comment=None):
     """Write the placed strips to a real-scale SVG for Silhouette Studio.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
@@ -169,12 +179,16 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
     edge_lines is a non-empty list of (2, 2) segments — the straight cut closing
     off a height-limited pattern — they go in their own `pattern-edge` group so
     they can be handled separately from both the pattern and the outlines.
+
+    `comment` is written as an XML comment between the declaration and the
+    root element, recording the pattern placement that produced the file.
     """
-    lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    if comment:
+        lines.append(f"<!-- {_xml_comment_safe(comment)} -->")
+    lines.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{mat:.0f}mm" '
-        f'height="{mat:.0f}mm" viewBox="0 0 {mat:.0f} {mat:.0f}">',
-    ]
+        f'height="{mat:.0f}mm" viewBox="0 0 {mat:.0f} {mat:.0f}">')
     if pattern_polys:
         lines.append('  <g id="pattern" fill="none" stroke="#000000" '
                      'stroke-width="0.2">')

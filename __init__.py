@@ -5,6 +5,9 @@ The top level imports no bpy so `gore_wrap.geometry`, `.svg_export`, and
 imported lazily inside register().
 """
 
+# Kept in step with blender_manifest.toml by tests/test_manifest.py.
+__version__ = "0.8.0"
+
 
 def register():
     from . import registry

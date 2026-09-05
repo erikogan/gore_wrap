@@ -12,6 +12,19 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import geometry, svg_export, pattern_warp
+from . import __version__ as _VERSION
+
+
+def placement_comment(rotation_deg, rise_mm, min_feature, repeats_x):
+    """One-line provenance for the SVG: which placement produced this file.
+
+    Numbers and the version only -- no user-supplied strings. A filename would
+    have to be sanitized into a structural position, and dropping it removes
+    that whole class of problem for a little reproducibility.
+    """
+    return (f"Gore Wrap {_VERSION} | placement: rotation {rotation_deg:.3f} "
+            f"deg, rise {rise_mm:.3f} mm | min feature {min_feature:.2f} mm, "
+            f"repeats {repeats_x}")
 
 
 @dataclass
@@ -74,8 +87,9 @@ def export_steps(result, params, filepath):
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
-    pattern_limit_top, pattern_top_offset, pattern_top_mode. Returns an
-    ExportSummary via StopIteration.value.
+    pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
+    pattern_rise, pattern_min_feature. Returns an ExportSummary via
+    StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
     """
     yield 0.0, "Laying out strips…"
@@ -83,11 +97,18 @@ def export_steps(result, params, filepath):
 
     pattern_polys = None
     edge_lines = None
+    comment = None
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
         yield 0.10, "Preparing pattern…"
         circ = result.dims.bottom_circumference
+        offset = (circ * params["pattern_rotation"] / 360.0,
+                  params["pattern_rise"])
+        comment = placement_comment(params["pattern_rotation"],
+                                    params["pattern_rise"],
+                                    params["pattern_min_feature"],
+                                    params["pattern_repeats_x"])
         n = len(layout.placements)
         pattern_polys = []
         top_inset = 0.0
@@ -113,7 +134,7 @@ def export_steps(result, params, filepath):
         for i, subpaths in pattern_warp.iter_warp_gores(
                 pattern, layout.placements, result.outlines, circ,
                 params["pattern_repeats_x"], resolution, corner_cos,
-                top_inset=top_inset):
+                top_inset=top_inset, offset=offset):
             if params["pattern_smooth"]:
                 pattern_polys.extend(subpaths)
             else:
@@ -122,7 +143,8 @@ def export_steps(result, params, filepath):
 
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],
-                         pattern_polys=pattern_polys, edge_lines=edge_lines)
+                         pattern_polys=pattern_polys, edge_lines=edge_lines,
+                         comment=comment)
     yield 1.0, "Done"
     return ExportSummary(n_strips=len(layout.placements),
                          pattern_empty=params["use_pattern"] and not pattern_polys)

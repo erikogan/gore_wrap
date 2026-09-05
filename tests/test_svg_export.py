@@ -184,3 +184,26 @@ def test_write_svg_emits_pattern_edge_group(zero_layout, tmp_path):
 def test_write_svg_no_pattern_edge_group_when_absent(svg_root_no_labels):
     ids = {g.get("id") for g in svg_root_no_labels.findall(f".//{{{SVG_NS}}}g")}
     assert "pattern-edge" not in ids
+
+
+# --- placement comment -------------------------------------------------------
+
+def test_write_svg_emits_the_placement_comment(zero_layout, tmp_path):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout,
+                         comment="placement: rotation 12.400 deg")
+    text = path.read_text()
+    assert "<!-- placement: rotation 12.400 deg -->" in text
+    ET.fromstring(text)          # still well-formed
+
+
+def test_write_svg_without_a_comment_emits_none(zero_layout, tmp_path):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout)
+    assert "<!--" not in path.read_text()
+
+
+def test_write_svg_neutralizes_double_hyphens(zero_layout, tmp_path):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout, comment="a -- b ---")
+    ET.fromstring(path.read_text())   # would raise on an illegal comment

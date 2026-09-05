@@ -64,3 +64,13 @@ def test_no_exclude_pattern_alongside_paths():
     with open(ROOT / "blender_manifest.toml", "rb") as fh:
         build = tomllib.load(fh)["build"]
     assert "paths_exclude_pattern" not in build
+
+
+def test_version_constant_matches_the_manifest():
+    import tomllib
+    from pathlib import Path
+    import gore_wrap
+    manifest = tomllib.loads(
+        (Path(__file__).resolve().parent.parent
+         / "blender_manifest.toml").read_text())
+    assert gore_wrap.__version__ == manifest["version"]
