@@ -14,6 +14,23 @@ width="40" height="40"><rect x="10" y="10" width="20" height="20"/></svg>'''
 FULL_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40"><rect x="0" y="0" width="40" height="40"/></svg>'''
 
+# Occupies most of a tile's height, leaving margin only at left/right and a
+# sliver top and bottom. On the 12-strip cylinder fixture this gore's
+# pattern_top (162.8084) is not a whole number of tiles (162.8084 / 20.9440 =
+# 7.774), so every gore has one partial top row that is only valid up to
+# local y=16.2007 -- the rest of that row is clipped away regardless of
+# phi_x. This rect's local y span is [1.047, 19.897], which straddles that
+# clip line, so it is always cut at the ceiling no matter how it is spun
+# around the cylinder. Lowering the ceiling (top_inset) far enough that the
+# pattern no longer reaches that partial row removes the cut entirely;
+# sliding vertically instead moves the row grid clear of it (the search
+# finds phi_y=15.708 = 0.75 * tile_h). See
+# test_search_finds_a_planted_gap_by_sliding_vertically and
+# test_top_inset_changes_the_score.
+GAP_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+           'width="40" height="40">'
+           '<rect x="2" y="2" width="16" height="36"/></svg>')
+
 
 def _write(tmp_path, text, name="pat.svg"):
     p = tmp_path / name
@@ -150,23 +167,14 @@ def test_search_never_returns_worse_than_the_baseline(tmp_path):
 
 
 def test_search_finds_a_planted_gap_by_sliding_vertically(tmp_path, monkeypatch):
-    # A tile whose shape occupies most of its height but leaves a margin at
-    # top and bottom. This gore's pattern_top (162.8084) is not a whole number
-    # of tiles (162.8084 / 20.9440 = 7.774), so every gore has one partial top
-    # row that is only valid up to local y=16.2007 -- the rest of that row is
-    # clipped away regardless of phi_x. This rect's local y span is
-    # [1.047, 19.897], which straddles that clip line no matter how it is spun
-    # around the cylinder: a horizontal-only search can never reach zero
-    # orphans here (confirmed empirically -- scanning the whole period at
+    # See GAP_SVG's comment for why a horizontal-only search can never reach
+    # zero orphans here (confirmed empirically -- scanning the whole period at
     # phi_y=0 never drops below 12 orphans). Only sliding vertically moves the
-    # row grid enough to clear the clip: the search finds phi_y=15.708
-    # (= 0.75 * tile_h), which lifts the shape's copy entirely clear of the
-    # gore's ceiling and leaves nothing for any edge to cut.
-    gap_svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
-               'width="40" height="40">'
-               '<rect x="2" y="2" width="16" height="36"/></svg>')
+    # row grid enough to clear the ceiling clip: the search finds
+    # phi_y=15.708 (= 0.75 * tile_h), which lifts the shape's copy entirely
+    # clear of the gore's ceiling and leaves nothing for any edge to cut.
     layout, outlines = _cylinder_gores(n_strips=12)
-    pattern = pattern_warp.load_pattern(_write(tmp_path, gap_svg))
+    pattern = pattern_warp.load_pattern(_write(tmp_path, GAP_SVG))
     circ = 2 * np.pi * 40.0
     # The 2-D coarse grid is the expensive part of this search (~13s at the
     # default COARSE_2D=24) and a finer grid buys nothing here: 15.708 is
@@ -195,6 +203,56 @@ def test_search_with_vertical_slide_can_move_both_axes(tmp_path):
         slide_vertically=True))
     phi_x, phi_y = offset
     assert 0.0 <= phi_y < tile_h
+
+
+def test_top_inset_changes_the_score(tmp_path):
+    # GAP_SVG is always cut at offset (0, 0) because its top edge reaches
+    # into the gore's one partial top row (see GAP_SVG's comment) -- that is
+    # a ceiling clip, not a seam between pattern repeats. Pulling the ceiling
+    # down with top_inset far enough that the pattern no longer reaches that
+    # row should remove the cut entirely, not just shrink it.
+    layout, outlines = _cylinder_gores(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, GAP_SVG))
+    circ = 2 * np.pi * 40.0
+    low_ceiling = pattern_fit.score_placement(
+        pattern, layout.placements, outlines, circ, 12, 3.0, top_inset=0.0)
+    high_ceiling = pattern_fit.score_placement(
+        pattern, layout.placements, outlines, circ, 12, 3.0, top_inset=20.0)
+    assert low_ceiling.orphans > 0
+    assert high_ceiling.orphans == 0
+    assert low_ceiling.score > high_ceiling.score
+
+
+def test_top_inset_shrinks_the_tile_set(tmp_path):
+    # Structural check on the plumbing, independent of the scoring metric:
+    # a larger top_inset lowers pattern_top and can only remove tiles from
+    # the gore, never add them.
+    layout, outlines = _cylinder_gores(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SQUARE_SVG))
+    circ = 2 * np.pi * 40.0
+    frames_full = dict(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, circ, 12, 0.0, (0.0, 0.0)))
+    frames_capped = dict(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, circ, 12, 20.0, (0.0, 0.0)))
+    full, capped = frames_full[0], frames_capped[0]
+    assert capped.pattern_top < full.pattern_top
+    assert len(capped.tiles) <= len(full.tiles)
+
+
+def test_search_honors_top_inset(tmp_path):
+    # 1-D only (slide_vertically defaults to False) to stay cheap -- this is
+    # a plumbing check that search_placement's top_inset reaches score_at,
+    # not another exercise of the search itself.
+    layout, outlines = _cylinder_gores(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, GAP_SVG))
+    circ = 2 * np.pi * 40.0
+    (_off0, _best0, baseline0), _f0 = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, outlines, circ, 12, 3.0, top_inset=0.0))
+    (_off1, _best1, baseline1), _f1 = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, outlines, circ, 12, 3.0, top_inset=20.0))
+    assert baseline0.orphans > 0
+    assert baseline1.orphans == 0
+    assert baseline0.score != baseline1.score
 
 
 def test_fingerprint_is_stable_and_order_independent():
