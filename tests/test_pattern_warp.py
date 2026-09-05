@@ -303,14 +303,15 @@ def test_top_edge_line_is_none_when_inset_exceeds_the_gore():
         layout.placements[0][1], outlines[0], top + 1.0) is None
 
 
-def _warp_digest(tmp_path, svg, repeats, resolution, top_inset):
+def _warp_digest(tmp_path, svg, repeats, resolution, top_inset,
+                  offset=(0.0, 0.0)):
     """Exact fingerprint of every control point iter_warp_gores emits."""
     layout, outlines = _one_gore_layout()
     pattern = pattern_warp.load_pattern(_write(tmp_path, svg))
     h = hashlib.sha1()
     for i, subpaths in pattern_warp.iter_warp_gores(
             pattern, layout.placements, outlines, 2 * np.pi * 40.0, repeats,
-            resolution, top_inset=top_inset):
+            resolution, top_inset=top_inset, offset=offset):
         h.update(f"gore{i}|".encode())
         for cubics, closed in subpaths:
             h.update(f"sub{closed}|".encode())
@@ -348,6 +349,62 @@ def test_print_warp_digests(tmp_path):
         name, repeats, resolution, top_inset = key
         print(f'    {key!r}: '
               f'"{_warp_digest(tmp_path, _GOLDEN_SVGS[name], repeats, resolution, top_inset)}",')
+
+
+def test_zero_offset_is_identical_to_no_offset(tmp_path):
+    base = _warp_digest(tmp_path, SIMPLE_SVG, 24, 0.05, 0.0)
+    zero = _warp_digest(tmp_path, SIMPLE_SVG, 24, 0.05, 0.0,
+                         offset=(0.0, 0.0))
+    assert zero == base
+
+
+def test_offset_of_one_tile_width_reproduces_zero(tmp_path):
+    # The tiling is periodic in W, so shifting by exactly one tile must give
+    # back the identical cut file. The strongest invariant the offset has.
+    circ = 2 * np.pi * 40.0
+    repeats = 24
+    W = circ / repeats
+    base = _warp_digest(tmp_path, SIMPLE_SVG, repeats, 0.05, 0.0)
+    shifted = _warp_digest(tmp_path, SIMPLE_SVG, repeats, 0.05, 0.0,
+                           offset=(W, 0.0))
+    assert shifted == base
+
+
+def test_offset_of_one_tile_height_reproduces_zero(tmp_path):
+    circ = 2 * np.pi * 40.0
+    repeats = 24
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+    _W, _k, tile_h = pattern_warp._tile_metrics(pattern, circ, repeats)
+    base = _warp_digest(tmp_path, SIMPLE_SVG, repeats, 0.05, 0.0)
+    shifted = _warp_digest(tmp_path, SIMPLE_SVG, repeats, 0.05, 0.0,
+                           offset=(0.0, tile_h))
+    assert shifted == base
+
+
+def test_a_partial_offset_actually_moves_the_pattern(tmp_path):
+    circ = 2 * np.pi * 40.0
+    W = circ / 24
+    base = _warp_digest(tmp_path, SIMPLE_SVG, 24, 0.05, 0.0)
+    moved = _warp_digest(tmp_path, SIMPLE_SVG, 24, 0.05, 0.0,
+                         offset=(W / 3.0, 0.0))
+    assert moved != base
+
+
+def test_vertical_offset_still_covers_the_base(tmp_path):
+    # phi_y lifts the grid off y=0, so a row below the baseline is required.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SIMPLE_SVG))
+    circ = 2 * np.pi * 40.0
+    _W, _k, tile_h = pattern_warp._tile_metrics(pattern, circ, 24)
+    phi_y = 0.7 * tile_h
+    _i, frame = next(iter(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, circ, 24,
+        offset=(0.0, phi_y))))
+    ys = sorted({dy for _dx, dy in frame.tiles})
+    assert ys[0] <= 0.0, "no tile row covers the base of the gore"
+    assert ys[-1] + frame.tile_h >= frame.pattern_top
+    # and no gap between consecutive rows
+    assert all(abs(b - a - frame.tile_h) < 1e-9 for a, b in zip(ys, ys[1:]))
 
 
 def test_gore_frame_is_none_when_pattern_top_is_cut_away(tmp_path):
