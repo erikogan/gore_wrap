@@ -5,12 +5,13 @@ these operators are the glue that reads vertices, builds a preview surface, and
 writes the SVG.
 """
 
+import os
 import time
 
 import numpy as np
 import bpy
 
-from . import geometry, pipeline, svg_export, pattern_warp, export_job
+from . import geometry, pipeline, svg_export, pattern_warp, pattern_fit, export_job
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -242,6 +243,38 @@ def _make_preview_object(context, result, scale_factor, start_angle, highlight,
     return obj
 
 
+def placement_stamp(props, obj):
+    """Digest of everything an optimal placement depends on.
+
+    Compared against props.pattern_fit_stamp to tell the user their placement
+    has gone stale. The mesh is covered only by name and vertex count: hashing
+    a scan on every panel redraw is out of the question, so switching objects
+    and gross edits are caught while a single nudged vertex is not. The stat()
+    is one syscall per redraw, which is nothing next to what Blender already
+    does; an unreadable file simply reads as stale.
+    """
+    try:
+        st = os.stat(bpy.path.abspath(props.pattern_svg))
+        svg_stat = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        svg_stat = None
+    return pattern_fit.fingerprint(
+        svg=props.pattern_svg, svg_stat=svg_stat,
+        repeats_x=props.pattern_repeats_x,
+        min_feature=props.pattern_min_feature,
+        slide_vertically=props.pattern_slide_vertically,
+        strip_angle=props.strip_angle, mode=props.mode,
+        seam_offset=props.seam_offset, start_angle=props.start_angle,
+        crop_z=props.crop_z, smoothing_sigma=props.smoothing_sigma,
+        tolerance=props.tolerance, scale_factor=props.scale_factor,
+        limit_top=props.pattern_limit_top,
+        top_offset=props.pattern_top_offset,
+        top_mode=props.pattern_top_mode,
+        obj_name=obj.name if obj is not None else "",
+        n_verts=(len(obj.data.vertices)
+                 if obj is not None and obj.type == "MESH" else 0))
+
+
 class GOREWRAP_OT_preview(bpy.types.Operator):
     bl_idname = "gorewrap.preview"
     bl_label = "Preview Gores"
@@ -347,6 +380,14 @@ class GOREWRAP_OT_export(bpy.types.Operator):
                         "Choose a pattern SVG or turn off Fill With Pattern.")
             return {"CANCELLED"}
 
+        if (props.use_pattern
+                and props.pattern_placement_mode == "AUTO"
+                and props.has_pattern_fit
+                and props.pattern_fit_stamp != placement_stamp(props, obj)):
+            self.report({"WARNING"},
+                        "Pattern placement is stale — settings changed since "
+                        "Optimize. Exporting with the stored placement.")
+
         params = {
             "seam_offset": props.seam_offset,
             "labels": props.labels and props.mode == "FITTED",
@@ -361,6 +402,9 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             "pattern_limit_top": props.pattern_limit_top,
             "pattern_top_offset": props.pattern_top_offset,
             "pattern_top_mode": props.pattern_top_mode,
+            "pattern_rotation": props.pattern_rotation,
+            "pattern_rise": props.pattern_rise,
+            "pattern_min_feature": props.pattern_min_feature,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
         self._timer = None
