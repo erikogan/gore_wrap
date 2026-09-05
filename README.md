@@ -35,6 +35,9 @@ TBD.
       `--factory-startup` builds with none of your add-ons or preferences
       loaded, so the zip cannot depend on local configuration; it has to come
       before `--command`, which swallows every argument after it.
+
+      This is the command `make` runs, minus the cleanup it does afterwards, so
+      prefer `make` when you have it.
 2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
    and pick the zip. Works on Blender 4.2+ (tested on 4.5 LTS and 5.0).
 
@@ -63,7 +66,8 @@ TBD.
        in. See [Fitted mode: where to start
        applying](#fitted-mode-where-to-start-applying) below.
 5. Trim the base and preview:
-   - **Bottom Crop** — discard everything below this height.
+   - **Bottom Crop** (in the **Scale** panel) — discard everything below this
+     height.
    - **Preview** — draws a semi-transparent reconstructed surface over the scan
      and fills the **Scale** panel with height / max diameter / bottom
      circumference and a fit-error. This step is optional, but quite helpful for
@@ -180,7 +184,8 @@ needs no edit.
 
 ### Releasing
 
-1. Bump `version` in `blender_manifest.toml` and commit.
+1. Bump `version` in `blender_manifest.toml`, add the matching entry at the top
+   of `CHANGELOG.md`, and commit the two together.
 2. Tag it and push: `git tag v0.7.2 && git push origin v0.7.2`.
 
 `.github/workflows/release.yml` then checks the tag against the manifest
