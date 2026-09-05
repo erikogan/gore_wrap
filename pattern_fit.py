@@ -147,3 +147,83 @@ def score_placement(pattern, placements, outlines, circumference, repeats_x,
                     orphans += 1
     return FitScore(score=score, orphans=orphans,
                     worst=0.0 if not np.isfinite(worst) else float(worst))
+
+
+COARSE_1D = 64      # samples across one tile width when only spinning
+COARSE_2D = 24      # samples per axis when sliding vertically too
+REFINE_TOP = 5      # coarse minima worth a closer look
+REFINE_STEPS = 8    # subdivisions of one coarse step during refinement
+
+
+def search_placement(pattern, placements, outlines, circumference, repeats_x,
+                     min_feature, slide_vertically=False, top_inset=0.0):
+    """Search offsets for the placement leaving the fewest orphans.
+
+    A generator: yields (fraction, label) as it goes and returns
+    ((phi_x, phi_y), best FitScore, baseline FitScore) through StopIteration,
+    the same shape as export_job.export_steps, so one modal driver runs both.
+
+    Coarse grid then local refinement around the best few minima. The landscape
+    is piecewise-smooth with one step discontinuity where a shape leaves the
+    gore entirely -- its penalty falls from nearly 1 to 0 -- but that step
+    points the right way, since a shape wholly outside really is better than a
+    crumb left behind.
+    """
+    W, _k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    prep = prepare(pattern, circumference, repeats_x)
+
+    def score_at(offset):
+        return score_placement(pattern, placements, outlines, circumference,
+                               repeats_x, min_feature, offset=offset,
+                               top_inset=top_inset, prepared=prep)
+
+    baseline = score_at((0.0, 0.0))
+
+    n_x = COARSE_2D if slide_vertically else COARSE_1D
+    n_y = COARSE_2D if slide_vertically else 1
+    xs = np.linspace(0.0, W, n_x, endpoint=False)
+    ys = (np.linspace(0.0, tile_h, n_y, endpoint=False) if slide_vertically
+          else np.array([0.0]))
+
+    coarse = []
+    total = n_x * n_y
+    done = 0
+    for px in xs:
+        for py in ys:
+            offset = (float(px), float(py))
+            coarse.append((score_at(offset), offset))
+            done += 1
+            yield 0.9 * done / total, f"Searching placement {done}/{total}"
+
+    coarse.sort(key=lambda item: item[0].score)
+    best, best_offset = coarse[0]
+
+    step_x = W / n_x
+    step_y = (tile_h / n_y) if slide_vertically else 0.0
+    top = coarse[:REFINE_TOP]
+    for done_r, (_fs, (cx, cy)) in enumerate(top, start=1):
+        rxs = np.linspace(cx - step_x, cx + step_x, 2 * REFINE_STEPS + 1)
+        rys = (np.linspace(cy - step_y, cy + step_y, 2 * REFINE_STEPS + 1)
+               if slide_vertically else np.array([0.0]))
+        for px in rxs:
+            for py in rys:
+                # Wrap into one period so the reported offset is canonical.
+                offset = (float(px % W),
+                          float(py % tile_h) if slide_vertically else 0.0)
+                fs = score_at(offset)
+                if fs.score < best.score:
+                    best, best_offset = fs, offset
+        yield 0.9 + 0.1 * done_r / len(top), "Refining placement…"
+
+    return best_offset, best, baseline
+
+
+def fingerprint(**values):
+    """Digest of the inputs a placement depends on, for staleness checks.
+
+    Plain values in, hex string out -- no Blender, so it is directly testable.
+    Keys are sorted so caller argument order cannot change the digest, and each
+    value goes in as repr() so 1, "1" and True stay distinguishable.
+    """
+    payload = "\n".join(f"{k}={v!r}" for k, v in sorted(values.items()))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
