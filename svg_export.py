@@ -158,13 +158,17 @@ def _bezier_path_d(cubics, closed):
     return " ".join(cmds)
 
 
-def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None):
+def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
+              edge_lines=None):
     """Write the placed strips to a real-scale SVG for Silhouette Studio.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
     labels are enabled, a separate `labels` group holds the wrap-order number
     near each strip's base so it can be excluded from cutting. When pattern_polys
-    is a non-empty list, emits a `pattern` group before the cuts group.
+    is a non-empty list, emits a `pattern` group before the cuts group. When
+    edge_lines is a non-empty list of (2, 2) segments — the straight cut closing
+    off a height-limited pattern — they go in their own `pattern-edge` group so
+    they can be handled separately from both the pattern and the outlines.
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -184,6 +188,12 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
                     lines.append(f'    <path d="{_bezier_path_d(geom, closed)}"/>')
             else:
                 lines.append(f'    <path d="{_path_d(entry)}"/>')
+        lines.append('  </g>')
+    if edge_lines:
+        lines.append('  <g id="pattern-edge" fill="none" stroke="#000000" '
+                     'stroke-width="0.2">')
+        for seg in edge_lines:
+            lines.append(f'    <path d="{_path_d(seg, closed=False)}"/>')
         lines.append('  </g>')
     lines.append('  <g id="cuts" fill="none" stroke="#000000" stroke-width="0.2">')
     for _, poly in result.placements:

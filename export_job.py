@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import svg_export, pattern_warp
+from . import geometry, svg_export, pattern_warp
 
 
 @dataclass
@@ -50,19 +50,39 @@ def resolve_simplify(mode, tol_mm, corner_deg):
     return tol, math.cos(math.radians(deg))
 
 
+def resolve_top_inset(mode, offset, profile):
+    """Meridian distance down from the apex at which the pattern stops.
+
+    SURFACE reads `offset` as measured along the gore itself — the flat
+    pattern's own y axis — so it passes straight through. HEIGHT reads it as a
+    vertical drop on the model and converts it through the averaged meridian,
+    because a domed or flared top covers much more surface than it does height.
+    Clamped to the full meridian, and 0 (no limit) for a non-positive offset.
+    """
+    if offset <= 0.0:
+        return 0.0
+    if mode == "SURFACE":
+        return offset
+    z = np.asarray(profile.z, dtype=float)
+    s = geometry.meridian_length(z, profile.radii.mean(axis=1))
+    return float(s[-1] - np.interp(z[-1] - offset, z, s))
+
+
 def export_steps(result, params, filepath):
     """Lay out, warp, and write the export, yielding (fraction, label).
 
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
-    pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle. Returns
-    an ExportSummary via StopIteration.value.
+    pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
+    pattern_limit_top, pattern_top_offset, pattern_top_mode. Returns an
+    ExportSummary via StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
     """
     yield 0.0, "Laying out strips…"
     layout = svg_export.layout(result.outlines, params["seam_offset"])
 
     pattern_polys = None
+    edge_lines = None
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
@@ -70,6 +90,16 @@ def export_steps(result, params, filepath):
         circ = result.dims.bottom_circumference
         n = len(layout.placements)
         pattern_polys = []
+        top_inset = 0.0
+        if params["pattern_limit_top"]:
+            top_inset = resolve_top_inset(params["pattern_top_mode"],
+                                          params["pattern_top_offset"],
+                                          result.profile)
+            edge_lines = [line for line in (
+                pattern_warp.top_edge_line(poly, outline, top_inset)
+                for (_i, poly), outline in zip(layout.placements,
+                                               result.outlines))
+                if line is not None] or None
         if params["pattern_smooth"]:
             resolution, corner_cos = resolve_simplify(
                 params["pattern_simplify_mode"],
@@ -82,7 +112,8 @@ def export_steps(result, params, filepath):
             resolution, corner_cos = resolve_simplify("CUTTER", 0.0, 0.0)
         for i, subpaths in pattern_warp.iter_warp_gores(
                 pattern, layout.placements, result.outlines, circ,
-                params["pattern_repeats_x"], resolution, corner_cos):
+                params["pattern_repeats_x"], resolution, corner_cos,
+                top_inset=top_inset):
             if params["pattern_smooth"]:
                 pattern_polys.extend(subpaths)
             else:
@@ -91,7 +122,7 @@ def export_steps(result, params, filepath):
 
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],
-                         pattern_polys=pattern_polys)
+                         pattern_polys=pattern_polys, edge_lines=edge_lines)
     yield 1.0, "Done"
     return ExportSummary(n_strips=len(layout.placements),
                          pattern_empty=params["use_pattern"] and not pattern_polys)

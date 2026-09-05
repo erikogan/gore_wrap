@@ -6,6 +6,28 @@ manifest.
 
 Every version bump gets an entry here, in the same commit as the bump.
 
+## 0.8.0 — 2026-09-04
+
+### Added
+
+- **Limit Pattern Height** in the Pattern section: stop the pattern short of the
+  top of the object rather than filling the whole gore. **Distance From Top
+  (mm)** sets where it ends, measured either **Along Surface** (up the flat
+  strip, the default) or by **Model Height** (a vertical drop on the object,
+  converted through the profile). Each strip gets a straight cut at that height,
+  parallel to the bottom, in its own `pattern-edge` SVG layer.
+- With that limit on, **Preview** shades the part of the object the pattern will
+  not cover in a fourth, dim material. The profile is split at the cut itself
+  rather than at the nearest band, so the boundary sits exactly where the SVG
+  cut will land.
+
+### Changed
+
+- The Pattern section of the UI is divided into three groups — the pattern
+  itself, the height limit, and curve smoothing — separated by horizontal rules.
+  Labels that the default sidebar width truncated (**Simplify Mode**, and the
+  two new limit settings) now sit on their own line above their widget.
+
 ## 0.7.7 — 2026-09-04
 
 ### Fixed

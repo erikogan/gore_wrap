@@ -10,7 +10,7 @@ import time
 import numpy as np
 import bpy
 
-from . import pipeline, svg_export, pattern_warp, export_job
+from . import geometry, pipeline, svg_export, pattern_warp, export_job
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -108,13 +108,19 @@ def _validate(obj, context):
     return None
 
 
-def _build_preview_surface(result, scale_factor, start_angle):
-    """(verts, faces, seam_edges) for a surface of revolution in mesh units.
+def _build_preview_surface(result, scale_factor, start_angle, top_inset=0.0):
+    """(verts, faces, face_sectors, face_above_cut, seam_edges) in mesh units.
 
-    Built in the original mesh coordinates (profile divided back by the scale
-    factor) so it overlays the scan. Seams mark the gore boundaries.
+    A surface of revolution built in the original mesh coordinates (profile
+    divided back by the scale factor) so it overlays the scan. Seams mark the
+    gore boundaries. `top_inset` is the pattern's cut, in mm of meridian down
+    from the apex: the profile is split there and every face above it is
+    flagged, so the caller can shade the part the pattern will not cover.
     """
     prof = result.profile
+    cut_row = None
+    if top_inset > 0.0:
+        prof, cut_row = geometry.insert_cut_row(prof, top_inset)
     cx, cy = result.center
     inv = 1.0 / scale_factor
     z = prof.z * inv
@@ -138,6 +144,7 @@ def _build_preview_surface(result, scale_factor, start_angle):
     rows = len(z)
     faces = []
     face_sectors = []
+    face_above_cut = []
     seam_edges = []
     for col in range(m):
         nxt = (col + 1) % m
@@ -148,10 +155,16 @@ def _build_preview_surface(result, scale_factor, start_angle):
             d = col * rows + k + 1
             faces.append((a, b, c, d))
             face_sectors.append(col // per_strip)
+            # A face spans rows k..k+1, so it is above the cut once its lower
+            # row is the cut row itself.
+            face_above_cut.append(cut_row is not None and k >= cut_row)
         if col % per_strip == 0:
             for k in range(rows - 1):
                 seam_edges.append((col * rows + k, col * rows + k + 1))
-    return verts, faces, face_sectors, seam_edges
+        if cut_row is not None:
+            # Ring at the cut, so it also reads as a hard line in Edit Mode.
+            seam_edges.append((col * rows + cut_row, nxt * rows + cut_row))
+    return verts, faces, face_sectors, face_above_cut, seam_edges
 
 
 # Preview material colors: base surface, gore-1 start, gore-2 (winding dir).
@@ -159,6 +172,7 @@ _PREVIEW_MATERIALS = (
     ("GoreWrap Preview Mat", (0.1, 0.6, 1.0, 1.0), 0.35),
     ("GoreWrap Start Mat", (0.1, 0.85, 0.2, 1.0), 0.7),
     ("GoreWrap Next Mat", (1.0, 0.5, 0.05, 1.0), 0.6),
+    ("GoreWrap Beyond Pattern Mat", (0.35, 0.35, 0.38, 1.0), 0.25),
 )
 
 
@@ -180,11 +194,12 @@ def _get_preview_material(name, color, alpha):
     return mat
 
 
-def _make_preview_object(context, result, scale_factor, start_angle, highlight):
+def _make_preview_object(context, result, scale_factor, start_angle, highlight,
+                         top_inset=0.0):
     import bmesh
 
-    verts, faces, face_sectors, seam_edges = _build_preview_surface(
-        result, scale_factor, start_angle)
+    verts, faces, face_sectors, face_above_cut, seam_edges = \
+        _build_preview_surface(result, scale_factor, start_angle, top_inset)
 
     old = bpy.data.objects.get(PREVIEW_NAME)
     if old is not None:
@@ -197,12 +212,17 @@ def _make_preview_object(context, result, scale_factor, start_angle, highlight):
     bm = bmesh.new()
     bmverts = [bm.verts.new(v) for v in verts]
     bm.verts.ensure_lookup_table()
-    for f, sector in zip(faces, face_sectors):
+    for f, sector, above_cut in zip(faces, face_sectors, face_above_cut):
         try:
             face = bm.faces.new([bmverts[i] for i in f])
         except ValueError:
             continue  # skip degenerate faces near the apex
-        if highlight and sector == 0:
+        if above_cut:
+            # Beyond the pattern's reach. This wins over the gore-1/gore-2
+            # highlight, whose job -- showing where to start winding -- is
+            # already served on the patterned part below the cut.
+            face.material_index = 3
+        elif highlight and sector == 0:
             face.material_index = 1   # gore 1: start
         elif highlight and sector == 1:
             face.material_index = 2   # gore 2: winding direction
@@ -238,9 +258,16 @@ class GOREWRAP_OT_preview(bpy.types.Operator):
         result = _run(obj, context)
         props = context.scene.gore_wrap
         _store_readouts(props, result)
+        # Same conversion the exporter uses, so the shaded boundary and the
+        # SVG's cut can never disagree.
+        top_inset = 0.0
+        if props.use_pattern and props.pattern_limit_top:
+            top_inset = export_job.resolve_top_inset(
+                props.pattern_top_mode, props.pattern_top_offset, result.profile)
         _make_preview_object(context, result, props.scale_factor,
                              np.radians(props.start_angle),
-                             highlight=props.mode == "FITTED")
+                             highlight=props.mode == "FITTED",
+                             top_inset=top_inset)
 
         if result.interp_fraction > 0.2:
             self.report({"WARNING"},
@@ -331,6 +358,9 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             "pattern_simplify_mode": props.pattern_simplify_mode,
             "pattern_simplify_tol": props.pattern_simplify_tol,
             "pattern_corner_angle": props.pattern_corner_angle,
+            "pattern_limit_top": props.pattern_limit_top,
+            "pattern_top_offset": props.pattern_top_offset,
+            "pattern_top_mode": props.pattern_top_mode,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
         self._timer = None

@@ -181,6 +181,51 @@ def smooth_profile(profile, sigma):
                    interp_fraction=profile.interp_fraction)
 
 
+def meridian_length(z, r):
+    """Cumulative surface distance up a profile, starting at 0 for the base.
+
+    The meridian is the path a strip's edge follows over the object, so this —
+    not the z height — is the length a gore is cut to.
+    """
+    z = np.asarray(z, dtype=float)
+    r = np.asarray(r, dtype=float)
+    return np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(r), np.diff(z)))])
+
+
+def insert_cut_row(profile, top_inset):
+    """Split a profile at `top_inset` of meridian below the apex.
+
+    Returns (profile, index), where `index` is the row sitting at the cut and
+    everything from it upward is above the cut. A cut generally falls between
+    band centers, so a row is inserted there — radii interpolated per sector —
+    letting a preview draw the boundary on the true cut rather than snapping it
+    to the nearest band; when a row already sits at the cut it is reused and
+    nothing is inserted. A non-positive inset asks for no cut at all and returns
+    (profile, None); an inset past the base returns (profile, 0), marking the
+    whole profile as above the cut.
+    """
+    if top_inset <= 0.0:
+        return profile, None
+    s = meridian_length(profile.z, profile.radii.mean(axis=1))
+    s_cut = s[-1] - top_inset
+    if s_cut <= 0.0:
+        return profile, 0
+    z_cut = float(np.interp(s_cut, s, profile.z))
+
+    eps = 1e-9 * max(1.0, abs(z_cut))
+    index = int(np.searchsorted(profile.z, z_cut))
+    if index < len(profile.z) and abs(profile.z[index] - z_cut) <= eps:
+        return profile, index
+    if index > 0 and abs(profile.z[index - 1] - z_cut) <= eps:
+        return profile, index - 1
+
+    radii_cut = [np.interp(z_cut, profile.z, profile.radii[:, c])
+                 for c in range(profile.radii.shape[1])]
+    return Profile(z=np.insert(profile.z, index, z_cut),
+                   radii=np.insert(profile.radii, index, radii_cut, axis=0),
+                   interp_fraction=profile.interp_fraction), index
+
+
 def unwrap_gore(z, r, n_strips, seam_offset=0.0):
     """Flatten one radius profile into a 2D gore outline.
 
@@ -196,8 +241,7 @@ def unwrap_gore(z, r, n_strips, seam_offset=0.0):
     """
     z = np.asarray(z, dtype=float)
     r = np.asarray(r, dtype=float)
-    ds = np.hypot(np.diff(r), np.diff(z))
-    s = np.concatenate([[0.0], np.cumsum(ds)])
+    s = meridian_length(z, r)
     half_width = np.pi * r / n_strips + seam_offset / 2.0
     right = np.column_stack([half_width, s])
     left = np.column_stack([-half_width, s])
@@ -220,8 +264,7 @@ def unwrap_gore_uniform(z, r_sector, r_avg, n_strips, seam_offset=0.0):
     r_avg = np.asarray(r_avg, dtype=float)
 
     # Uniform meridian (and thus height) from the averaged profile.
-    ds = np.hypot(np.diff(r_avg), np.diff(z))
-    s = np.concatenate([[0.0], np.cumsum(ds)])
+    s = meridian_length(z, r_avg)
 
     base = r_sector[0]
     scale = r_avg[0] / base if base > 1e-9 else 1.0

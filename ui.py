@@ -3,6 +3,34 @@
 import bpy
 
 
+# `separator(type=...)` post-dates 4.2, the version floor in the manifest, so
+# ask the RNA rather than guessing from a version number.
+_HAS_LINE_SEPARATOR = "type" in (
+    bpy.types.UILayout.bl_rna.functions["separator"].parameters)
+
+
+def _divider(layout):
+    """A horizontal rule between groups of settings (a plain gap pre-4.3)."""
+    if _HAS_LINE_SEPARATOR:
+        layout.separator(type="LINE")
+    else:
+        layout.separator()
+
+
+def _labeled(layout, props, name):
+    """Draw a property with its label on its own line.
+
+    Blender puts the label and the widget side by side, which truncates the
+    longer names at the default N-panel width; stacking them keeps both
+    readable. The label text comes from the property definition, so it stays in
+    one place.
+    """
+    col = layout.column(align=True)
+    col.label(text=props.bl_rna.properties[name].name)
+    col.prop(props, name, text="")
+    return col
+
+
 class GOREWRAP_PT_panel(bpy.types.Panel):
     bl_label = "Gore Wrap"
     bl_idname = "GOREWRAP_PT_panel"
@@ -60,9 +88,24 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             if props.has_preview and props.pattern_repeats_x:
                 per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
                 col.label(text=f"~ {per_gore:.2f} repeats per gore", icon="INFO")
+
+            _divider(box)
+            col = box.column(align=True)
+            col.prop(props, "pattern_limit_top")
+            if props.pattern_limit_top:
+                _labeled(col, props, "pattern_top_offset")
+                _labeled(col, props, "pattern_top_mode")
+                if (props.has_preview
+                        and props.pattern_top_mode == "HEIGHT"
+                        and props.pattern_top_offset >= props.derived_height):
+                    col.label(text="Deeper than the object is tall",
+                              icon="ERROR")
+
+            _divider(box)
+            col = box.column(align=True)
             col.prop(props, "pattern_smooth")
             if props.pattern_smooth:
-                col.prop(props, "pattern_simplify_mode")
+                _labeled(col, props, "pattern_simplify_mode")
                 if props.pattern_simplify_mode == "CUSTOM":
                     adv = col.column(align=True)
                     adv.prop(props, "pattern_simplify_tol")

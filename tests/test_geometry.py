@@ -334,3 +334,61 @@ def test_derived_dims_match_known_object(cyl_dims, attr, expected, tol):
 ])
 def test_strip_count_snaps_to_divisor_of_360(angle, expected):
     assert geometry.strip_count(angle) == expected
+
+
+# --- meridian length and the preview cut row ---------------------------------
+
+def _cone_profile(slope=0.2, height=100.0, n_sectors=1):
+    """Straight-sided cone: hypot(1, slope) of meridian per unit of z."""
+    z = np.linspace(0.0, height, 101)
+    r = 40.0 - slope * z
+    return geometry.Profile(z=z, radii=np.tile(r[:, None], (1, n_sectors)),
+                            interp_fraction=0.0)
+
+
+def test_meridian_length_measures_the_slanted_side():
+    prof = _cone_profile()
+    s = geometry.meridian_length(prof.z, prof.radii[:, 0])
+    assert s[0] == 0.0
+    assert abs(s[-1] - 100.0 * np.hypot(1.0, 0.2)) < 1e-9
+
+
+def test_insert_cut_row_lands_at_the_requested_arc_length():
+    prof = _cone_profile()
+    inset = 30.0 * np.hypot(1.0, 0.2)          # 30 units of z below the top
+    cut, index = geometry.insert_cut_row(prof, inset)
+    assert abs(cut.z[index] - 70.0) < 1e-9
+
+
+def test_insert_cut_row_interpolates_the_radius():
+    prof = _cone_profile()
+    cut, index = geometry.insert_cut_row(prof, 10.0)
+    assert abs(cut.radii[index, 0] - (40.0 - 0.2 * cut.z[index])) < 1e-9
+
+
+def test_insert_cut_row_adds_exactly_one_row_and_keeps_z_ascending():
+    prof = _cone_profile(n_sectors=3)
+    cut, _index = geometry.insert_cut_row(prof, 25.0)
+    assert cut.z.shape[0] == prof.z.shape[0] + 1
+    assert cut.radii.shape == (prof.radii.shape[0] + 1, 3)
+    assert np.all(np.diff(cut.z) >= 0.0)
+
+
+def test_insert_cut_row_ignores_a_non_positive_inset():
+    prof = _cone_profile()
+    cut, index = geometry.insert_cut_row(prof, 0.0)
+    assert index is None and cut is prof
+
+
+def test_insert_cut_row_past_the_base_marks_the_whole_profile():
+    prof = _cone_profile()
+    cut, index = geometry.insert_cut_row(prof, 1e6)
+    assert index == 0 and cut.z.shape[0] == prof.z.shape[0]
+
+
+def test_insert_cut_row_reuses_a_row_already_at_the_cut():
+    prof = _cone_profile()
+    inset = 30.0 * np.hypot(1.0, 0.2)      # lands exactly on an existing band
+    cut, index = geometry.insert_cut_row(prof, inset)
+    assert cut.z.shape[0] == prof.z.shape[0]
+    assert cut.z[index] == 70.0

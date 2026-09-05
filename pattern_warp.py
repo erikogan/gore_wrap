@@ -259,13 +259,34 @@ def _pt_seg_dist(p, a, b):
     return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+def top_edge_line(poly, outline, top_inset):
+    """The straight cut closing off a height-limited pattern, in SVG mm.
+
+    `top_inset` is meridian distance down from the apex (the same units as the
+    outline's y axis). Returns the (2, 2) endpoints of the horizontal segment
+    spanning the placed gore at that height, or None when the inset does not
+    cut the gore (zero/negative, or past the apex).
+    """
+    top, left_x, right_x = _edge_profiles(outline)
+    if top_inset <= 0.0 or top_inset >= top:
+        return None
+    y = top - top_inset
+    tx = poly[0, 0] - outline[0, 0]
+    base_y = poly[0, 1] + outline[0, 1]
+    return np.array([[tx + float(left_x(y)), base_y - y],
+                     [tx + float(right_x(y)), base_y - y]])
+
+
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
-                    resolution, corner_cos=_CORNER_COS):
+                    resolution, corner_cos=_CORNER_COS, top_inset=0.0):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
     subpath is adaptively sampled in warp-space, clipped to the gore rect
     (carrying corners), warped, and fit to cubic beziers per corner run.
+
+    `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
+    rect, so the pattern stops short of the top; 0 fills the whole gore.
     """
     n = len(placements)
     W = circumference / repeats_x
@@ -276,9 +297,10 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
         top, _left_x, right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
         hw0 = float(right_x(0.0))
         subpaths = []
-        if hw0 > 1e-9:
+        if hw0 > 1e-9 and pattern_top > 0.0:
             xc = (i + 0.5) * circumference / n
             x_lo, x_hi = xc - hw0, xc + hw0
 
@@ -290,7 +312,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
             c_lo = int(np.floor(x_lo / W)) - 1
             c_hi = int(np.floor(x_hi / W)) + 1
-            n_rows = int(np.ceil(top / tile_h)) + 1
+            n_rows = int(np.ceil(pattern_top / tile_h)) + 1
             for c in range(c_lo, c_hi + 1):
                 dx = c * W
                 for r in range(n_rows):
@@ -302,7 +324,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                             segs, corners, k, dx, dy, tile_h, warp,
                             _sample_tol(resolution))
                         cpts, cmask = clip_to_rect_flagged(
-                            mpts, mmask, x_lo, x_hi, 0.0, top)
+                            mpts, mmask, x_lo, x_hi, 0.0, pattern_top)
                         if cpts is None:
                             continue
                         fx, fy = warp(cpts[:, 0], cpts[:, 1])

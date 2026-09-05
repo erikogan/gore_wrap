@@ -111,6 +111,27 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
                     "are smoothed into one curve",
         default=30.0, min=0.0, max=90.0)
 
+    pattern_limit_top: bpy.props.BoolProperty(
+        name="Limit Pattern Height",
+        description="Stop the pattern short of the top of the object and close "
+                    "it off with a straight cut parallel to the bottom",
+        default=False)
+    pattern_top_offset: bpy.props.FloatProperty(
+        name="Distance From Top (mm)",
+        description="How far down from the top of the object the pattern ends",
+        default=0.0, min=0.0)
+    pattern_top_mode: bpy.props.EnumProperty(
+        name="Measured",
+        description="How the distance from the top is measured",
+        items=[
+            ("SURFACE", "Along Surface",
+             "Distance up the strip itself, as measured on the flat pattern"),
+            ("HEIGHT", "Model Height",
+             "Vertical drop on the object; a domed or flared top covers more "
+             "surface than height, and the cut follows accordingly"),
+        ],
+        default="SURFACE")
+
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
         description="Multiplier from mesh units to millimeters",

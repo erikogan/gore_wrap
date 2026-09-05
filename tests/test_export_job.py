@@ -1,15 +1,18 @@
 import math
 import os
 
+import numpy as np
 import pytest
 
-from gore_wrap import export_job, pipeline, pattern_warp, svg_export
+from gore_wrap import export_job, geometry, pipeline, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_svg="", pattern_repeats_x=12,
                   pattern_smooth=True, pattern_simplify_mode="VISUAL",
-                  pattern_simplify_tol=0.1, pattern_corner_angle=30.0)
+                  pattern_simplify_tol=0.1, pattern_corner_angle=30.0,
+                  pattern_limit_top=False, pattern_top_offset=0.0,
+                  pattern_top_mode="SURFACE")
 
 
 def _result():
@@ -98,7 +101,7 @@ def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypat
     captured = {}
 
     def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
-                  corner_cos):
+                  corner_cos, top_inset=0.0):
         captured["resolution"] = resolution
         captured["corner_cos"] = corner_cos
         return iter(())
@@ -119,3 +122,55 @@ def test_export_steps_propagates_pattern_error(tmp_path):
     params = {**NO_PATTERN, "use_pattern": True, "pattern_svg": str(empty)}
     with pytest.raises(pattern_warp.PatternError):
         _drain(export_job.export_steps(_result(), params, str(tmp_path / "g.svg")))
+
+
+# --- pattern height limit ----------------------------------------------------
+
+def _cone_profile(slope=0.2, height=100.0):
+    """A straight-sided cone: meridian length is hypot(1, slope) per unit z."""
+    z = np.linspace(0.0, height, 101)
+    return geometry.Profile(z=z, radii=(40.0 - slope * z)[:, None],
+                            interp_fraction=0.0)
+
+
+def test_surface_mode_passes_the_offset_through():
+    assert export_job.resolve_top_inset(
+        "SURFACE", 25.0, _cone_profile()) == 25.0
+
+
+def test_height_mode_converts_a_vertical_drop_to_meridian_length():
+    inset = export_job.resolve_top_inset("HEIGHT", 25.0, _cone_profile())
+    assert abs(inset - 25.0 * math.hypot(1.0, 0.2)) < 1e-6
+
+
+def test_height_mode_clamps_a_drop_past_the_base():
+    inset = export_job.resolve_top_inset("HEIGHT", 500.0, _cone_profile())
+    assert abs(inset - 100.0 * math.hypot(1.0, 0.2)) < 1e-6
+
+
+def _limited(tmp_path, **over):
+    return {**NO_PATTERN, "use_pattern": True,
+            "pattern_svg": _write_pattern(tmp_path), "pattern_repeats_x": 8,
+            "pattern_limit_top": True, "pattern_top_offset": 30.0, **over}
+
+
+def test_export_steps_writes_one_edge_cut_per_strip(tmp_path):
+    out = str(tmp_path / "g.svg")
+    summary = _drain(export_job.export_steps(_result(), _limited(tmp_path), out))
+    body = open(out).read()
+    edge = body.split('<g id="pattern-edge"')[1].split("</g>")[0]
+    assert edge.count("<path") == summary.n_strips
+
+
+def test_export_steps_omits_edge_group_without_a_limit(tmp_path):
+    out = str(tmp_path / "g.svg")
+    _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_limit_top=False), out))
+    assert 'id="pattern-edge"' not in open(out).read()
+
+
+def test_export_steps_limit_past_the_apex_leaves_no_pattern(tmp_path):
+    summary = _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_top_offset=1000.0),
+        str(tmp_path / "g.svg")))
+    assert summary.pattern_empty is True

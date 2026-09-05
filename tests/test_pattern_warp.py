@@ -241,3 +241,61 @@ def test_looser_tol_yields_fewer_cubics_within_tolerance(tmp_path):
     dense = _dense_warp_gore(pattern, layout.placements, outlines, circ, 24, 0)
     dmin = np.min(np.linalg.norm(dense[None, :, :] - fitted[:, None, :], axis=2), axis=1)
     assert dmin.max() <= 6 * 0.1
+
+
+def _cut_y(layout, outlines, top_inset):
+    """SVG y of the cut line for gore 0, and its master-space height."""
+    poly, outline = layout.placements[0][1], outlines[0]
+    base_y = poly[0, 1] + outline[0, 1]
+    top = float(outline[:, 1].max())
+    return base_y - (top - top_inset), top
+
+
+def test_top_inset_keeps_pattern_below_the_cut(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    y_cut, top = _cut_y(layout, outlines, top_inset=0.0)
+    inset = top / 3.0
+    y_cut, _ = _cut_y(layout, outlines, inset)
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.05,
+        top_inset=inset))
+    pts = np.vstack([_bezier_points(c, 12) for c, _ in groups[0]])
+    assert pts[:, 1].min() >= y_cut - 0.05
+
+
+def test_top_inset_zero_leaves_the_warp_unchanged(tmp_path):
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    args = (pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.05)
+    base = dict(pattern_warp.iter_warp_gores(*args))
+    limited = dict(pattern_warp.iter_warp_gores(*args, top_inset=0.0))
+    assert len(base[0]) == len(limited[0])
+    for (c_a, _), (c_b, _) in zip(base[0], limited[0]):
+        assert np.allclose(_bezier_points(c_a), _bezier_points(c_b))
+
+
+def test_top_edge_line_spans_the_gore_at_the_cut():
+    layout, outlines = _one_gore_layout()
+    outline = outlines[0]
+    top = float(outline[:, 1].max())
+    inset = top / 4.0
+    line = pattern_warp.top_edge_line(layout.placements[0][1], outline, inset)
+    _, _, right_x = pattern_warp._edge_profiles(outline)
+    y_cut, _ = _cut_y(layout, outlines, inset)
+    assert line.shape == (2, 2)
+    assert np.allclose(line[:, 1], y_cut)
+    assert abs((line[1, 0] - line[0, 0]) - 2 * float(right_x(top - inset))) < 1e-6
+
+
+def test_top_edge_line_is_none_without_a_limit():
+    layout, outlines = _one_gore_layout()
+    assert pattern_warp.top_edge_line(
+        layout.placements[0][1], outlines[0], 0.0) is None
+
+
+def test_top_edge_line_is_none_when_inset_exceeds_the_gore():
+    layout, outlines = _one_gore_layout()
+    top = float(outlines[0][:, 1].max())
+    assert pattern_warp.top_edge_line(
+        layout.placements[0][1], outlines[0], top + 1.0) is None

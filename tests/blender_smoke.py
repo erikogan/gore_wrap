@@ -158,7 +158,54 @@ def main():
     assert any("C" in p.get("d", "") for p in pat_paths), \
         "pattern layer not smoothed to bezier curves (default Visual mode)"
     print("[smoke] pattern export ok: pattern layer smoothed to curves")
+
+    # Height-limited pattern: a straight cut per strip in its own layer, and
+    # nothing patterned above it.
+    props.pattern_limit_top = True
+    props.pattern_top_mode = "SURFACE"
+    props.pattern_top_offset = 40.0
+    out_lim = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_limited.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_lim)
+    assert res == {"FINISHED"}, res
+    groups = ET.parse(out_lim).getroot().findall(f".//{{{SVG_NS}}}g")
+    edge_g = next((g for g in groups if g.get("id") == "pattern-edge"), None)
+    assert edge_g is not None, "no pattern-edge layer in height-limited export"
+    edge_paths = edge_g.findall(f"{{{SVG_NS}}}path")
+    assert len(edge_paths) == 15, f"expected 15 edge cuts, got {len(edge_paths)}"
+    print(f"[smoke] limited pattern ok: {len(edge_paths)} edge cuts")
+
+    # The preview shades the part the pattern will not reach, in its own
+    # material, split at the cut rather than at the nearest band.
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        assert bpy.ops.gorewrap.preview() == {"FINISHED"}
+    preview = bpy.data.objects.get("GoreWrap Preview")
+    assert len(preview.data.materials) == 4, "expected 4 preview materials"
+    zs = [v.co.z for v in preview.data.vertices]
+    beyond = [p for p in preview.data.polygons if p.material_index == 3]
+    patterned = [p for p in preview.data.polygons if p.material_index != 3]
+    assert beyond and patterned, "cut did not split the preview surface"
+    lowest_beyond = min(min(preview.data.vertices[i].co.z for i in p.vertices)
+                        for p in beyond)
+    highest_patterned = max(max(preview.data.vertices[i].co.z for i in p.vertices)
+                            for p in patterned)
+    assert abs(lowest_beyond - highest_patterned) < 1e-6, \
+        "shaded region does not meet the patterned region at one height"
+    assert lowest_beyond > min(zs) and lowest_beyond < max(zs), \
+        "cut ring is not between the base and the apex"
+    print(f"[smoke] preview cut shading ok: {len(beyond)} faces above "
+          f"z={lowest_beyond:.2f}")
+
+    props.pattern_limit_top = False
+    props.pattern_top_offset = 0.0
     props.use_pattern = False
+
+    # With the limit off the preview goes back to one surface.
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        assert bpy.ops.gorewrap.preview() == {"FINISHED"}
+    preview = bpy.data.objects.get("GoreWrap Preview")
+    assert not [p for p in preview.data.polygons if p.material_index == 3], \
+        "preview still shaded with the limit turned off"
 
     # Fitted mode with a start angle: preview should highlight gore 1 and 2.
     props.mode = "FITTED"
@@ -166,7 +213,7 @@ def main():
     with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
         assert bpy.ops.gorewrap.preview() == {"FINISHED"}
     preview = bpy.data.objects.get("GoreWrap Preview")
-    assert len(preview.data.materials) == 3, "expected 3 preview materials"
+    assert len(preview.data.materials) == 4, "expected 4 preview materials"
     used = {p.material_index for p in preview.data.polygons}
     assert {1, 2} <= used, f"start/next gores not highlighted: {used}"
     # Viewport-display colors let the highlight show in Solid shading too.

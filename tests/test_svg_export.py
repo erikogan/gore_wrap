@@ -169,3 +169,18 @@ def test_write_svg_open_polyline_entry_has_no_close(tmp_path, zero_layout):
     d = ET.parse(path).getroot().find(
         f".//{{{SVG_NS}}}g[@id='pattern']/{{{SVG_NS}}}path").get("d")
     assert "Z" not in d
+
+
+def test_write_svg_emits_pattern_edge_group(zero_layout, tmp_path):
+    line = np.array([[10.0, 30.0], [40.0, 30.0]])
+    path = tmp_path / "edged.svg"
+    svg_export.write_svg(str(path), zero_layout, edge_lines=[line])
+    paths = ET.parse(path).getroot().findall(
+        f".//{{{SVG_NS}}}g[@id='pattern-edge']/{{{SVG_NS}}}path")
+    assert len(paths) == 1
+    assert "Z" not in paths[0].get("d")
+
+
+def test_write_svg_no_pattern_edge_group_when_absent(svg_root_no_labels):
+    ids = {g.get("id") for g in svg_root_no_labels.findall(f".//{{{SVG_NS}}}g")}
+    assert "pattern-edge" not in ids

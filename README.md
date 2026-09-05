@@ -88,6 +88,20 @@ TBD.
    - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
      vector editor first.
    - **Repeats Around** — how many times the pattern tiles around the object.
+   - **Limit Pattern Height** — stop the pattern short of the top instead of
+     filling the whole gore, and close it off with a straight cut parallel to
+     the bottom. The cuts go in their own `pattern-edge` layer, one per strip.
+     - **Distance From Top (mm)** — how far down from the top the pattern ends.
+     - **Measured** — how that distance is read:
+       - **Along Surface** (default) — distance up the strip itself, the number
+         you get laying a ruler on the flat pattern from its tip down.
+       - **Model Height** — a vertical drop on the object, converted through the
+         profile. A domed or flared top covers far more surface than height, so
+         a small drop there can be a much larger distance on the pattern.
+
+     With the limit on, the next **Preview** shades the part of the object the
+     pattern will not reach in a dim grey, split at the cut itself — so you can
+     check the height against the real shape before exporting.
    - **Smooth to Curves** — fit the warped pattern to smooth bezier curves so
      the cutter does not stutter through many tiny line segments.
    - **Simplify Mode** — with **Smooth to Curves** on, how aggressively to fit:
