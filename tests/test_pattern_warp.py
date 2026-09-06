@@ -19,6 +19,15 @@ width="300" height="40"><path d="M0 20 L100 20 L200 38"/></svg>'''
 FULL_CELL_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
 width="40" height="20"><rect x="0" y="0" width="40" height="20"/></svg>'''
 
+# A rect inset from every tile edge, so a full tile copy is unclipped -- but
+# at a repeat count whose tile width does NOT match the gore width (unlike
+# FULL_CELL at repeats_x=12, which lines the tile grid up with the gore
+# boundaries exactly), some tile copies land straddling a gore edge and get
+# clipped to an asymmetric, non-degenerate fragment. Exercises seam
+# suppression (Fix C) with real geometry instead of a full-bleed rect.
+STRADDLE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
+width="40" height="20"><rect x="5" y="5" width="30" height="10"/></svg>'''
+
 CURVE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
 width="100" height="100"><path d="M10 10 C 40 10 40 40 10 40 Z"/></svg>'''
 
@@ -227,6 +236,30 @@ def test_a_comfortably_sized_clip_fragment_still_survives(tmp_path, monkeypatch)
     assert groups[0] != [], "a millimeter-scale clip fragment must survive"
 
 
+def test_no_emitted_run_is_degenerate_at_the_apex(tmp_path):
+    # Fix C isolates the fragment's apex edge into its own run once the
+    # ceiling is suppressed unconditionally (see _boundary_runs); that run
+    # warps to a single point because right_x(pattern_top) == 0 at the apex.
+    # _MIN_FRAGMENT_MM in _iter_clipped_fragments only screens the WHOLE
+    # clipped fragment, before it is split into runs, so it never caught
+    # this -- this configuration (FULL_CELL filling every gore edge to edge,
+    # with no top_inset so the pattern reaches the apex) reliably produced
+    # one zero-diagonal stab-mark path per gore without a per-run guard.
+    layout, outlines = _one_gore_layout(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 12, 0.05))
+    checked_any = False
+    for subpaths in groups.values():
+        for cubics, _closed in subpaths:
+            pts = np.asarray(cubics).reshape(-1, 2)
+            diag = float(np.hypot(*(pts.max(axis=0) - pts.min(axis=0))))
+            assert diag >= pattern_warp._MIN_FRAGMENT_MM, (
+                f"emitted a degenerate run with bbox diagonal {diag} mm")
+            checked_any = True
+    assert checked_any, "test setup produced no runs to check"
+
+
 FULL_AND_INTERIOR_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
 width="40" height="20">
   <rect x="0" y="0" width="40" height="20"/>
@@ -248,6 +281,25 @@ def test_boundary_suppression_opens_cut_shapes_and_keeps_uncut_ones_closed(tmp_p
     assert any(not closed for _c, closed in sub), "the full-bleed rect must be opened"
 
 
+def test_straddle_config_exercises_suppression_with_real_geometry(tmp_path):
+    # Companion to the golden digest at ("STRADDLE", 11, 0.05, 0.0): unlike
+    # FULL_CELL (a full-bleed tile whose repeat count lines the tile grid up
+    # exactly with the gore boundaries), this repeat count leaves the tile
+    # grid out of step with the gores, so some tile copies of the inset rect
+    # straddle a gore edge into a real, non-degenerate clipped fragment while
+    # others land untouched -- both outcomes must be present for the golden
+    # to be exercising anything.
+    layout, outlines = _one_gore_layout(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, STRADDLE_SVG))
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 11, 0.05))
+    all_subpaths = [sub for subs in groups.values() for sub in subs]
+    assert any(not closed for _c, closed in all_subpaths), \
+        "expected at least one gore edge to cut this shape open"
+    assert any(closed for _c, closed in all_subpaths), \
+        "expected at least one untouched, still-closed copy"
+
+
 def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
     # A square (kept off y=0 so only the x_hi clip is under test) straddling
     # the right clip edge: clip_to_rect_flagged bakes the x=8 edge it was cut
@@ -258,8 +310,7 @@ def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
     poly, _cmask = pattern_warp.clip_to_rect_flagged(
         square, mask, 0.0, 8.0, -1.0, 11.0)
     # x_lo passed far away so this isolates the x_hi edge alone.
-    runs = pattern_warp._boundary_runs(poly, -100.0, 8.0, 11.0, False,
-                                       closed=True)
+    runs = pattern_warp._boundary_runs(poly, -100.0, 8.0, 11.0, closed=True)
     assert len(runs) == 1
     idx, run_closed = runs[0]
     assert run_closed is False
@@ -274,45 +325,64 @@ def test_boundary_runs_leaves_an_uncut_polygon_closed():
     # Nothing here touches any clip edge -- current behavior is preserved
     # exactly: one run, original point order, original closed flag.
     tri = np.array([[1.0, 1.0], [5.0, 1.0], [3.0, 6.0]])
-    runs = pattern_warp._boundary_runs(tri, 0.0, 10.0, 10.0, False, closed=True)
+    runs = pattern_warp._boundary_runs(tri, 0.0, 10.0, 10.0, closed=True)
     assert len(runs) == 1
     idx, run_closed = runs[0]
     assert run_closed is True
     assert list(idx) == [0, 1, 2]
 
 
-def test_boundary_runs_leaves_the_ceiling_when_top_inset_is_zero():
-    # The pattern-limit ceiling (y = y_hi) is only suppressed when
-    # top_inset > 0 (suppress_top=True). With it False, nothing else draws
-    # that edge, so a run cut only there must stay closed and unsplit.
+def test_boundary_runs_drops_the_ceiling_unconditionally():
+    # The pattern-limit ceiling (y = y_hi) must be dropped regardless of
+    # top_inset, not only when a height limit is set. An earlier version
+    # suppressed it only when top_inset > 0, reasoning that with no limit
+    # nothing else draws that edge -- but with no limit, y_hi IS the gore
+    # apex, which the `cuts` layer already closes on. close_apex only zeroes
+    # the *radius* there, not the width (half_width = pi*r/N +
+    # seam_offset/2), so with a positive seam offset the apex is a flat,
+    # non-zero-width edge that would otherwise duplicate the cut.
     square = np.array([[1.0, 1.0], [9.0, 1.0], [9.0, 10.0], [1.0, 10.0]])
-    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, False, closed=True)
-    assert len(runs) == 1 and runs[0][1] is True
-
-
-def test_boundary_runs_drops_the_ceiling_when_suppressed():
-    # Same polygon, but with the ceiling suppressed (top_inset > 0): the
-    # edge along y=10 must now be dropped, opening the run.
-    square = np.array([[1.0, 1.0], [9.0, 1.0], [9.0, 10.0], [1.0, 10.0]])
-    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, True, closed=True)
+    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, closed=True)
     assert any(not run_closed for _idx, run_closed in runs)
+    for idx, _run_closed in runs:
+        run = square[idx]
+        on_top = np.isclose(run[:, 1], 10.0)
+        edge_on_top = on_top[:-1] & on_top[1:]
+        assert not edge_on_top.any(), "no surviving edge may run along y=10"
 
 
 def test_boundary_runs_remaps_corner_indices_per_run():
     # A hexagon with two dropped edges yields two runs; corner_idx for each
-    # run must be local to that run, not the original polygon's indices.
+    # run (computed by callers as np.nonzero(cmask[idx])[0], exactly as
+    # iter_warp_gores does) must be LOCAL to that run, not the original
+    # polygon's indices -- an off-by-one here would silently move where a
+    # run's beziers break at a corner.
     hexagon = np.array([[0.0, 0.0], [8.0, 0.0], [8.0, 5.0],
                         [8.0, 10.0], [0.0, 10.0], [0.0, 5.0]])
+    # Flag the two side-midpoints (index 2 and index 5) as corners; nothing
+    # else is a corner.
+    cmask = np.array([False, False, True, False, False, True])
     # Drop the bottom (y=0) and top (y=10) edges: points 0-1 (y=0) and
     # 3-4 (y=10).
-    runs = pattern_warp._boundary_runs(hexagon, -1.0, 100.0, 10.0, True,
+    runs = pattern_warp._boundary_runs(hexagon, -1.0, 100.0, 10.0,
                                        closed=True)
     assert len(runs) == 2
+    seen_global_corners = set()
     for idx, run_closed in runs:
         assert not run_closed
         assert len(idx) >= 2
-        # idx must be valid local indices into `hexagon`, each run distinct.
         assert idx.max() < len(hexagon)
+        corner_idx = np.nonzero(cmask[idx])[0]
+        # Exactly one corner survives per run, and it is LOCAL: it indexes
+        # into the run's own points (run = hexagon[idx]), not into hexagon.
+        assert len(corner_idx) == 1
+        local = int(corner_idx[0])
+        assert local < len(idx), "corner_idx must be a local index, not global"
+        global_i = int(idx[local])
+        assert cmask[global_i], "the local index must point at the flagged point"
+        seen_global_corners.add(global_i)
+    # Both flagged corners (2 and 5) were found, each in its own run.
+    assert seen_global_corners == {2, 5}
     all_idx = sorted(int(i) for idx, _c in runs for i in idx)
     # Every point on the two surviving 3-point runs appears exactly once.
     assert all_idx == [0, 1, 2, 3, 4, 5]
@@ -477,11 +547,12 @@ WARP_GOLDEN = {
     ("SIMPLE", 24, 0.05, 0.0): "393d875155bb23f27e17f8dd183b763ba6a60daa",
     ("CURVE", 24, 0.02, 0.0): "d6386dbbf874839a64b7d01fca9463ee3cfae2c3",
     ("CURVE", 8, 0.02, 30.0): "f58784e6cd8747b3dc26247162c7518d2fdc61ba",
-    ("FULL_CELL", 12, 0.05, 0.0): "b924c00a75dfa59f3c838c2522e89af4d7d3b596",
+    ("FULL_CELL", 12, 0.05, 0.0): "0f966a20b21adb79af17daba4d6fd8a62ff8a097",
+    ("STRADDLE", 11, 0.05, 0.0): "9f1ac4c7fc6d9a90cd199ea18976b0bb6e021986",
 }
 
 _GOLDEN_SVGS = {"SIMPLE": SIMPLE_SVG, "CURVE": CURVE_SVG,
-                "FULL_CELL": FULL_CELL_SVG}
+                "FULL_CELL": FULL_CELL_SVG, "STRADDLE": STRADDLE_SVG}
 
 
 @pytest.mark.parametrize("key", list(WARP_GOLDEN))

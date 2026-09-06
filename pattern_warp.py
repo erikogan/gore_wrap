@@ -372,23 +372,44 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
                            tile_h=tile_h)
 
 
-def _boundary_runs(cpts, x_lo, x_hi, y_hi, suppress_top, closed, tol=1e-6):
+def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     """Split a clipped polygon into open runs, dropping edges that another
     layer already cuts.
 
     clip_to_rect_flagged bakes the clip-rectangle edge it cut against into
-    the returned polygon's outline. The gore sides (x_lo/x_hi) and base
-    (y=0) are always supplied by the `cuts` layer, so those edges are always
-    dropped here; the pattern-limit ceiling (y=y_hi, i.e. frame.pattern_top)
-    is supplied by the `pattern-edge` layer only when `suppress_top` (the
-    caller passes `top_inset > 0.0`) -- otherwise nothing else draws it, so
-    it is left alone.
+    the returned polygon's outline. All four rect edges are always dropped
+    here, because every one of them is always drawn by another layer: the
+    gore sides (x_lo/x_hi) and base (y=0) by the `cuts` layer outline, and
+    the pattern-limit ceiling (y=y_hi, i.e. frame.pattern_top) either by the
+    `pattern-edge` layer when a height limit is on, or -- when it is off, so
+    y_hi is the gore apex itself -- by the `cuts` layer's own apex. (An
+    earlier version suppressed the ceiling only when a height limit was on,
+    reasoning that nothing else draws it otherwise; that was wrong -- with no
+    limit, y_hi coincides with the apex the outline already closes on, and
+    `close_apex` only zeroes the *radius*, not the width, so a positive seam
+    offset leaves a flat, non-zero-width apex edge that duplicated the cut if
+    left alone.)
+
+    The design here also rests on `right_x` (used by the warp) interpolating
+    the very same simplified outline the `cuts` layer emits, and on
+    `unwrap_gore`/`unwrap_gore_uniform` producing an exactly symmetric
+    outline -- i.e. that x_lo and x_hi really are, point for point, the lines
+    the `cuts` layer draws. If gores ever become asymmetric this reasoning
+    breaks silently: left-hand suppression would delete an edge nothing else
+    draws, leaving a hole in the artwork instead of a duplicate line.
 
     An edge (a pair of consecutive points, index i to i+1) counts as
     boundary-coincident only when BOTH endpoints lie on the SAME rect edge,
     tested here in master space against the actual clip bounds -- a single
     point flagged by the clip (`cmask`) is not enough, since a corner point
     can touch a rect edge without either adjoining edge running along it.
+
+    `tol = 1e-6` mm is fine for clip-generated points, which land exactly on
+    the bound by construction. It is not robust for artwork that is only
+    *nominally* on a tile boundary (e.g. an edge at 39.9999 in a 40-unit
+    viewBox) -- such an edge silently falls back to the old duplicated-cut
+    behavior instead of being detected and dropped. Do not change this
+    tolerance without evidence; it is a real limitation, not an oversight.
 
     Returns a list of (idx, run_closed): `idx` indexes into `cpts` (and any
     same-length array derived from it, e.g. the warped points or the corner
@@ -410,8 +431,7 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, suppress_top, closed, tol=1e-6):
     on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
     on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
     on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
-    on_ytop = (np.isclose(y, y_hi, rtol=0.0, atol=tol) if suppress_top
-              else np.zeros(n, dtype=bool))
+    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
     nxt = np.roll(np.arange(n), -1)
     drop = ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
            | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
@@ -535,11 +555,23 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             # and the resulting point indices are then used to slice the
             # warped points (wpts) for fitting.
             for idx, run_closed in _boundary_runs(
-                    cpts, frame.x_lo, frame.x_hi, frame.pattern_top,
-                    top_inset > 0.0, closed):
+                    cpts, frame.x_lo, frame.x_hi, frame.pattern_top, closed):
                 if len(idx) < 2:
                     continue
                 run_wpts = wpts[idx]
+                # The fragment-level _MIN_FRAGMENT_MM screen in
+                # _iter_clipped_fragments checks the whole clipped polygon,
+                # before _boundary_runs splits it -- it does not protect an
+                # individual run. A run can collapse even when its parent
+                # fragment did not: isolating the apex edge into its own run
+                # (now that the ceiling is always dropped, see _boundary_runs)
+                # produces exactly this, warping to a single point because
+                # right_x(pattern_top) == 0 at the apex after close_apex. Re-
+                # screen here, per run, so that survives.
+                diag = float(np.hypot(*(run_wpts.max(axis=0)
+                                        - run_wpts.min(axis=0))))
+                if diag < _MIN_FRAGMENT_MM:
+                    continue
                 corner_idx = np.nonzero(cmask[idx])[0]
                 # fit_beziers is always called with closed=False: a closed
                 # subpath's implicit Close edge is already sampled (see
