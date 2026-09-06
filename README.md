@@ -88,6 +88,37 @@ TBD.
    - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
      vector editor first.
    - **Repeats Around** — how many times the pattern tiles around the object.
+   - **Placement** — where the pattern sits on the gores. The gore cuts slice
+     through the pattern, and a cut that grazes a shape leaves a crumb: a
+     sliver too small to survive weeding or transfer.
+     - **Automatic** (default) — set **Min Feature (mm)** to the smallest piece
+       of material your vinyl and your patience will actually survive, then
+       click **Optimize Placement**. It searches where the pattern can sit and
+       reports how many fragments still fall below that size, against how many
+       there were before. The placement it finds is shown beneath the button.
+       - **Slide Vertically** — also search up and down the strip, not just
+         around the object. Slower, and it changes what the base and top cuts
+         pass through as well as the seams. The search itself takes a moment —
+         it runs with a progress bar you can cancel with Esc — and turning
+         Slide Vertically on searches a second axis, which costs substantially
+         more time than the spin-only search. A dense pattern that fills its
+         whole tile is slower still to search than an open one, since there is
+         more of it for cuts to graze.
+       - The search counts *every* fragment a cut creates, not only the ones
+         you meant to keep, because the extension does not yet read which parts
+         of your pattern are positive space. It therefore rejects some
+         placements that would have been perfectly fine.
+       - If **Placement is stale** appears, a setting the search depended on has
+         changed. Export still works and uses the stored placement; click
+         **Optimize Placement** again to bring it up to date. Editing the scan
+         mesh itself is only partly detected, so re-optimize after a re-scan.
+     - **Manual** — place it by hand instead. **Rotation** spins the pattern
+       around the object in degrees (it repeats every 360 ÷ Repeats Around) and
+       **Rise** slides it up the strip in mm. Optimize writes into these same
+       two fields, so you can optimize first and then nudge.
+
+     The exported SVG records the placement it was written with in an XML
+     comment at the top of the file.
    - **Limit Pattern Height** — stop the pattern short of the top instead of
      filling the whole gore, and close it off with a straight cut parallel to
      the bottom. The cuts go in their own `pattern-edge` layer, one per strip.

@@ -6,6 +6,48 @@ manifest.
 
 Every version bump gets an entry here, in the same commit as the bump.
 
+## 0.9.0 — 2026-09-05
+
+### Added
+
+- **Placement** in the Pattern section. The gore cuts slice through the pattern
+  and a cut that grazes a shape leaves a crumb too small to weed or transfer.
+  **Automatic** takes a **Min Feature (mm)** — the smallest piece of material
+  worth keeping — and **Optimize Placement** searches where the pattern can sit
+  for the position leaving fewest fragments under it, reporting the count
+  against the unoptimized one. **Slide Vertically** widens the search to run up
+  and down the strip as well as around the object.
+- **Manual** placement as the advanced alternative: **Rotation** in degrees
+  around the object and **Rise** in mm up the strip. Both always drive the
+  warp, and Optimize writes into them, so a found placement can be nudged by
+  hand or recorded and returned to.
+- The exported SVG carries an XML comment naming the placement, minimum
+  feature size and repeat count that produced it.
+- A staleness warning: change a setting the search depended on and the panel
+  says so. Export never re-runs the search on its own — it stays fast and
+  predictable — but it does report exporting with a stale placement.
+
+### Changed
+
+- `iter_warp_gores` gained an `offset`, and its tile-placement geometry moved
+  into a shared `_iter_gore_frames` that both the exporter and the new
+  placement scorer use, so the two cannot drift apart.
+
+### Known limitations
+
+- The search counts every fragment a gore cut creates, not only positive space,
+  because pattern fill is not read yet. It rejects some placements that would
+  have been fine. The effective-width test is likewise conservative on round
+  fragments, flagging them up to twice the minimum feature size.
+- Staleness covers the scan mesh only by object name and vertex count, so an
+  edit that does not change the count goes unnoticed. Re-optimize after
+  reworking a scan.
+- With no **Limit Pattern Height** set, the pattern runs all the way to the
+  apex, where the gore has narrowed to a hair, so shapes up there get cut into
+  slivers no matter where the pattern sits. Those are counted, which puts a
+  floor under the orphan number; setting a height limit removes them from the
+  picture.
+
 ## 0.8.0 — 2026-09-04
 
 ### Added
