@@ -227,6 +227,97 @@ def test_a_comfortably_sized_clip_fragment_still_survives(tmp_path, monkeypatch)
     assert groups[0] != [], "a millimeter-scale clip fragment must survive"
 
 
+FULL_AND_INTERIOR_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" \
+width="40" height="20">
+  <rect x="0" y="0" width="40" height="20"/>
+  <rect x="15" y="5" width="10" height="10"/>
+</svg>'''
+
+
+def test_boundary_suppression_opens_cut_shapes_and_keeps_uncut_ones_closed(tmp_path):
+    # Fix C, end to end: with one repeat exactly filling the gore width, the
+    # full-bleed rect's left/right sides always land on x_lo/x_hi (dropped --
+    # the cuts layer already draws them), while the small centered square
+    # never reaches a gore edge at all and must still come out closed.
+    layout, outlines = _one_gore_layout(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_AND_INTERIOR_SVG))
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 12, 0.05))
+    sub = groups[0]
+    assert any(closed for _c, closed in sub), "the untouched square must stay closed"
+    assert any(not closed for _c, closed in sub), "the full-bleed rect must be opened"
+
+
+def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
+    # A square (kept off y=0 so only the x_hi clip is under test) straddling
+    # the right clip edge: clip_to_rect_flagged bakes the x=8 edge it was cut
+    # against into the outline. _boundary_runs must drop that edge and hand
+    # back an open run that ends at the boundary instead of closing along it.
+    square = np.array([[0.0, 1.0], [10.0, 1.0], [10.0, 9.0], [0.0, 9.0]])
+    mask = np.zeros(4, dtype=bool)
+    poly, _cmask = pattern_warp.clip_to_rect_flagged(
+        square, mask, 0.0, 8.0, -1.0, 11.0)
+    # x_lo passed far away so this isolates the x_hi edge alone.
+    runs = pattern_warp._boundary_runs(poly, -100.0, 8.0, 11.0, False,
+                                       closed=True)
+    assert len(runs) == 1
+    idx, run_closed = runs[0]
+    assert run_closed is False
+    run = poly[idx]
+    # No surviving edge lies along the suppressed x=8 boundary.
+    xs = run[:, 0]
+    edge_on_x8 = np.isclose(xs[:-1], 8.0) & np.isclose(xs[1:], 8.0)
+    assert not edge_on_x8.any()
+
+
+def test_boundary_runs_leaves_an_uncut_polygon_closed():
+    # Nothing here touches any clip edge -- current behaviour is preserved
+    # exactly: one run, original point order, original closed flag.
+    tri = np.array([[1.0, 1.0], [5.0, 1.0], [3.0, 6.0]])
+    runs = pattern_warp._boundary_runs(tri, 0.0, 10.0, 10.0, False, closed=True)
+    assert len(runs) == 1
+    idx, run_closed = runs[0]
+    assert run_closed is True
+    assert list(idx) == [0, 1, 2]
+
+
+def test_boundary_runs_leaves_the_ceiling_when_top_inset_is_zero():
+    # The pattern-limit ceiling (y = y_hi) is only suppressed when
+    # top_inset > 0 (suppress_top=True). With it False, nothing else draws
+    # that edge, so a run cut only there must stay closed and unsplit.
+    square = np.array([[1.0, 1.0], [9.0, 1.0], [9.0, 10.0], [1.0, 10.0]])
+    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, False, closed=True)
+    assert len(runs) == 1 and runs[0][1] is True
+
+
+def test_boundary_runs_drops_the_ceiling_when_suppressed():
+    # Same polygon, but with the ceiling suppressed (top_inset > 0): the
+    # edge along y=10 must now be dropped, opening the run.
+    square = np.array([[1.0, 1.0], [9.0, 1.0], [9.0, 10.0], [1.0, 10.0]])
+    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, True, closed=True)
+    assert any(not run_closed for _idx, run_closed in runs)
+
+
+def test_boundary_runs_remaps_corner_indices_per_run():
+    # A hexagon with two dropped edges yields two runs; corner_idx for each
+    # run must be local to that run, not the original polygon's indices.
+    hexagon = np.array([[0.0, 0.0], [8.0, 0.0], [8.0, 5.0],
+                        [8.0, 10.0], [0.0, 10.0], [0.0, 5.0]])
+    # Drop the bottom (y=0) and top (y=10) edges: points 0-1 (y=0) and
+    # 3-4 (y=10).
+    runs = pattern_warp._boundary_runs(hexagon, -1.0, 100.0, 10.0, True,
+                                       closed=True)
+    assert len(runs) == 2
+    for idx, run_closed in runs:
+        assert not run_closed
+        assert len(idx) >= 2
+        # idx must be valid local indices into `hexagon`, each run distinct.
+        assert idx.max() < len(hexagon)
+    all_idx = sorted(int(i) for idx, _c in runs for i in idx)
+    # Every point on the two surviving 3-point runs appears exactly once.
+    assert all_idx == [0, 1, 2, 3, 4, 5]
+
+
 def test_clip_flagged_marks_crossings_as_corners():
     # A square straddling the right edge; the two new points on x=8 are corners.
     square = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
@@ -386,7 +477,7 @@ WARP_GOLDEN = {
     ("SIMPLE", 24, 0.05, 0.0): "393d875155bb23f27e17f8dd183b763ba6a60daa",
     ("CURVE", 24, 0.02, 0.0): "d6386dbbf874839a64b7d01fca9463ee3cfae2c3",
     ("CURVE", 8, 0.02, 30.0): "f58784e6cd8747b3dc26247162c7518d2fdc61ba",
-    ("FULL_CELL", 12, 0.05, 0.0): "2ac470ec91a323fd0e4c574e47830d8320b18e29",
+    ("FULL_CELL", 12, 0.05, 0.0): "b924c00a75dfa59f3c838c2522e89af4d7d3b596",
 }
 
 _GOLDEN_SVGS = {"SIMPLE": SIMPLE_SVG, "CURVE": CURVE_SVG,

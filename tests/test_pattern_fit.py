@@ -347,13 +347,22 @@ def test_search_agrees_with_the_exporter_on_the_worst_fragment(tmp_path):
     phi_x_roundtrip = circ * rotation_deg / 360.0
     assert phi_x_roundtrip == pytest.approx(phi_x, abs=1e-9)
 
+    # Compare against the CLIPPED fragment -- the closed polygon
+    # clip_to_rect_flagged produced, before the seam-edge fix (Fix C) may
+    # drop its clip-boundary edges and emit it as one or more open runs.
+    # iter_warp_gores's own emitted paths are no longer meaningful input to
+    # _fragment_q once a fragment is opened: a shoelace area over an open
+    # polyline is not the fragment's area. pattern_warp.iter_clipped_fragments
+    # exposes exactly the pre-suppression polygon so this test keeps
+    # checking what it is actually meant to check -- that the scorer and the
+    # exporter agree about where a fragment lands and how big it is -- and
+    # stays independent of whether Fix C's suppression fired for it.
     cutter_resolution = export_job.SIMPLIFY_PRESETS["CUTTER"][0]
     worst_emitted = np.inf
-    for _i, subpaths in pattern_warp.iter_warp_gores(
+    for _i, polys in pattern_warp.iter_clipped_fragments(
             pattern, layout.placements, outlines, circ, 12,
             cutter_resolution, offset=(phi_x_roundtrip, phi_y)):
-        for cubics, _closed in subpaths:
-            poly = export_job._flatten_cubics(cubics)
+        for poly in polys:
             q = pattern_fit._fragment_q(poly, min_feature)
             worst_emitted = min(worst_emitted, q)
 
