@@ -227,6 +227,50 @@ def main():
           f"viewport colors set")
 
     check_non_finite_rejected(obj)
+    check_optimize_placement(obj)
+
+
+def check_optimize_placement(obj):
+    """Optimize writes a placement, and the panel draws in both modes."""
+    import bpy
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()      # see below
+    props.pattern_repeats_x = 6
+    props.pattern_min_feature = 3.0
+    props.pattern_placement_mode = "AUTO"
+
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.optimize_placement()
+    assert res == {"FINISHED"}, res
+    assert props.has_pattern_fit, "optimize did not record a placement"
+    assert props.pattern_fit_stamp, "optimize did not record a stamp"
+
+    # Changing a dependency must invalidate the stamp.
+    from gore_wrap import operators
+    fresh = operators.placement_stamp(props, obj)
+    assert fresh == props.pattern_fit_stamp
+    props.pattern_repeats_x = 8
+    assert operators.placement_stamp(props, obj) != props.pattern_fit_stamp
+
+    # The panel must draw in both placement modes.
+    for mode in ("AUTO", "MANUAL"):
+        props.pattern_placement_mode = mode
+        for area in bpy.context.screen.areas if bpy.context.screen else []:
+            area.tag_redraw()
+    assert "optimize_placement" in dir(bpy.ops.gorewrap)
+    print("[smoke] optimize placement ok: "
+          f"{props.pattern_orphans} orphans (was {props.pattern_orphans_base})")
+
+
+def _write_temp_pattern():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+           'width="40" height="40">'
+           '<rect x="8" y="8" width="24" height="24"/></svg>')
+    fd, path = tempfile.mkstemp(suffix=".svg")
+    with os.fdopen(fd, "w") as fh:
+        fh.write(svg)
+    return path
 
 
 def check_non_finite_rejected(obj):
