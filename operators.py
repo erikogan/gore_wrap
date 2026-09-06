@@ -341,11 +341,79 @@ class GOREWRAP_OT_apply_scale(bpy.types.Operator):
         return bpy.ops.gorewrap.preview()
 
 
-class GOREWRAP_OT_export(bpy.types.Operator):
+class _ModalJob:
+    """Drives a (fraction, label) progress generator for an operator.
+
+    Subclasses set `self._gen`, then `return self._start(context)` from
+    execute(). They declare which exceptions the job may raise, what to say on
+    Esc, and what to do with the generator's return value. Headless -- the
+    smoke test, background renders, scripts -- there is no event loop, so the
+    generator is drained on the spot instead.
+    """
+
+    _job_exceptions = ()
+    _cancel_message = "Canceled."
+
+    def _start(self, context):
+        self._timer = None
+        if bpy.app.background or context.window is None:
+            try:
+                value = _run_to_completion(self._gen)
+            except self._job_exceptions as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            return self._on_success(value)
+
+        wm = context.window_manager
+        wm.progress_begin(0.0, 1.0)
+        self._timer = wm.event_timer_add(0.05, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            self._gen.close()
+            self._finish(context)
+            self.report({"INFO"}, self._cancel_message)
+            return {"CANCELLED"}
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+        wm = context.window_manager
+        deadline = time.monotonic() + 0.03
+        try:
+            while time.monotonic() < deadline:
+                frac, label = next(self._gen)
+                context.workspace.status_text_set(f"{label}  —  Esc to cancel")
+                wm.progress_update(frac)
+        except StopIteration as stop:
+            self._finish(context)
+            return self._on_success(stop.value)
+        except self._job_exceptions as exc:
+            self._finish(context)
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+    def _finish(self, context):
+        wm = context.window_manager
+        if self._timer is not None:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        wm.progress_end()
+        context.workspace.status_text_set(None)
+
+    def _on_success(self, value):
+        raise NotImplementedError
+
+
+class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
     bl_idname = "gorewrap.export_svg"
     bl_label = "Export SVG"
     bl_description = "Lay out the gores on the mat and write an SVG"
     bl_options = {"REGISTER"}
+
+    _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)
+    _cancel_message = "Export canceled."
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
     filename_ext = ".svg"
@@ -407,59 +475,11 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             "pattern_min_feature": props.pattern_min_feature,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
-        self._timer = None
+        return self._start(context)
 
-        # No event loop headlessly (background, scripts, smoke test): drain now.
-        if bpy.app.background or context.window is None:
-            try:
-                summary = _run_to_completion(self._gen)
-            except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
-                self.report({"ERROR"}, str(exc))
-                return {"CANCELLED"}
-            self._report_summary(summary)
-            return {"FINISHED"}
-
-        wm = context.window_manager
-        wm.progress_begin(0.0, 1.0)
-        self._timer = wm.event_timer_add(0.05, window=context.window)
-        wm.modal_handler_add(self)
-        return {"RUNNING_MODAL"}
-
-    def modal(self, context, event):
-        if event.type == "ESC":
-            return self._cancel(context)
-        if event.type != "TIMER":
-            return {"PASS_THROUGH"}
-        wm = context.window_manager
-        deadline = time.monotonic() + 0.03
-        try:
-            while time.monotonic() < deadline:
-                frac, label = next(self._gen)
-                context.workspace.status_text_set(f"{label}  —  Esc to cancel")
-                wm.progress_update(frac)
-        except StopIteration as stop:
-            self._finish(context)
-            self._report_summary(stop.value)
-            return {"FINISHED"}
-        except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
-            self._finish(context)
-            self.report({"ERROR"}, str(exc))
-            return {"CANCELLED"}
-        return {"RUNNING_MODAL"}
-
-    def _cancel(self, context):
-        self._gen.close()
-        self._finish(context)
-        self.report({"INFO"}, "Export canceled.")
-        return {"CANCELLED"}
-
-    def _finish(self, context):
-        wm = context.window_manager
-        if self._timer is not None:
-            wm.event_timer_remove(self._timer)
-            self._timer = None
-        wm.progress_end()
-        context.workspace.status_text_set(None)
+    def _on_success(self, summary):
+        self._report_summary(summary)
+        return {"FINISHED"}
 
     def _report_summary(self, summary):
         if summary is not None and summary.pattern_empty:
