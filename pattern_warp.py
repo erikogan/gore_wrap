@@ -280,9 +280,10 @@ def top_edge_line(poly, outline, top_inset):
 def _tile_metrics(pattern, circumference, repeats_x):
     """Return (W, k, tile_h): tile width in mm, pattern px -> mm, tile height.
 
-    Named because three callers need it independently -- frame construction,
-    the placement search (which needs W to know its own period), and the UI
-    (which converts that period to degrees).
+    Named because three callers need it independently -- `_iter_gore_frames`
+    (frame construction), `pattern_fit.prepare` (which samples the pattern
+    once at this scale), and `pattern_fit.search_placement` (which needs W to
+    know its own period).
     """
     W = circumference / repeats_x
     k = W / pattern.px_width
@@ -294,10 +295,9 @@ class GoreFrame:
     """Everything needed to place pattern tiles into one gore.
 
     Bundled rather than passed as loose arguments: these values always travel
-    together, and threading eight of them through every caller is how the
+    together, and threading seven of them through every caller is how the
     exporter and the scorer would drift apart.
     """
-    index: int
     warp: object        # (mx, my) -> (fx, fy); scalars or numpy arrays
     x_lo: float         # master-space gore rect
     x_hi: float
@@ -358,7 +358,7 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
 
         x_lo, x_hi = xc - hw0, xc + hw0
         tiles = _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset)
-        yield i, GoreFrame(index=i, warp=warp, x_lo=x_lo, x_hi=x_hi,
+        yield i, GoreFrame(warp=warp, x_lo=x_lo, x_hi=x_hi,
                            pattern_top=pattern_top, tiles=tiles, k=k,
                            tile_h=tile_h)
 

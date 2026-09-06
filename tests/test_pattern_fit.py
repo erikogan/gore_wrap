@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from gore_wrap import geometry, pattern_fit, pattern_warp, svg_export
+from gore_wrap import export_job, geometry, pattern_fit, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 
@@ -85,7 +85,14 @@ def test_fragment_q_flags_a_crumb():
 
 
 def test_score_is_zero_when_nothing_is_cut(tmp_path):
-    # One repeat per gore with a wide margin: no shape meets a gore edge.
+    # One repeat per gore, so the square's generous x margins never bind --
+    # the tight side is actually y. This gore's pattern_top (162.8084) is not
+    # a whole number of tile heights (162.8084 / 20.9440 = 7.774), so the top
+    # row is partial; the square's top edge in that row clears pattern_top by
+    # only ~0.49 mm. That is the margin this test is actually resting on, not
+    # the x margin the tile layout might suggest -- shrink it (a taller
+    # square, a different repeats_x/min_feature) and this starts failing for
+    # a reason that has nothing to do with x.
     layout, outlines = _cylinder_gores()
     pattern = pattern_warp.load_pattern(_write(tmp_path, SQUARE_SVG))
     circ = 2 * np.pi * 40.0
@@ -253,6 +260,60 @@ def test_search_honors_top_inset(tmp_path):
     assert baseline0.orphans > 0
     assert baseline1.orphans == 0
     assert baseline0.score != baseline1.score
+
+
+def test_search_agrees_with_the_exporter_on_the_worst_fragment(tmp_path):
+    # The whole design rests on an assumption nothing else in the suite
+    # checks directly: that pattern_fit (which scores placements with a
+    # coarse, fixed-density sample) and pattern_warp.iter_warp_gores (which
+    # the exporter drives, adaptively sampling in warp-space and fitting
+    # beziers) agree about WHERE tiles land and what a gore edge cuts off
+    # them, even though they deliberately differ in HOW they sample. This
+    # closes that loop: run the real search, feed its answer through the
+    # real export path, and check the two machineries call the same
+    # fragment the same size.
+    #
+    # GAP_SVG is used (not SQUARE_SVG) because its horizontal-only search
+    # never reaches zero orphans (see GAP_SVG's module comment) -- the best
+    # offset the search finds still has real cut fragments in it, which is
+    # what makes `best.worst` a meaningful number to check.
+    layout, outlines = _cylinder_gores(n_strips=12)
+    pattern = pattern_warp.load_pattern(_write(tmp_path, GAP_SVG))
+    circ = 2 * np.pi * 40.0
+    min_feature = 3.0
+
+    # 1-D only: stays fast, and phi_y is already known to stay 0.0 so the
+    # round trip below only has to check the x axis.
+    (offset, best, _baseline), _f = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, outlines, circ, 12, min_feature,
+        slide_vertically=False))
+    phi_x, phi_y = offset
+    assert best.worst is not None, "search found no cut fragment to compare"
+
+    # Exactly the conversion operators.py (writing pattern_rotation) and
+    # export_job.py (reading it back into an offset) perform, so a placement
+    # really does survive being stored as degrees between Optimize and
+    # Export.
+    rotation_deg = 360.0 * phi_x / circ
+    phi_x_roundtrip = circ * rotation_deg / 360.0
+    assert phi_x_roundtrip == pytest.approx(phi_x, abs=1e-9)
+
+    cutter_resolution = export_job.SIMPLIFY_PRESETS["CUTTER"][0]
+    worst_emitted = np.inf
+    for _i, subpaths in pattern_warp.iter_warp_gores(
+            pattern, layout.placements, outlines, circ, 12,
+            cutter_resolution, offset=(phi_x_roundtrip, phi_y)):
+        for cubics, _closed in subpaths:
+            poly = export_job._flatten_cubics(cubics)
+            q = pattern_fit._fragment_q(poly, min_feature)
+            worst_emitted = min(worst_emitted, q)
+
+    assert worst_emitted < np.inf, "exporter emitted no fragments to compare"
+    # CUTTER resolution keeps the exporter's adaptive sampling close enough
+    # to the scorer's fixed-density sampling that the two should all but
+    # coincide; a loose but still meaningful bound so ordinary floating-point
+    # and sampling-seam differences don't make this flaky.
+    assert worst_emitted == pytest.approx(best.worst, abs=1e-3)
 
 
 def test_fingerprint_is_stable_and_order_independent():
