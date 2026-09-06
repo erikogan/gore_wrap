@@ -199,14 +199,18 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
           else np.array([0.0]))
 
     coarse = []
-    total = n_x * n_y
+    coarse_total = n_x * n_y
+    per_axis = 2 * REFINE_STEPS + 1
+    refine_total = min(REFINE_TOP, coarse_total) * per_axis * \
+        (per_axis if slide_vertically else 1)
+    total = coarse_total + refine_total
     done = 0
     for px in xs:
         for py in ys:
             offset = (float(px), float(py))
             coarse.append((score_at(offset), offset))
             done += 1
-            yield 0.9 * done / total, f"Searching placement {done}/{total}"
+            yield done / total, f"Searching placement {done}/{coarse_total}"
 
     coarse.sort(key=lambda item: item[0].score)
     best, best_offset = coarse[0]
@@ -214,7 +218,7 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
     step_x = W / n_x
     step_y = (tile_h / n_y) if slide_vertically else 0.0
     top = coarse[:REFINE_TOP]
-    for done_r, (_fs, (cx, cy)) in enumerate(top, start=1):
+    for _fs, (cx, cy) in top:
         rxs = np.linspace(cx - step_x, cx + step_x, 2 * REFINE_STEPS + 1)
         rys = (np.linspace(cy - step_y, cy + step_y, 2 * REFINE_STEPS + 1)
                if slide_vertically else np.array([0.0]))
@@ -226,7 +230,9 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
                 fs = score_at(offset)
                 if fs.score < best.score:
                     best, best_offset = fs, offset
-        yield 0.9 + 0.1 * done_r / len(top), "Refining placement…"
+                done += 1
+                yield (done / total,
+                      f"Refining placement {done - coarse_total}/{refine_total}")
 
     return best_offset, best, baseline
 
