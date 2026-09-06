@@ -314,13 +314,15 @@ def test_search_honors_top_inset(tmp_path):
 def test_search_agrees_with_the_exporter_on_the_worst_fragment(tmp_path):
     # The whole design rests on an assumption nothing else in the suite
     # checks directly: that pattern_fit (which scores placements with a
-    # coarse, fixed-density sample) and pattern_warp.iter_warp_gores (which
-    # the exporter drives, adaptively sampling in warp-space and fitting
-    # beziers) agree about WHERE tiles land and what a gore edge cuts off
-    # them, even though they deliberately differ in HOW they sample. This
-    # closes that loop: run the real search, feed its answer through the
-    # real export path, and check the two machineries call the same
-    # fragment the same size.
+    # coarse, fixed-density sample) and pattern_warp (which the exporter
+    # drives, adaptively sampling in warp-space) agree about WHERE tiles
+    # land and what a gore edge cuts off them, even though they deliberately
+    # differ in HOW they sample. This closes that loop: run the real search,
+    # feed its answer through the exporter's own tiling/clipping code via
+    # pattern_warp.iter_clipped_fragments, and check the two machineries
+    # call the same fragment the same size. It stops at the clipped
+    # fragment -- see the comment below for why it does not go on to cover
+    # the bezier-fitting stage too.
     #
     # GAP_SVG is used (not SQUARE_SVG) because its horizontal-only search
     # never reaches zero orphans (see GAP_SVG's module comment) -- the best
