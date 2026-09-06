@@ -164,6 +164,55 @@ def test_search_returns_an_offset_inside_one_period(tmp_path):
     assert fracs and fracs[-1] <= 1.0
 
 
+def test_search_progress_is_paced_by_evaluation_count(tmp_path, monkeypatch):
+    # Fix A: before this fix, the coarse loop yielded once per evaluation
+    # (spending 90% of the bar's range on it) while refinement yielded only
+    # once per *refinement point*, after its whole nested inner loop -- 5
+    # updates covering the last 10%, each one jumping the bar by tens of
+    # percent and freezing it for the whole nested loop in between. Progress
+    # must instead be paced by the actual evaluation count in both loops, so
+    # no single yield ever represents a large chunk of the remaining work.
+    layout, outlines = _cylinder_gores()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SQUARE_SVG))
+    circ = 2 * np.pi * 40.0
+    # Coarsen the 2-D grid so the slide_vertically case stays fast; this
+    # mirrors test_search_finds_a_planted_gap_by_sliding_vertically.
+    monkeypatch.setattr(pattern_fit, "COARSE_2D", 8)
+    for slide_vertically in (False, True):
+        (_offset, _best, _baseline), fracs = _drain(pattern_fit.search_placement(
+            pattern, layout.placements, outlines, circ, 20, 3.0,
+            slide_vertically=slide_vertically))
+        assert fracs == sorted(fracs), "progress must never go backwards"
+        steps = np.diff([0.0] + fracs)
+        assert steps.max() <= 0.05, (
+            f"a single step covered {steps.max():.1%} of the bar "
+            f"(slide_vertically={slide_vertically})")
+        assert fracs[-1] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_search_progress_labels_the_refinement_phase(tmp_path, monkeypatch):
+    # The refinement phase must get its own label (not a copy-pasted
+    # "Refining placement…" for every one of its many yields), and must
+    # yield more than once per refinement point.
+    layout, outlines = _cylinder_gores()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, SQUARE_SVG))
+    circ = 2 * np.pi * 40.0
+    labels = []
+    gen = pattern_fit.search_placement(pattern, layout.placements, outlines,
+                                       circ, 20, 3.0)
+    try:
+        while True:
+            _frac, label = next(gen)
+            labels.append(label)
+    except StopIteration:
+        pass
+    refine_labels = [l for l in labels if "Refin" in l]
+    assert len(refine_labels) > pattern_fit.REFINE_TOP, (
+        "refinement must yield many times, not once per refinement point")
+    assert len(set(refine_labels)) > 1, (
+        "refinement labels must track progress, not repeat one static string")
+
+
 def test_search_never_returns_worse_than_the_baseline(tmp_path):
     layout, outlines = _cylinder_gores()
     pattern = pattern_warp.load_pattern(_write(tmp_path, SQUARE_SVG))
