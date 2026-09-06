@@ -14,28 +14,50 @@ concludes is required.
 - Pattern: `First Pattern.svg` — Illustrator export, viewBox 560.41 x 514.19,
   **234 subpaths, all closed**, no open strokes.
 - Scan: `Rotated for Gore Wrap.blend`, object `DTM`, 83,952 verts.
-- Settings read from the .blend: 20 strips (18 deg), FITTED, seam offset 0,
-  **Repeats Around = 2**, Min Feature 3.0 mm, **Limit Pattern Height off**,
-  tolerance 0.3, smoothing 2.0, scale 1.0, crop 0.
+- Settings: 20 strips (18 deg), FITTED, seam offset 0, **Repeats Around = 2**,
+  Min Feature 3.0 mm, tolerance 0.3, smoothing 2.0, scale 1.0, crop 0,
+  **Limit Pattern Height ON, 50 mm, measured Along Surface** (top_inset = 50.0).
 - Derived: circumference 395.733 mm, height 150.587 mm, **fit error 2.789 mm**,
-  gore width 19.787 mm, tile 197.87 mm, k = 0.3531 mm/px.
+  gore width 19.787 mm, tile 197.87 mm, k = 0.3531 mm/px, gore meridian
+  180.48 mm, pattern ceiling 130.48 mm.
 
-Note the .blend predates the export in question (it has `pattern_rotation = 0`,
-`has_pattern_fit = False`, while the exported SVG records rotation 36.562 deg /
-rise 144.670 mm). Geometry settings are believed unchanged; the placement is
-not.
+The .blend on disk predates the export in question and had stale values for the
+height limit and placement; the settings above are the owner's corrected ones
+and everything below is computed with them.
+
+**Independent confirmation that the search works:** a 2-D sweep run here found
+its optimum at rotation 36.0 deg / rise 145.2 mm. The owner's exported SVG
+records **rotation 36.562 deg / rise 144.670 mm**. The feature found the right
+placement — the placement simply does not help much.
+
+## Why the height limit matters more than expected
+
+The warp compresses x by `right_x(my)/hw0`, which falls to **zero** at the
+apex. With the limit off, the pattern runs into a region where horizontal
+distances are crushed to nothing, so shapes there are guaranteed slivers no
+matter where the pattern sits.
+
+| | ceiling | x-compression at ceiling | baseline orphans |
+|---|---|---|---|
+| limit off | 180.48 mm | **0.0000** | 707 |
+| **limit on, 50 mm** | 130.48 mm | 0.6603 | **506** |
+
+Turning the limit on removes 201 of 707 orphans (28%) on its own. This is worth
+knowing independently of everything else: **running an unlimited pattern to the
+apex is intrinsically sliver-generating.**
 
 ## The measurements that matter
 
 **The artwork is finer than the material tolerance.** Effective width
-(`2*area/perimeter`) of each uncut source subpath at repeats=2:
+(`2*area/perimeter`) of each uncut source subpath at repeats=2, master scale:
 
 | | p5 | p25 | median | p75 | max |
 |---|---|---|---|---|---|
 | shape thickness | 0.65 | 1.42 | **1.87** | 2.27 | 3.34 mm |
 
 **230 of 234 subpaths (98.3%) are thinner than the 3 mm Min Feature before any
-gore cut touches them.**
+gore cut touches them.** (Measured at the gore base, where compression is 1.0;
+higher up the warp makes them thinner still.)
 
 **The gaps are the same scale as the shapes.** Distance from each sampled point
 to the nearest point of a *different* subpath:
@@ -51,25 +73,25 @@ to the nearest point of a *different* subpath:
 
 ## What was ruled out, with evidence
 
-1. **Rotation cannot fix it.** Full-period sweep, 48 samples: orphans range
-   674-732, an 8.3% spread. Best available gain 33 of 707 (4.7%).
-2. **Vertical slide adds nothing.** 100-point 2-D sweep: best gain 3 of 707
-   (0.4%), and the best offset has **rise = 0.0 mm**. Consistent with the
-   geometry — phi_y moves what the base and apex cuts pass through, not the
-   vertical seams.
-3. **The offenders are not an apex artifact.** Bucketing offending fragments by
-   height up the gore gives a flat distribution (54-82 per decile from base to
-   apex). Slivers are made uniformly along every seam.
-4. **More repeats makes it dramatically worse**, not better: best orphans 682 at
-   repeats 2, 1468 at 4, 3480 at 10, 6280 at 20. Smaller tile means smaller
-   artwork means everything falls below Min Feature.
+All figures below use the correct height limit.
+
+1. **Rotation cannot fix it.** Full-period sweep, 32 samples: baseline 506, best
+   475, worst 528. Gain **6.1%**.
+2. **Adding vertical slide barely helps.** 100-point 2-D sweep: baseline 506,
+   best 480, gain **5.1%**, at rotation 36.0 deg / rise 145.2 mm. (With the
+   limit off the best rise was 0.0 mm and the 2-D gain was 0.4%; with it on the
+   vertical axis does contribute, but the total is still small.)
+3. **The offenders are not concentrated anywhere.** Bucketing offending
+   fragments by height gives a flat distribution, 32-62 per decile from base to
+   ceiling. Slivers are made uniformly along every seam.
+4. **More repeats makes it far worse**, not better: best orphans **170** at
+   repeats 1, **504** at 2, **874** at 3.
 5. **A purpose-built clearance metric does not rescue it either.** A prototype
    scoring the distance from each seam to the nearest pattern path — measuring
    the strip of material the owner actually cares about — found the baseline
-   median strip width to be **0.73 mm**, with 60.2% of gap locations under
-   1 mm. But sweeping rotation on that metric gained only 119 of 2420 sub-1 mm
-   strips (4.9%), and the existing 0 deg placement already gives the best median
-   clearance available. **The metric was not the problem.**
+   median strip width to be **1.00 mm**, with 49.9% of gap locations under 1 mm
+   and 94.0% under 3 mm. Sweeping rotation on that metric gained **1.0%**. The
+   metric was not the problem.
 
 ## What does help, inside "repeats must stay at 2"
 
@@ -77,20 +99,23 @@ to the nearest point of a *different* subpath:
 unlock the search, because the number of rigidly-linked seam phases is
 `n / gcd(n, repeats_x)` — one rotation must satisfy all of them at once.
 
-| strips | seam phases | baseline orphans | best rotation | rotation gain | fit error |
+| strips | seam phases | baseline | best rotation | gain | fit error |
 |---|---|---|---|---|---|
-| 20 (current) | 10 | 707 | 667 | 5.7% | 2.79 mm |
-| 12 | 6 | 537 | 441 | 17.9% | 3.11 mm |
-| 10 | 5 | 457 | **370** | **19.0%** | 3.16 mm |
-| 8 | 4 | 378 | 330 | 12.7% | 3.12 mm |
+| 20 (current) | 10 | 506 | 480 | 5.1% | 2.79 mm |
+| 16 | 8 | 458 | 443 | 3.3% | 3.06 mm |
+| 12 | 6 | 397 | 343 | 13.6% | 3.11 mm |
+| 10 | 5 | 328 | **283** | 13.7% | 3.16 mm |
+| 8 | 4 | 260 | **259** | 0.4% | 3.12 mm |
 
 Best combination available without changing repeats: **10 strips plus Optimize
-Placement, 370 orphans vs 707 — roughly half.** Costs: fit error 2.79 -> 3.16 mm,
-and 39 mm strips conform to a curved surface less easily than 20 mm ones.
+Placement, 283 orphans vs the current 506 — a 44% reduction.** Eight strips
+reaches 259 (49%) but rotation stops contributing. Costs: fit error 2.79 ->
+3.16 mm, and 39 mm strips conform to a curved surface less easily than 20 mm
+ones.
 
-Setting Repeats Around to **1** would fix it properly (tile = full
-circumference, k = 0.706 mm/px, median gap 3.85 mm, median thickness 3.73 mm,
-239 orphans) but the owner has ruled that out on aesthetic grounds.
+Setting Repeats Around to **1** would fix it properly (170 orphans, tile = full
+circumference, median gap 3.85 mm, median thickness 3.73 mm) but the owner has
+ruled that out on aesthetic grounds.
 
 ## Why this implicates polarity
 
@@ -98,7 +123,7 @@ The scorer measures **each closed contour and the fragments a gore cut makes of
 it**. It never looks at the space *between* contours. So when a seam lands in a
 1 mm gap, it leaves a thin strip of material between the cut and the
 neighboring path — the owner sees an orphan; the scorer sees two perfectly
-intact shapes and reports nothing wrong. The 0.73 mm median strip width measured
+intact shapes and reports nothing wrong. The 1.00 mm median strip width measured
 by the clearance prototype is **entirely invisible to the shipped metric**.
 
 Which of the two regions is the orphan depends on polarity, and the owner's
@@ -124,10 +149,15 @@ structurally unable to answer the question being asked of it.
 3. **`load_pattern` currently discards fill entirely** (`abs(Path(element))`
    keeps geometry only). The `Pattern` dataclass has no place to put it.
 4. Polarity alone may not be sufficient. Knowing the background is positive
-   still leaves the question of how to *measure* a region that is defined by the
-   absence of shapes. The clearance prototype (distance from cut to nearest
-   path) is one cheap answer that needs no region reconstruction, and it ran
-   faster than the current scorer (0.7 s vs ~1 s per evaluation).
+   still leaves the question of how to *measure* a region defined by the absence
+   of shapes. The clearance prototype (distance from cut to nearest path) is one
+   cheap answer that needs no region reconstruction, and it ran faster than the
+   current scorer (0.7 s vs ~1 s per evaluation).
+5. **The apex is a hazard for any metric.** Because x-compression reaches zero
+   there, any region-based measure will report vanishing widths near the top
+   unless the height limit is set. Whatever polarity-aware metric replaces the
+   current one should either require a limit or handle the singularity
+   explicitly.
 
 ## Corrections to earlier claims in this thread
 
@@ -135,14 +165,15 @@ Recorded so they are not repeated:
 
 - "Most shapes are smaller than a gore" — **wrong**, 30.3% are wider, max 2.75
   gores. Came from quoting a median and generalising.
-- "Increase Repeats Around" — **wrong direction**, measured to make it 9x worse
-  at repeats 20.
+- "Increase Repeats Around" — **wrong direction**, measured to make it worse.
 - "The slivers cluster near the apex" — **wrong**, the height distribution is
-  flat.
+  flat once the height limit is applied.
 - "The orphan floor is irreducible because every shape gets cut" — **wrong
   framing**. A shape cut 50/50 costs nothing; the metric measures fragment size.
   The real constraint is that seam phases are rigidly linked, plus the artwork
   being finer than Min Feature.
+- "Vertical slide adds nothing" — **true only with the height limit off**. With
+  it on, the optimum has a non-zero rise, though the total gain is still ~5%.
 
 ## Artifacts
 
@@ -153,5 +184,5 @@ read-only, never saved), `real.pkl`, `points.npy`.
 ## Open question for the owner
 
 **Is 3 mm the real weeding tolerance?** Every count above is measured against
-it. If a 1.5 mm strip is liftable in practice, a substantial part of the 370
+it. If a 1.5 mm strip is liftable in practice, a substantial part of the 283
 is not a real defect and the picture is better than these numbers suggest.
