@@ -169,6 +169,64 @@ def test_warp_wraps_at_seam(tmp_path):
     assert len(groups[0]) > 0
 
 
+def test_degenerate_clip_fragment_is_rejected(tmp_path, monkeypatch):
+    # Fix B: a clipped fragment that has collapsed to a numerically-degenerate
+    # sliver (sub-micron bounding box) is clipping garbage -- a stab mark, not
+    # a real feature -- and must be dropped before it reaches bezier fitting,
+    # so it never shows up in the exported pattern layer.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    _i, frame = next(iter(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24)))
+
+    # A corner well inside the gore (away from the apex, where the taper
+    # scales x toward zero and would confound "is the warped result tiny"
+    # with "is the master-space clip tiny"), clipped at x_hi down to a
+    # tiny sub-micron sliver in both dimensions.
+    y0 = frame.pattern_top * 0.5
+    tiny = 1e-4   # mm; well under _MIN_FRAGMENT_MM (1e-3 mm)
+    corner = np.array([
+        [frame.x_hi - tiny, y0 - tiny],
+        [frame.x_hi + 5.0,  y0 - tiny],
+        [frame.x_hi + 5.0,  y0 + tiny],
+        [frame.x_hi - tiny, y0 + tiny],
+    ])
+
+    def fake_sample(segs, corners, k, dx, dy, tile_h, warp, sample_tol):
+        return corner.copy(), np.zeros(len(corner), dtype=bool)
+
+    monkeypatch.setattr(pattern_warp, "_sample_subpath_master", fake_sample)
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.05))
+    assert groups[0] == [], "a sub-micron clip fragment must not be emitted"
+
+
+def test_a_comfortably_sized_clip_fragment_still_survives(tmp_path, monkeypatch):
+    # Control for the degenerate-fragment guard above: a fragment clipped
+    # down to something well above the numerical-garbage threshold is a real
+    # feature and must still be emitted.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    _i, frame = next(iter(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24)))
+
+    y0 = frame.pattern_top * 0.5
+    corner = np.array([
+        [frame.x_hi - 1.0, y0 - 1.0],
+        [frame.x_hi + 5.0, y0 - 1.0],
+        [frame.x_hi + 5.0, y0 + 1.0],
+        [frame.x_hi - 1.0, y0 + 1.0],
+    ])
+
+    def fake_sample(segs, corners, k, dx, dy, tile_h, warp, sample_tol):
+        return corner.copy(), np.zeros(len(corner), dtype=bool)
+
+    monkeypatch.setattr(pattern_warp, "_sample_subpath_master", fake_sample)
+    groups = dict(pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, 2 * np.pi * 40.0, 24, 0.05))
+    assert groups[0] != [], "a millimeter-scale clip fragment must survive"
+
+
 def test_clip_flagged_marks_crossings_as_corners():
     # A square straddling the right edge; the two new points on x=8 are corners.
     square = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])

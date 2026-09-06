@@ -151,6 +151,15 @@ def _shape_locator(element, shape_index):
 _CORNER_COS = np.cos(np.radians(5.0))   # tangent break beyond ~5deg is a corner
 _SAMPLE_TOL_CAP = 0.02   # mm; keep the sampled reference finer than the fit target
 
+# A clipped fragment can collapse to a numerically-degenerate sliver (a
+# gore-edge intersection landing on top of another vertex, for instance),
+# producing a "shape" a few nanometers across -- a stab mark in the cut file,
+# not a real feature. 1 micron is deliberately far below anything a cutter or
+# a real design could produce; it is NOT the user's Min Feature size (which
+# governs the pattern-placement search) and must not be conflated with it --
+# this threshold only screens out clipping garbage before fitting even sees it.
+_MIN_FRAGMENT_MM = 1e-3
+
 
 def _sample_tol(resolution):
     """Adaptive-sampler tolerance: never coarser than the cap, so the reference
@@ -400,6 +409,14 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                         continue
                     fx, fy = frame.warp(cpts[:, 0], cpts[:, 1])
                     wpts = np.column_stack([fx, fy])
+                    diag = float(np.hypot(*(wpts.max(axis=0)
+                                            - wpts.min(axis=0))))
+                    if diag < _MIN_FRAGMENT_MM:
+                        # Numerical garbage from clipping -- a fragment that
+                        # has collapsed to essentially a point -- not a real
+                        # feature. See _MIN_FRAGMENT_MM: this is not the
+                        # user's Min Feature size.
+                        continue
                     corner_idx = np.nonzero(cmask)[0]
                     # fit_beziers is always called with closed=False: a closed
                     # subpath's implicit Close edge is already sampled (see
