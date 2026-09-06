@@ -22,9 +22,12 @@ SCORE_TOL_MM = 0.25   # sampling chord tolerance; the exporter's cap is 0.02
 
 @dataclass
 class FitScore:
-    score: float      # continuous penalty; drives the search
-    orphans: int      # fragments below the threshold; what the UI reports
-    worst: float      # smallest q seen, for diagnostics
+    score: float             # continuous penalty; drives the search
+    orphans: int             # fragments below the threshold; what the UI reports
+    worst: float | None      # smallest q seen, for diagnostics; None if
+                              # nothing was cut at all (not to be confused with
+                              # a cut fragment scoring q == 0, the worst
+                              # possible outcome -- 0.0 would conflate the two)
 
 
 @dataclass
@@ -111,6 +114,16 @@ def score_placement(pattern, placements, outlines, circumference, repeats_x,
     inside a gore is skipped even when it is tiny: the search chooses where the
     cuts fall, not how big the artwork is, and counting untouched shapes would
     add offset-dependent noise to an otherwise meaningful landscape.
+
+    When a single gore edge cuts one subpath into several disconnected pieces,
+    Sutherland-Hodgman (clip_to_rect_flagged) stitches them back into one
+    polygon joined by zero-width bridge edges, so they are counted as ONE
+    fragment rather than several. The score direction stays conservative --
+    the bridges add perimeter without adding area, which only lowers the
+    effective-width estimate and makes the fragment look thinner than it is --
+    but the orphan COUNT under-reports in this case. Every other documented
+    limitation here errs conservative (over-counts/over-flags); this is the
+    one that errs permissive, so it is worth calling out on its own.
     """
     prep = prepared or prepare(pattern, circumference, repeats_x)
     score = 0.0
@@ -146,7 +159,7 @@ def score_placement(pattern, placements, outlines, circumference, repeats_x,
                     score += (1.0 - q) ** 2
                     orphans += 1
     return FitScore(score=score, orphans=orphans,
-                    worst=0.0 if not np.isfinite(worst) else float(worst))
+                    worst=None if not np.isfinite(worst) else float(worst))
 
 
 COARSE_1D = 64      # samples across one tile width when only spinning
