@@ -64,9 +64,9 @@ to the nearest point of a *different* subpath:
 
 | | p5 | p10 | p25 | median | p75 |
 |---|---|---|---|---|---|
-| gap to neighbour | 0.60 | 0.72 | 1.05 | **1.76** | 2.98 mm |
+| gap to neighbor | 0.60 | 0.72 | 1.05 | **1.76** | 2.98 mm |
 
-75.3% of the pattern has neighbour gaps under 3 mm; 22.8% under 1 mm.
+75.3% of the pattern has neighbor gaps under 3 mm; 22.8% under 1 mm.
 
 **Shape size vs gore.** 30.3% of subpaths are wider than one 19.79 mm gore;
 64.1% wider than half a gore; widest is 54.3 mm = 2.75 gores.
@@ -122,24 +122,50 @@ ruled that out on aesthetic grounds.
 The scorer measures **each closed contour and the fragments a gore cut makes of
 it**. It never looks at the space *between* contours. So when a seam lands in a
 1 mm gap, it leaves a thin strip of material between the cut and the
-neighbouring path — the owner sees an orphan; the scorer sees two perfectly
+neighboring path — the owner sees an orphan; the scorer sees two perfectly
 intact shapes and reports nothing wrong. The 1.00 mm median strip width measured
 by the clearance prototype is **entirely invisible to the shipped metric**.
 
-Which of the two regions is the orphan depends on polarity, and the owner's
-clarification — *"I don't mean the path stroke, but the distance between
-paths"* — indicates the material **between** the contours is what is kept. That
-is, the contours are the **negative** space (cut away) and the background is
-positive. If so, the current metric is measuring the removed material and is
-structurally unable to answer the question being asked of it.
+Which of the two regions is the orphan depends on polarity. The correct model,
+per the owner:
+
+> A contour is the **boundary** between positive and negative space — it is not
+> itself a region. The **fill color of the shape** determines which side of
+> that boundary is kept. An **invert control is still required**, because the
+> opposite assignment is sometimes the desired effect.
+
+For this file every one of the 234 contours is filled `#ec2427`, so the
+interiors form one polarity and the background the other. Which of those two is
+the material that stays follows from the convention plus the invert control —
+it is not something to be inferred from the geometry.
+
+The consequence for the metric is stark, and it is why polarity is
+load-bearing rather than a refinement:
+
+- If the **filled interiors** are the kept material, the current scorer is
+  approximately measuring the right thing — it measures fragments of each
+  closed contour's interior.
+- If the **background** is the kept material, the current scorer is measuring
+  the material being thrown away, and is structurally unable to answer the
+  question being asked of it. The thin strip between a seam and a neighboring
+  path — the thing the owner is actually reporting — lives entirely in the
+  background region and is invisible to it.
+
+The owner's clarification (*"I don't mean the path stroke, but the distance
+between paths"*) is what makes the second case the one to design for, but the
+tool must support both.
 
 ## Hard constraints for the polarity work
 
-1. **Colour will not distinguish polarity in this file.** All 234 shapes carry
-   the identical fill `#ec2427`. The original brainstorm premise — "perhaps we
-   can use the coloring of the original pattern" — does not survive contact with
-   this artwork. Polarity must come from nesting / winding rule, or from an
-   explicit user control, with colour at best a hint.
+1. **Fill color does carry the polarity, and a single color is enough.** All
+   234 shapes carry the identical fill `#ec2427`. That is sufficient: the fill
+   marks each contour's interior as one polarity and the background as the
+   other. Two colors are not needed and would not add anything here. The
+   original brainstorm premise — "perhaps we can use the coloring of the
+   original pattern" — holds.
+   What fill cannot supply is *which* of the two regions is kept. That is a
+   convention plus the **invert control**, which is required regardless of how
+   good the fill data is.
 2. **Fill is delivered via a CSS class, not a presentation attribute.** The file
    has zero `fill=` attributes; it has `<defs><style>.st0 { fill: #ec2427; }
    </style></defs>` and `class="st0"` on all 234 paths. Good news: **svgelements
@@ -164,7 +190,7 @@ structurally unable to answer the question being asked of it.
 Recorded so they are not repeated:
 
 - "Most shapes are smaller than a gore" — **wrong**, 30.3% are wider, max 2.75
-  gores. Came from quoting a median and generalising.
+  gores. Came from quoting a median and generalizing.
 - "Increase Repeats Around" — **wrong direction**, measured to make it worse.
 - "The slivers cluster near the apex" — **wrong**, the height distribution is
   flat once the height limit is applied.
@@ -174,6 +200,15 @@ Recorded so they are not repeated:
   being finer than Min Feature.
 - "Vertical slide adds nothing" — **true only with the height limit off**. With
   it on, the optimum has a non-zero rise, though the total gain is still ~5%.
+- "The contours are the negative space and the background is positive" —
+  **wrong model**. A contour is the *boundary* between the two; the fill color
+  says which side is kept, and an invert control is needed because the opposite
+  is sometimes wanted. Corrected in the polarity section above.
+- "Color will not distinguish polarity in this file, because all 234 shapes are
+  the same fill" — **wrong, and backwards**. One fill color is sufficient: it
+  marks every contour's interior as one polarity and the background as the
+  other. Two colors would add nothing. This mistake came from the same bad model
+  as the one above.
 
 ## Artifacts
 
