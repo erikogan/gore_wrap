@@ -88,9 +88,30 @@ TBD.
    - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
      vector editor first.
    - **Repeats Around** — how many times the pattern tiles around the object.
+   - **Limit Pattern Height** — stop the pattern short of the top instead of
+     filling the whole gore, and close it off with a straight cut parallel to
+     the bottom. The cuts go in their own `pattern-edge` layer, one per strip.
+     Set this before **Placement**, if you want it: it materially changes what
+     the search below optimizes. With no limit the pattern runs all the way to
+     the apex, where the gore has narrowed to a hair — shapes up there get cut
+     into slivers no matter how the pattern is placed, and those slivers count
+     against every placement alike, putting a floor under the orphan number
+     that Placement cannot search its way past.
+     - **Distance From Top (mm)** — how far down from the top the pattern ends.
+     - **Measured** — how that distance is read:
+       - **Along Surface** (default) — distance up the strip itself, the number
+         you get laying a ruler on the flat pattern from its tip down.
+       - **Model Height** — a vertical drop on the object, converted through the
+         profile. A domed or flared top covers far more surface than height, so
+         a small drop there can be a much larger distance on the pattern.
+
+     With the limit on, the next **Preview** shades the part of the object the
+     pattern will not reach in a dim grey, split at the cut itself — so you can
+     check the height against the real shape before exporting.
    - **Placement** — where the pattern sits on the gores. The gore cuts slice
      through the pattern, and a cut that grazes a shape leaves a crumb: a
-     sliver too small to survive weeding or transfer.
+     sliver too small to survive weeding or transfer. If you plan to use
+     **Limit Pattern Height**, set it first — see above.
      - **Automatic** (default) — set **Min Feature (mm)** to the smallest piece
        of material your vinyl and your patience will actually survive, then
        click **Optimize Placement**. It searches where the pattern can sit and
@@ -108,6 +129,10 @@ TBD.
          you meant to keep, because the extension does not yet read which parts
          of your pattern are positive space. It therefore rejects some
          placements that would have been perfectly fine.
+       - If the orphan count does not improve, and you have not set **Limit
+         Pattern Height**, try setting it — see above for why an apex with no
+         ceiling can put a floor under the count that no placement can search
+         its way past.
        - If **Placement is stale** appears, a setting the search depended on has
          changed. Export still works and uses the stored placement; click
          **Optimize Placement** again to bring it up to date. Editing the scan
@@ -119,20 +144,6 @@ TBD.
 
      The exported SVG records the placement it was written with in an XML
      comment at the top of the file.
-   - **Limit Pattern Height** — stop the pattern short of the top instead of
-     filling the whole gore, and close it off with a straight cut parallel to
-     the bottom. The cuts go in their own `pattern-edge` layer, one per strip.
-     - **Distance From Top (mm)** — how far down from the top the pattern ends.
-     - **Measured** — how that distance is read:
-       - **Along Surface** (default) — distance up the strip itself, the number
-         you get laying a ruler on the flat pattern from its tip down.
-       - **Model Height** — a vertical drop on the object, converted through the
-         profile. A domed or flared top covers far more surface than height, so
-         a small drop there can be a much larger distance on the pattern.
-
-     With the limit on, the next **Preview** shades the part of the object the
-     pattern will not reach in a dim grey, split at the cut itself — so you can
-     check the height against the real shape before exporting.
    - **Smooth to Curves** — fit the warped pattern to smooth bezier curves so
      the cutter does not stutter through many tiny line segments.
    - **Simplify Mode** — with **Smooth to Curves** on, how aggressively to fit:
