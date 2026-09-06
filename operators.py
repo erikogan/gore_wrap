@@ -399,6 +399,15 @@ class _ModalJob:
             self._finish(context)
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        except Exception as exc:
+            # Anything else escaping the generator must still tear down the
+            # timer and progress bar -- otherwise the 0.05s timer keeps firing
+            # into a dead handler and the progress bar never clears. Reported
+            # rather than swallowed: this is a bug surfacing, not an expected
+            # cancellation.
+            self._finish(context)
+            self.report({"ERROR"}, f"Unexpected error: {exc}")
+            return {"CANCELLED"}
         return {"RUNNING_MODAL"}
 
     def _finish(self, context):
@@ -521,6 +530,14 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
 
         result = _run(obj, context)
         _store_readouts(props, result)
+
+        if not (MIN_MM <= result.dims.height <= MAX_MM):
+            self.report({"ERROR"},
+                        f"Object height {result.dims.height:.0f} mm is implausible "
+                        f"(expected {MIN_MM:.0f}-{MAX_MM:.0f} mm). Check scene "
+                        f"units or calibrate the scale.")
+            return {"CANCELLED"}
+
         try:
             layout = svg_export.layout(result.outlines, props.seam_offset)
             pattern = pattern_warp.load_pattern(
