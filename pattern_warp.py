@@ -510,12 +510,13 @@ def iter_clipped_fragments(pattern, placements, outlines, circumference,
 
     Each polygon is a fragment's whole clipped outline in warped (final SVG)
     mm, exactly as clip_to_rect_flagged produced it -- before iter_warp_gores
-    fits it to beziers and (per the seam-edge fix) may drop the clip-boundary
-    edges and split it into open runs. Exists for callers that need to reason
-    about "the shape a gore edge cut off" independent of how iter_warp_gores
-    goes on to render it -- e.g. checking that the search's scorer and the
-    exporter agree about where a fragment landed and how big it is, which
-    should hold regardless of whether a seam edge happened to get suppressed.
+    (per the seam-edge fix) may drop the clip-boundary edges, split it into
+    open runs, and fit each run to beziers. Exists for callers that need to
+    reason about "the shape a gore edge cut off" independent of how
+    iter_warp_gores goes on to render it -- e.g. checking that the search's
+    scorer and the exporter agree about where a fragment landed and how big
+    it is, which should hold regardless of whether a seam edge happened to
+    get suppressed.
     """
     for i, fragments in _iter_clipped_fragments(
             pattern, placements, outlines, circumference, repeats_x,
@@ -579,11 +580,13 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                 # an unsplit run returns to ~the start on its own and
                 # open-run fitting covers the whole loop. The run's own
                 # `run_closed` flag rides in the tuple below: an unsplit
-                # closed subpath still gets a (now ~zero-length) `Z`, while
-                # a run opened by a dropped edge is emitted as a plain
-                # polyline. Passing closed=True to fit_beziers instead would
-                # mishandle the duplicated start point where a full,
-                # unsplit run rejoins itself.
+                # closed subpath still gets a (now ~zero-length) `Z`, while a
+                # run opened by a dropped edge is emitted as an open bezier
+                # path ending at the cut (no closing `Z`) -- fit_beziers
+                # always emits cubic `C` commands regardless of `closed`,
+                # which only controls that trailing `Z`. Passing closed=True
+                # to fit_beziers instead would mishandle the duplicated start
+                # point where a full, unsplit run rejoins itself.
                 cubics = bezier_fit.fit_beziers(
                     run_wpts, corner_idx, False, resolution)
                 if cubics:
