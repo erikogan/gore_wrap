@@ -37,7 +37,8 @@ Every version bump gets an entry here, in the same commit as the bump.
   Pattern Height** is on, the `pattern-edge` layer's), so keeping it in the
   pattern too just re-cut the outline along every seam and turned each sliced
   motif into a closed weedable sliver. Sliced shapes now come out as open
-  polylines ending at the cut instead; a shape no edge touches is unaffected.
+  bezier paths ending at the cut (no closing `Z`) instead; a shape no edge
+  touches is unaffected.
 
 ### Known limitations
 
