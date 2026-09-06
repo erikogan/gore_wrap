@@ -251,7 +251,13 @@ def placement_stamp(props, obj):
     a scan on every panel redraw is out of the question, so switching objects
     and gross edits are caught while a single nudged vertex is not. The stat()
     is one syscall per redraw, which is nothing next to what Blender already
-    does; an unreadable file simply reads as stale.
+    does; an unreadable file simply reads as stale. A non-mesh active object
+    (camera, light, the preview itself) folds in neutral values instead of its
+    name/count, so merely selecting one does not flip the panel to stale.
+
+    Also folds in pattern_rotation/pattern_rise -- the search's own outputs,
+    which Manual mode lets the user override by hand -- so a hand edit after
+    Optimize is caught too, not just the inputs that fed the search.
     """
     try:
         st = os.stat(bpy.path.abspath(props.pattern_svg))
@@ -270,7 +276,8 @@ def placement_stamp(props, obj):
         limit_top=props.pattern_limit_top,
         top_offset=props.pattern_top_offset,
         top_mode=props.pattern_top_mode,
-        obj_name=obj.name if obj is not None else "",
+        rotation=props.pattern_rotation, rise=props.pattern_rise,
+        obj_name=obj.name if obj is not None and obj.type == "MESH" else "",
         n_verts=(len(obj.data.vertices)
                  if obj is not None and obj.type == "MESH" else 0))
 
