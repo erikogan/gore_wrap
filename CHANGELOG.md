@@ -32,6 +32,12 @@ Every version bump gets an entry here, in the same commit as the bump.
 - `iter_warp_gores` gained an `offset`, and its tile-placement geometry moved
   into a shared `_iter_gore_frames` that both the exporter and the new
   placement scorer use, so the two cannot drift apart.
+- A shape a gore edge slices no longer carries that edge into the `pattern`
+  layer. The edge is already the `cuts` layer's line (and, when **Limit
+  Pattern Height** is on, the `pattern-edge` layer's), so keeping it in the
+  pattern too just re-cut the outline along every seam and turned each sliced
+  motif into a closed weedable sliver. Sliced shapes now come out as open
+  polylines ending at the cut instead; a shape no edge touches is unaffected.
 
 ### Known limitations
 
