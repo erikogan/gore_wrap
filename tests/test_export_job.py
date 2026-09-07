@@ -16,7 +16,7 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_rotation=0.0, pattern_rise=0.0,
                   pattern_min_area=10.0, pattern_min_width=0.6,
                   pattern_mark_defects=False, pattern_defects=0,
-                  pattern_defects_intrinsic=0)
+                  pattern_defects_intrinsic=0, pattern_counts_current=True)
 
 
 def _result():
@@ -196,6 +196,60 @@ def test_no_placement_comment_without_a_pattern(tmp_path):
     out = str(tmp_path / "out.svg")
     _drain(export_job.export_steps(_result(), NO_PATTERN, out))
     assert "<!--" not in open(out).read()
+
+
+def _comment(text):
+    return text.split("<!--")[1].split("-->")[0]
+
+
+def test_placement_comment_includes_counts_when_current(tmp_path):
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_defects": 5, "pattern_defects_intrinsic": 2,
+              "pattern_counts_current": True}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    assert "5 defects, 2 intrinsic" in _comment(open(out).read())
+
+
+def test_placement_comment_omits_stale_counts(tmp_path):
+    # Neither "ran Optimize" nor "hand-edited since" is true by construction
+    # for these two numbers -- unlike everything else in the comment -- so a
+    # stale/never-run set of counts must not appear at all rather than
+    # asserting a defect count nobody measured against this placement.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_defects": 5, "pattern_defects_intrinsic": 2,
+              "pattern_counts_current": False}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    comment = _comment(open(out).read())
+    assert "defects" not in comment and "intrinsic" not in comment
+    # The always-true clauses still appear.
+    assert "floors" in comment and "repeats" in comment
+
+
+def _write_stroke_only_pattern(tmp_path):
+    p = tmp_path / "stroke.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
+                 'width="20" height="20"><circle cx="10" cy="10" r="6" '
+                 'fill="none" stroke="#000000"/></svg>')
+    return str(p)
+
+
+def test_mark_defects_with_a_stroke_only_pattern_does_not_abort_the_export(tmp_path):
+    # defect_boxes() needs filled material and raises PatternError on a
+    # stroke-only pattern; the export must still finish (with no defects
+    # layer) rather than fail with nothing written, since the same file
+    # exports fine with Mark Defects off.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_stroke_only_pattern(tmp_path),
+              "pattern_mark_defects": True}
+    out = str(tmp_path / "out.svg")
+    summary = _drain(export_job.export_steps(_result(), params, out))
+    assert os.path.exists(out)
+    assert summary.pattern_empty is False
+    assert 'id="defects"' not in open(out).read()
 
 
 def test_rotation_moves_the_pattern(tmp_path):

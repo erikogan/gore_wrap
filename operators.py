@@ -559,10 +559,11 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
                         "Choose a pattern SVG or turn off Fill With Pattern.")
             return {"CANCELLED"}
 
-        if (props.use_pattern
+        stale = (props.use_pattern
                 and props.pattern_placement_mode == "AUTO"
                 and props.has_pattern_fit
-                and props.pattern_fit_stamp != placement_stamp(props, obj)):
+                and props.pattern_fit_stamp != placement_stamp(props, obj))
+        if stale:
             self.report({"WARNING"},
                         "Pattern placement is stale — settings changed since "
                         "Optimize. Exporting with the stored placement.")
@@ -588,7 +589,9 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
             "pattern_mark_defects": props.pattern_mark_defects,
             "pattern_defects": props.pattern_defects,
             "pattern_defects_intrinsic": props.pattern_defects_intrinsic,
+            "pattern_counts_current": props.has_pattern_fit and not stale,
         }
+        self._props = props
         self._gen = export_job.export_steps(result, params, self.filepath)
         return self._start(context)
 
@@ -600,6 +603,11 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
         if summary is not None and summary.pattern_empty:
             self.report({"WARNING"},
                         "Pattern produced no geometry; exported outlines only.")
+        if self._props.pattern_mark_defects:
+            self.report({"WARNING"},
+                        "Exported with a 'defects' layer — those rectangles "
+                        "are cuttable. Hide or delete that layer before "
+                        "cutting.")
         n = summary.n_strips if summary is not None else 0
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
 
