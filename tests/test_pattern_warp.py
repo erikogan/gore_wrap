@@ -1,4 +1,5 @@
 import hashlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -539,36 +540,140 @@ def _warp_digest(tmp_path, svg, repeats, resolution, top_inset,
     return h.hexdigest()
 
 
-# Pins the exact warp output so the frame extraction is provably inert. If a
-# deliberate change to the warp makes these fail, regenerate them with
-#   make test PYTEST_ARGS='-k print_warp_digests -s'
+# Characterization snapshots pinning the exact warp output, so a refactor of
+# the tile/frame machinery is provably inert.
+#
+# These used to be SHA-1 digests of the control points formatted to six
+# decimals. That had two problems. A hash has no tolerance, so a single ULP
+# crossing a rounding boundary fails the test for no real reason -- and CI runs
+# three numpy versions across a breaking major, on a macOS BLAS the codebase
+# already carries a workaround for. And a hash mismatch says only "something
+# moved", which made accepting a regeneration an act of faith.
+#
+# Snapshots of the coordinates themselves fix both: comparison carries an
+# explicit tolerance far below anything the cutter can resolve, and a failure
+# names the control point that moved and by how much, so a deliberate geometry
+# change can be reviewed rather than merely re-blessed.
+#
+# Regenerate with
+#   make test PYTEST_ARGS='--update-warp-snapshots'
 # and state in the commit message why the geometry changed.
-WARP_GOLDEN = {
-    ("SIMPLE", 24, 0.05, 0.0): "393d875155bb23f27e17f8dd183b763ba6a60daa",
-    ("CURVE", 24, 0.02, 0.0): "d6386dbbf874839a64b7d01fca9463ee3cfae2c3",
-    ("CURVE", 8, 0.02, 30.0): "f58784e6cd8747b3dc26247162c7518d2fdc61ba",
-    ("FULL_CELL", 12, 0.05, 0.0): "0f966a20b21adb79af17daba4d6fd8a62ff8a097",
-    ("STRADDLE", 11, 0.05, 0.0): "9f1ac4c7fc6d9a90cd199ea18976b0bb6e021986",
-}
+
+WARP_CASES = [
+    ("SIMPLE", 24, 0.05, 0.0),
+    ("CURVE", 24, 0.02, 0.0),
+    ("CURVE", 8, 0.02, 30.0),
+    ("FULL_CELL", 12, 0.05, 0.0),
+    ("STRADDLE", 11, 0.05, 0.0),
+]
 
 _GOLDEN_SVGS = {"SIMPLE": SIMPLE_SVG, "CURVE": CURVE_SVG,
                 "FULL_CELL": FULL_CELL_SVG, "STRADDLE": STRADDLE_SVG}
 
+SNAPSHOT_PATH = Path(__file__).resolve().parent / "data" / "warp_snapshots.npz"
 
-@pytest.mark.parametrize("key", list(WARP_GOLDEN))
-def test_warp_output_matches_golden(tmp_path, key):
-    name, repeats, resolution, top_inset = key
-    got = _warp_digest(tmp_path, _GOLDEN_SVGS[name], repeats, resolution,
-                       top_inset)
-    assert got == WARP_GOLDEN[key]
+# 1e-6 mm is five thousand times finer than the 0.02 mm the cutter resolves, so
+# nothing this admits is visible in a cut file; it exists only to absorb
+# floating-point noise between numpy versions and BLAS implementations.
+SNAPSHOT_TOL_MM = 1e-6
 
 
-@pytest.mark.skip(reason="regenerates WARP_GOLDEN; run with -s when needed")
-def test_print_warp_digests(tmp_path):
-    for key in WARP_GOLDEN:
-        name, repeats, resolution, top_inset = key
-        print(f'    {key!r}: '
-              f'"{_warp_digest(tmp_path, _GOLDEN_SVGS[name], repeats, resolution, top_inset)}",')
+def _warp_snapshot(tmp_path, svg, repeats, resolution, top_inset):
+    """Every control point iter_warp_gores emits, with its structure kept.
+
+    Returns (points (N, 2), lengths (M,), closed (M,), gore (M,)). The three
+    per-subpath arrays are what stop a change that merely redistributes points
+    between subpaths -- or moves one to another gore -- from comparing equal on
+    the concatenated coordinates alone.
+    """
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, svg))
+    pts, lengths, closed_flags, gores = [], [], [], []
+    for i, subpaths in pattern_warp.iter_warp_gores(
+            pattern, layout.placements, outlines, 2 * np.pi * 40.0, repeats,
+            resolution, top_inset=top_inset):
+        for cubics, closed in subpaths:
+            p = np.asarray(cubics, dtype=float).reshape(-1, 2)
+            pts.append(p)
+            lengths.append(len(p))
+            closed_flags.append(bool(closed))
+            gores.append(i)
+    points = np.vstack(pts) if pts else np.empty((0, 2))
+    return (points, np.array(lengths, dtype=np.int64),
+            np.array(closed_flags, dtype=bool), np.array(gores, dtype=np.int64))
+
+
+def _snapshot_key(case):
+    name, repeats, resolution, top_inset = case
+    return f"{name}|{repeats}|{resolution}|{top_inset}"
+
+
+def _load_snapshots():
+    if not SNAPSHOT_PATH.exists():
+        pytest.fail(f"{SNAPSHOT_PATH} is missing. Regenerate with "
+                    f"make test PYTEST_ARGS='--update-warp-snapshots'")
+    return np.load(SNAPSHOT_PATH)
+
+
+@pytest.mark.parametrize("case", WARP_CASES, ids=_snapshot_key)
+def test_warp_output_matches_snapshot(tmp_path, case, update_warp_snapshots):
+    if update_warp_snapshots:
+        pytest.skip("regenerating snapshots")
+    name, repeats, resolution, top_inset = case
+    points, lengths, closed, gores = _warp_snapshot(
+        tmp_path, _GOLDEN_SVGS[name], repeats, resolution, top_inset)
+    key = _snapshot_key(case)
+    stored = _load_snapshots()
+    if f"{key}|points" not in stored:
+        pytest.fail(f"no snapshot for {key}. Regenerate with "
+                    f"make test PYTEST_ARGS='--update-warp-snapshots'")
+
+    want_pts = stored[f"{key}|points"]
+    assert np.array_equal(lengths, stored[f"{key}|lengths"]), (
+        f"{key}: subpath structure changed -- "
+        f"{len(lengths)} subpaths now, {len(stored[f'{key}|lengths'])} before")
+    assert np.array_equal(closed, stored[f"{key}|closed"]), \
+        f"{key}: a subpath's closed flag changed"
+    assert np.array_equal(gores, stored[f"{key}|gores"]), \
+        f"{key}: a subpath moved to a different gore"
+    assert points.shape == want_pts.shape, \
+        f"{key}: {points.shape[0]} control points now, {want_pts.shape[0]} before"
+
+    if not np.allclose(points, want_pts, rtol=0.0, atol=SNAPSHOT_TOL_MM):
+        delta = np.abs(points - want_pts)
+        worst = int(np.argmax(delta.max(axis=1)))
+        n_moved = int((delta.max(axis=1) > SNAPSHOT_TOL_MM).sum())
+        sub = int(np.searchsorted(np.cumsum(lengths), worst, side="right"))
+        pytest.fail(
+            f"{key}: {n_moved} of {len(points)} control points moved by more "
+            f"than {SNAPSHOT_TOL_MM} mm. Worst is point {worst} (subpath {sub}, "
+            f"gore {gores[sub]}): ({want_pts[worst, 0]:.6f}, "
+            f"{want_pts[worst, 1]:.6f}) -> ({points[worst, 0]:.6f}, "
+            f"{points[worst, 1]:.6f}), a move of {delta[worst].max():.6f} mm. "
+            f"If the geometry change was deliberate, regenerate with "
+            f"make test PYTEST_ARGS='--update-warp-snapshots' and say why in "
+            f"the commit message.")
+
+
+def test_regenerate_warp_snapshots(tmp_path, update_warp_snapshots):
+    """Rewrites the snapshot file. Only runs under --update-warp-snapshots."""
+    if not update_warp_snapshots:
+        pytest.skip("pass --update-warp-snapshots to regenerate")
+    arrays = {}
+    for case in WARP_CASES:
+        name, repeats, resolution, top_inset = case
+        points, lengths, closed, gores = _warp_snapshot(
+            tmp_path, _GOLDEN_SVGS[name], repeats, resolution, top_inset)
+        key = _snapshot_key(case)
+        arrays[f"{key}|points"] = points
+        arrays[f"{key}|lengths"] = lengths
+        arrays[f"{key}|closed"] = closed
+        arrays[f"{key}|gores"] = gores
+    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(SNAPSHOT_PATH, **arrays)
+    print(f"\nwrote {SNAPSHOT_PATH} "
+          f"({SNAPSHOT_PATH.stat().st_size / 1024:.0f} KB, "
+          f"{len(WARP_CASES)} cases)")
 
 
 def test_zero_offset_is_identical_to_no_offset(tmp_path):
