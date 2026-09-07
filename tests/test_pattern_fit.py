@@ -489,15 +489,72 @@ def test_search_reports_monotonic_progress(tmp_path):
     assert seen[-1] == pytest.approx(1.0, abs=1e-6)
 
 
-def test_vertical_slide_searches_both_axes(tmp_path):
+# Horizontal bands, so the base and ceiling cuts fall in different places as
+# the pattern slides up: the vertical axis carries real signal here, unlike a
+# pattern that is uniform in y.
+BANDS_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+             'width="40" height="40">'
+             + ''.join(f'<rect x="2" y="{y}" width="36" height="5"/>'
+                       for y in (1, 11, 21, 31))
+             + '</svg>')
+
+
+def test_sliding_vertically_finds_what_spinning_alone_cannot(tmp_path):
+    # On this fixture the horizontal sweep cannot improve on the baseline at
+    # all, while adding the vertical axis clears every defect. A search that
+    # ignored slide_vertically would return the 1-D answer and fail here --
+    # which the old bounds-only assertion could not detect.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=BANDS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=80.0, width_floor=0.6, top_inset=20.0)
+
+    (_x1, phi_y_1d), best_1d, base = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 3,
+        kw["area_floor"], kw["width_floor"], slide_vertically=False,
+        top_inset=kw["top_inset"]))
+    (_x2, phi_y_2d), best_2d, _base2 = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 3,
+        kw["area_floor"], kw["width_floor"], slide_vertically=True,
+        top_inset=kw["top_inset"]))
+
+    assert phi_y_1d == 0.0
+    assert best_1d.defects == base.defects        # spinning alone gains nothing
+    assert best_2d.defects < best_1d.defects      # sliding does
+    assert phi_y_2d > 0.0
+
+
+def test_the_search_scores_the_baseline_at_the_origin_and_refines_off_grid(
+        tmp_path, monkeypatch):
+    # Two properties that hold by construction in the current code and so are
+    # invisible to outcome-only assertions: the baseline must be the placement
+    # the user actually has (the origin), because the UI reports "N defects
+    # (was M)" against it; and refinement must really run, at offsets the
+    # coarse grid never visits.
     pattern, layout, result = _averaged_setup(12, tmp_path)
     circ = result.dims.bottom_circumference
-    (phi_x, phi_y), _best, _base = _drain(pattern_fit.search_placement(
+    W = circ / 4
+
+    seen = []
+    real_score = pattern_fit.score_placement
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("offset", (0.0, 0.0)))
+        return real_score(*args, **kwargs)
+
+    monkeypatch.setattr(pattern_fit, "score_placement", spy)
+    _drain(pattern_fit.search_placement(
         pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
-        slide_vertically=True, top_inset=20.0))
-    _W, _k, tile_h = pattern_warp._tile_metrics(pattern, circ, 4)
-    assert 0.0 <= phi_x < circ / 4
-    assert 0.0 <= phi_y < tile_h
+        top_inset=20.0))
+
+    assert seen[0] == (0.0, 0.0)
+    assert len(seen) > 1 + pattern_fit.COARSE_1D
+
+    step = W / pattern_fit.COARSE_1D
+    def off_grid(x):
+        r = x % step
+        return min(r, step - r) > 1e-9
+    assert any(off_grid(x) for x, _y in seen), \
+        "refinement never evaluated between coarse grid points"
 
 
 def test_fingerprint_is_stable_and_order_independent():
