@@ -6,23 +6,46 @@ manifest.
 
 Every version bump gets an entry here, in the same commit as the bump.
 
-## 0.9.0 — 2026-09-05
+## 0.9.0 — 2026-09-07
 
 ### Added
 
-- **Placement** in the Pattern section. The gore cuts slice through the pattern
-  and a cut that grazes a shape leaves a crumb too small to weed or transfer.
-  **Automatic** takes a **Min Feature (mm)** — the smallest piece of material
-  worth keeping — and **Optimize Placement** searches where the pattern can sit
-  for the position leaving fewest fragments under it, reporting the count
-  against the unoptimized one. **Slide Vertically** widens the search to run up
-  and down the strip as well as around the object.
+- **Placement** in the Pattern section, scoring what a gore cut actually
+  leaves behind: a defect is a connected piece of material, not a closed
+  contour, so a pattern that is one connected web with holes in it is scored
+  correctly instead of reading as a single healthy shape. Polarity, nesting
+  and welding all fall out of one rule read straight from the SVG: a filled
+  element is material, a subpath nested inside another *in the same element*
+  is a hole in it, and two overlapping shapes in *different* elements weld
+  into a single piece.
+  - **Automatic** takes two floors instead of one, and a piece fails if it
+    trips either: **Min Fragment Area (mm²)** (default 10), the main dial, and
+    **Min Fragment Width (mm)** (default 0.6, floored at 0.10), a guard
+    against hair-thin slivers rather than the main test. **Optimize
+    Placement** searches where the pattern can sit and reports two counts —
+    defects a gore cut created, which moving the pattern can fix, against how
+    many there were before; and, on its own line when there are any, pieces no
+    placement can fix because they are simply small artwork. When the search
+    cannot beat the placement already shown, it says so plainly ("Best
+    placement is no better than this one") instead of reporting a count that
+    only looks like success.
+  - A warning fires when the pattern's ceiling reaches into a part of a gore
+    narrower than **Min Fragment Width** — defects there cannot be fixed by
+    placement, only by a lower ceiling — and suggests **Limit Pattern
+    Height**.
+  - **Slide Vertically** widens the search to run up and down the strip as
+    well as around the object.
+- **Mark Defects in Export** (default off): adds a `defects` layer of magenta
+  rectangles, one per piece a gore cut flagged, so risk can be inspected in
+  Silhouette Studio before cutting and the two floors calibrated against real
+  blasted results. **Those rectangles are cuttable geometry** — hide or delete
+  the `defects` layer before cutting.
 - **Manual** placement as the advanced alternative: **Rotation** in degrees
   around the object and **Rise** in mm up the strip. Both always drive the
   warp, and Optimize writes into them, so a found placement can be nudged by
   hand or recorded and returned to.
-- The exported SVG carries an XML comment naming the placement, minimum
-  feature size and repeat count that produced it.
+- The exported SVG carries an XML comment naming the placement, both floors,
+  the repeat count and both defect counts that produced it.
 - A staleness warning: change a setting the search depended on and the panel
   says so. Export never re-runs the search on its own — it stays fast and
   predictable — but it does report exporting with a stale placement.
@@ -30,8 +53,8 @@ Every version bump gets an entry here, in the same commit as the bump.
 ### Changed
 
 - `iter_warp_gores` gained an `offset`, and its tile-placement geometry moved
-  into a shared `_iter_gore_frames` that both the exporter and the new
-  placement scorer use, so the two cannot drift apart.
+  into a shared `_iter_gore_frames` that both the exporter and the placement
+  scorer use, so the two cannot drift apart.
 - A shape a gore edge slices no longer carries that edge into the `pattern`
   layer. The edge is already the `cuts` layer's line (and, when **Limit
   Pattern Height** is on, the `pattern-edge` layer's), so keeping it in the
@@ -42,18 +65,15 @@ Every version bump gets an entry here, in the same commit as the bump.
 
 ### Known limitations
 
-- The search counts every fragment a gore cut creates, not only positive space,
-  because pattern fill is not read yet. It rejects some placements that would
-  have been fine. The effective-width test is likewise conservative on round
-  fragments, flagging them up to twice the minimum feature size.
+- The two defect counts are estimates read off a raster, and drift a few
+  percent with its resolution. A reported zero is trustworthy; a reported
+  non-zero may be pessimistic.
 - Staleness covers the scan mesh only by object name and vertex count, so an
   edit that does not change the count goes unnoticed. Re-optimize after
   reworking a scan.
-- With no **Limit Pattern Height** set, the pattern runs all the way to the
-  apex, where the gore has narrowed to a hair, so shapes up there get cut into
-  slivers no matter where the pattern sits. Those are counted, which puts a
-  floor under the orphan number; setting a height limit removes them from the
-  picture.
+- The `defects` layer boxes only the pieces a gore cut created — the same
+  count the panel reports as defects — since the pieces no placement can fix
+  are reported but, having nowhere placement can move them, are not boxed.
 
 ## 0.8.0 — 2026-09-04
 
