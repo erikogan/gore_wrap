@@ -178,7 +178,7 @@ def _xml_comment_safe(text):
 
 
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
-              edge_lines=None, comment=None):
+              edge_lines=None, comment=None, defect_boxes=None):
     """Write the placed strips to a real-scale SVG for Silhouette Studio.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
@@ -191,6 +191,12 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
 
     `comment` is written as an XML comment between the declaration and the
     root element, recording the pattern placement that produced the file.
+
+    `defect_boxes` is an optional list of (2, 2) `[[x0, y0], [x1, y1]]` arrays,
+    each already in final SVG mm; when non-empty they are emitted as rects in
+    their own `defects` group, last in the file. These ARE cuttable geometry
+    — the named group and the caller's default-off toggle are the mitigation
+    against sending them to the cutter by mistake, not the shape itself.
     """
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
     if comment:
@@ -232,6 +238,18 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
             cx = float(base_pts[:, 0].mean())
             lines.append(f'    <text x="{cx:.3f}" y="{base_y - 2:.3f}" '
                          f'text-anchor="middle">{index + 1}</text>')
+        lines.append('  </g>')
+
+    if defect_boxes:
+        # Its own named group, so it can be hidden or deleted by layer. These
+        # ARE cuttable rectangles -- the group name and the default-off toggle
+        # are the mitigation, not the geometry.
+        lines.append('  <g id="defects" fill="none" stroke="#ff00ff" '
+                     'stroke-width="0.2">')
+        for box in defect_boxes:
+            (x0, y0), (x1, y1) = box
+            lines.append(f'    <rect x="{x0:.3f}" y="{y0:.3f}" '
+                         f'width="{x1 - x0:.3f}" height="{y1 - y0:.3f}"/>')
         lines.append('  </g>')
 
     lines.append('</svg>')

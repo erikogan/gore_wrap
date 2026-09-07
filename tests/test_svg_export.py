@@ -216,3 +216,26 @@ def test_write_svg_neutralizes_arbitrary_hyphen_runs(zero_layout, tmp_path, comm
     text = path.read_text()
     assert "--" not in text.split("-->")[0].split("<!--")[1]
     ET.fromstring(text)   # would raise on an illegal comment
+
+
+def test_defects_group_is_emitted_only_when_boxes_are_given(tmp_path):
+    import numpy as np
+    from gore_wrap import svg_export
+    from tests.synthetic import cylinder_with_hemisphere
+    from gore_wrap import pipeline
+    result = pipeline.build_gores(
+        cylinder_with_hemisphere(), strip_angle=30.0, mode="AVERAGED",
+        seam_offset=0.0, crop_z=None, smoothing_sigma=1.0, tolerance=0.2)
+    layout = svg_export.layout(result.outlines, 0.0)
+
+    plain = tmp_path / "plain.svg"
+    svg_export.write_svg(str(plain), layout)
+    assert 'id="defects"' not in plain.read_text()
+
+    marked = tmp_path / "marked.svg"
+    boxes = [np.array([[10.0, 10.0], [14.0, 16.0]])]
+    svg_export.write_svg(str(marked), layout, defect_boxes=boxes)
+    text = marked.read_text()
+    assert 'id="defects"' in text
+    import xml.etree.ElementTree as ET
+    ET.fromstring(text)                  # must stay well-formed

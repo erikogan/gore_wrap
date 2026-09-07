@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from gore_wrap import pattern_fit, pattern_warp
+from gore_wrap import pattern_fit, pattern_warp, svg_export
 
 SQUARE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40"><rect x="10" y="10" width="20" height="20"/></svg>'''
@@ -601,3 +601,19 @@ def test_narrow_apex_band_grows_with_the_width_floor(tmp_path):
     small = pattern_fit.narrow_apex_band(result.outlines, 0.3)
     large = pattern_fit.narrow_apex_band(result.outlines, 3.0)
     assert large > small
+
+
+def test_defect_boxes_are_returned_in_final_millimeters(tmp_path):
+    dot = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
+width="100" height="100"><rect x="49" y="30" width="2" height="2"/></svg>'''
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=dot)
+    circ = result.dims.bottom_circumference
+    boxes = pattern_fit.defect_boxes(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        top_inset=20.0)
+    assert boxes, "the 2x2 mm dot is under the 10 mm2 floor somewhere"
+    for box in boxes:
+        assert box.shape == (2, 2)
+        assert box[1, 0] > box[0, 0] and box[1, 1] > box[0, 1]
+        # Inside the sheet the layout placed the gores on.
+        assert 0.0 <= box[0, 0] and box[1, 0] <= svg_export.MAT_MM

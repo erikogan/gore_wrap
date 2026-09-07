@@ -428,6 +428,51 @@ def narrow_apex_band(outlines, width_floor, top_inset=0.0):
     return worst
 
 
+def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
+                 area_floor, width_floor, offset=(0.0, 0.0), top_inset=0.0):
+    """Bounding box of each flagged piece, in final SVG mm.
+
+    Bounding boxes rather than traced component outlines: tracing a raster
+    component yields stair-stepped paths that bloat the file and read as
+    artwork, whereas a rectangle is unmistakably a marker.
+
+    Scores every gore, never the reduced phase set -- the reduction is sound
+    for COUNTS but a box has to land on the gore it actually belongs to.
+
+    Marks every under-floor, raster-resolved piece, cut-made or intrinsic
+    alike. score_gore separates those two because only a cut-made piece can
+    be fixed by moving the placement, so only it should drive the search --
+    but here the goal is showing the user everything a blast could lift, and
+    an intrinsic piece is exactly as fragile as a cut-made one.
+    """
+    px, steps = raster_pitch(area_floor, width_floor)
+    tile = build_tile(pattern, circumference, repeats_x, px)
+    boxes = []
+    for _i, geom in _gore_geometry(placements, outlines, circumference,
+                                   top_inset):
+        if geom is None:
+            continue
+        prep = prepare_gore(geom, px)
+        mask = gore_mask(prep, tile, offset)
+        lab, n = raster.label(mask)
+        if n == 0:
+            continue
+        a = raster.areas(lab, n, px)
+        w = _component_widths(mask, lab, n, px, steps)
+        resolved = a >= MIN_PIXELS * px * px
+        q = np.minimum(a / float(area_floor), w / float(width_floor))
+        for i in np.nonzero((q < 1.0) & resolved)[0]:
+            rows, cols = np.nonzero(lab == i + 1)
+            # Raster (row, col) -> final SVG mm. The gore's own frame has x
+            # measured from its center and y up from its base, so undo both.
+            x0 = geom.tx + (cols.min() + 0.0) * px - geom.hw0
+            x1 = geom.tx + (cols.max() + 1.0) * px - geom.hw0
+            y_hi = geom.base_y - (rows.min() + 0.0) * px
+            y_lo = geom.base_y - (rows.max() + 1.0) * px
+            boxes.append(np.array([[x0, y_lo], [x1, y_hi]]))
+    return boxes
+
+
 def fingerprint(**values):
     """Digest of the inputs a placement depends on, for staleness checks.
 
