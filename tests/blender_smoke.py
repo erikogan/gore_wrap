@@ -275,6 +275,19 @@ def check_optimize_placement(obj):
           f"{props.pattern_defects} defects (was {props.pattern_defects_base}), "
           f"{props.pattern_defects_intrinsic} intrinsic")
 
+    # Mark Defects must run cleanly end to end inside Blender: the operator
+    # stashes props for its report and, with the toggle on, must warn that a
+    # cuttable 'defects' layer is in the file (item 1 of the final review).
+    props.pattern_placement_mode = "AUTO"
+    props.pattern_mark_defects = True
+    out_defects = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_defects.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_defects)
+    assert res == {"FINISHED"}, res
+    assert os.path.exists(out_defects), "SVG not written with Mark Defects on"
+    props.pattern_mark_defects = False
+    print(f"[smoke] mark defects export ok: {out_defects}")
+
 
 def _write_temp_pattern():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '

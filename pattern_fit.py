@@ -284,6 +284,7 @@ def prepare(pattern, placements, outlines, circumference, repeats_x,
     """Build the tile mask and per-gore rasters once, for reuse in a search."""
     px, steps = raster_pitch(area_floor, width_floor)
     tile = build_tile(pattern, circumference, repeats_x, px)
+    assert abs(tile.px * 2.0 - px) < 1e-12, "tile mask must be at half the gore pitch"
     geoms = [geom for _i, geom in _gore_geometry(placements, outlines,
                                                  circumference, top_inset)]
     distinct, multiplier = _phase_reduction(list(outlines), len(geoms),
