@@ -108,15 +108,33 @@ TBD.
      With the limit on, the next **Preview** shades the part of the object the
      pattern will not reach in a dim grey, split at the cut itself — so you can
      check the height against the real shape before exporting.
-   - **Placement** — where the pattern sits on the gores. The gore cuts slice
-     through the pattern, and a cut that grazes a shape leaves a crumb: a
-     sliver too small to survive weeding or transfer. If you plan to use
-     **Limit Pattern Height**, set it first — see above.
-     - **Automatic** (default) — set **Min Feature (mm)** to the smallest piece
-       of material your vinyl and your patience will actually survive, then
-       click **Optimize Placement**. It searches where the pattern can sit and
-       reports how many fragments still fall below that size, against how many
-       there were before. The placement it finds is shown beneath the button.
+   - **Placement** — where the pattern sits on the gores. A gore cut can slice
+     through the pattern and leave a defect behind: a piece of material too
+     small to survive weeding, transfer or the blast itself. A defect is a
+     connected piece of material, not a closed contour — a pattern that is one
+     connected web with holes in it is a single healthy shape to a per-contour
+     test, and every real defect in it is invisible, so the search measures
+     connected pieces of material directly instead. Polarity, nesting and
+     welding all fall out of that one rule: a filled SVG element is material, a
+     subpath nested inside another *in the same element* is a hole in it, and
+     two overlapping shapes in *different* elements weld into one piece. If you
+     plan to use **Limit Pattern Height**, set it first — see above.
+     - **Automatic** (default) — two floors, and a piece fails if it trips
+       either:
+       - **Min Fragment Area (mm²)** (default 10) — the main dial. Set it to
+         the smallest area of material your vinyl and your patience will
+         actually survive.
+       - **Min Fragment Width (mm)** (default 0.6, floored at 0.10) — a guard
+         against hair-thin slivers, not the main test. Keep it low.
+
+       Click **Optimize Placement**. It searches where the pattern can sit and
+       reports two counts: defects a gore cut created, against how many there
+       were before — these are the ones moving the pattern can fix — and, on
+       its own line when there are any, pieces no placement can fix because
+       they are simply small artwork. The placement it finds is shown beneath
+       the button. When the search cannot beat the placement already shown, it
+       says so plainly ("Best placement is no better than this one") instead
+       of reporting a count that only looks like success.
        - **Slide Vertically** — also search up and down the strip, not just
          around the object. Slower, and it changes what the base and top cuts
          pass through as well as the seams. The search itself takes a moment —
@@ -125,14 +143,14 @@ TBD.
          more time than the spin-only search. A dense pattern that fills its
          whole tile is slower still to search than an open one, since there is
          more of it for cuts to graze.
-       - The search counts *every* fragment a cut creates, not only the ones
-         you meant to keep, because the extension does not yet read which parts
-         of your pattern are positive space. It therefore rejects some
-         placements that would have been perfectly fine.
-       - If the orphan count does not improve, and you have not set **Limit
-         Pattern Height**, try setting it — see above for why an apex with no
-         ceiling can put a floor under the count that no placement can search
-         its way past.
+       - The counts are estimates read off a raster and drift a few percent
+         with its resolution. A reported zero is trustworthy; a reported
+         non-zero may be pessimistic.
+       - If the pattern's ceiling reaches into a part of a gore narrower than
+         **Min Fragment Width** — the bare apex, unless **Limit Pattern
+         Height** already stops short of it — a warning says so: no placement
+         can rescue material up there, only a lower ceiling can. Consider
+         **Limit Pattern Height**.
        - If **Placement is stale** appears, a setting the search depended on has
          changed. Export still works and uses the stored placement; click
          **Optimize Placement** again to bring it up to date. Editing the scan
@@ -141,9 +159,16 @@ TBD.
        around the object in degrees (it repeats every 360 ÷ Repeats Around) and
        **Rise** slides it up the strip in mm. Optimize writes into these same
        two fields, so you can optimize first and then nudge.
+     - **Mark Defects in Export** (default off) — adds a `defects` layer of
+       magenta rectangles, one per flagged piece, so you can see what is at
+       risk in Silhouette Studio before cutting and calibrate the two floors
+       against real blasted results. It boxes only the pieces a cut created —
+       the same count the panel reports as defects — since the pieces no
+       placement can fix are reported but not boxed. **Those rectangles are
+       cuttable geometry**: hide or delete the `defects` layer before you cut.
 
-     The exported SVG records the placement it was written with in an XML
-     comment at the top of the file.
+     The exported SVG records the placement, both floors and both counts it
+     was written with in an XML comment at the top of the file.
    - **Smooth to Curves** — fit the warped pattern to smooth bezier curves so
      the cutter does not stutter through many tiny line segments.
    - **Simplify Mode** — with **Smooth to Curves** on, how aggressively to fit:
