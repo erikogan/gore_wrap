@@ -603,17 +603,41 @@ def test_narrow_apex_band_grows_with_the_width_floor(tmp_path):
     assert large > small
 
 
+DOTS_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+            'width="40" height="40">'
+            + ''.join(f'<rect x="{x}" y="{y}" width="6" height="6"/>'
+                      for x in (2, 14, 26) for y in (2, 14, 26))
+            + '</svg>')
+
+
+def test_defect_boxes_mark_exactly_what_the_panel_counts(tmp_path):
+    # This fixture leaves defects of both kinds, so the cut-made filter is
+    # doing real work: without it the layer would mark every under-floor piece
+    # and disagree with the count the panel shows.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=120.0, width_floor=0.6, top_inset=20.0)
+
+    fs = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), **kw)
+    boxes = pattern_fit.defect_boxes(
+        pattern, layout.placements, result.outlines, circ, 4,
+        kw["area_floor"], kw["width_floor"], offset=(0.0, 0.0),
+        top_inset=kw["top_inset"])
+
+    assert fs.intrinsic > 0, "fixture must have intrinsic defects too"
+    assert len(boxes) == fs.defects
+
+
 def test_defect_boxes_are_returned_in_final_millimeters(tmp_path):
-    dot = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" \
-width="100" height="100"><rect x="49" y="30" width="2" height="2"/></svg>'''
-    pattern, layout, result = _averaged_setup(12, tmp_path, svg=dot)
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
     circ = result.dims.bottom_circumference
     boxes = pattern_fit.defect_boxes(
-        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        pattern, layout.placements, result.outlines, circ, 4, 120.0, 0.6,
         top_inset=20.0)
-    assert boxes, "the 2x2 mm dot is under the 10 mm2 floor somewhere"
+    assert boxes
     for box in boxes:
         assert box.shape == (2, 2)
         assert box[1, 0] > box[0, 0] and box[1, 1] > box[0, 1]
-        # Inside the sheet the layout placed the gores on.
         assert 0.0 <= box[0, 0] and box[1, 0] <= svg_export.MAT_MM
