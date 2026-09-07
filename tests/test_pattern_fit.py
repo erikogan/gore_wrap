@@ -579,3 +579,25 @@ def test_fingerprint_changes_with_each_input(field, value):
 def test_fingerprint_distinguishes_types():
     assert (pattern_fit.fingerprint(v=1) != pattern_fit.fingerprint(v="1")
             != pattern_fit.fingerprint(v=True))
+
+
+def test_narrow_apex_band_is_zero_when_the_ceiling_is_low(tmp_path):
+    _pattern, _layout, result = _averaged_setup(12, tmp_path)
+    # A 50 mm ceiling on this cylinder stops far below any narrow region.
+    band = pattern_fit.narrow_apex_band(result.outlines, 0.6, top_inset=50.0)
+    assert band == 0.0
+
+
+def test_narrow_apex_band_is_positive_with_no_height_limit(tmp_path):
+    _pattern, _layout, result = _averaged_setup(12, tmp_path)
+    # With the pattern running to the apex, the gore's width goes to zero, so
+    # there is always a band thinner than any positive width floor.
+    band = pattern_fit.narrow_apex_band(result.outlines, 0.6, top_inset=0.0)
+    assert band > 0.0
+
+
+def test_narrow_apex_band_grows_with_the_width_floor(tmp_path):
+    _pattern, _layout, result = _averaged_setup(12, tmp_path)
+    small = pattern_fit.narrow_apex_band(result.outlines, 0.3)
+    large = pattern_fit.narrow_apex_band(result.outlines, 3.0)
+    assert large > small
