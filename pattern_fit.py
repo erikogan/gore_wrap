@@ -256,16 +256,42 @@ def score_gore(prep, tile, offset, area_floor, width_floor, steps):
                     worst=float(seen.min()) if seen.size else None)
 
 
+def _phase_reduction(outlines, n_strips, repeats_x):
+    """How many gores actually need scoring, and by what to multiply.
+
+    A gore's phase against the tile grid is xc_i mod W with
+    xc_i = (i + 0.5) * circ / n and W = circ / repeats_x, so the phase repeats
+    with period n / gcd(n, repeats_x) in i. When every gore ALSO has the same
+    outline, gores sharing a phase are identical in every respect and one
+    stands for all of them.
+
+    The condition tested is "all outlines are equal", not "the mode is
+    AVERAGED": the scorer has no business knowing about modes, FITTED then
+    falls out as the general case, and any future mode that happens to produce
+    identical outlines gets the saving for free.
+    """
+    first = outlines[0]
+    for other in outlines[1:]:
+        if other.shape != first.shape or not np.array_equal(other, first):
+            return n_strips, 1
+    multiplier = math.gcd(int(n_strips), int(repeats_x))
+    return n_strips // multiplier, multiplier
+
+
 def prepare(pattern, placements, outlines, circumference, repeats_x,
             area_floor, width_floor, top_inset=0.0):
     """Build the tile mask and per-gore rasters once, for reuse in a search."""
     px, steps = raster_pitch(area_floor, width_floor)
     tile = build_tile(pattern, circumference, repeats_x, px)
-    preps = [prepare_gore(geom, px)
-             for _i, geom in _gore_geometry(placements, outlines,
-                                            circumference, top_inset)
-             if geom is not None]
-    return Prepared(tile=tile, preps=preps, px=px, steps=steps, multiplier=1)
+    geoms = [geom for _i, geom in _gore_geometry(placements, outlines,
+                                                 circumference, top_inset)]
+    distinct, multiplier = _phase_reduction(list(outlines), len(geoms),
+                                            repeats_x)
+    if multiplier > 1:
+        geoms = geoms[:distinct]
+    preps = [prepare_gore(g, px) for g in geoms if g is not None]
+    return Prepared(tile=tile, preps=preps, px=px, steps=steps,
+                    multiplier=multiplier)
 
 
 def score_placement(pattern, placements, outlines, circumference, repeats_x,
