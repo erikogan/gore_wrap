@@ -1,0 +1,117 @@
+"""Score how badly the gore cuts fragment a pattern, and search for a
+placement that leaves fewer orphaned pieces.
+
+Pure numpy + svgelements (no Blender), so it runs under plain pytest. All
+lengths are millimeters, matching svg_export and pattern_warp.
+
+The unit of measurement here is a PIECE OF MATERIAL -- a connected component of
+the material region inside one gore -- not a closed contour. That distinction
+is the whole point: a pattern can be a single connected web with holes, in
+which case per-contour clipping reports one healthy fragment per gore and every
+real orphan is invisible.
+
+Deliberately separate from the export path, which stays polarity-agnostic: a
+cutter cuts every contour regardless of which side is weeded.
+"""
+
+from dataclasses import dataclass
+import hashlib
+import math
+
+import numpy as np
+
+from . import raster
+from .pattern_warp import (PatternError, _gore_geometry, _subpath_geometry,
+                           _tile_metrics)
+
+PX_MIN = 0.05        # mm; a floor on cost
+PX_MAX = 0.5         # mm; a ceiling on coarseness
+
+
+def raster_pitch(area_floor, width_floor):
+    """Raster pitch and erosion step count implied by the two floors.
+
+    The width test erodes `steps` whole times, so the threshold it actually
+    enforces is `2 * px * steps`. That equals `width_floor` only when `px`
+    divides `width_floor / 2` evenly -- otherwise the width floor silently
+    inflates (at px = 0.20 mm a 0.6 mm floor becomes 0.8 mm). `width_floor / 4`
+    divides evenly, which is why it is the primary term; the second stage snaps
+    the value for the case where the AREA term binds, i.e. when
+    `area_floor < 4 * width_floor**2`.
+    """
+    px = min(width_floor / 4.0, math.sqrt(area_floor) / 8.0)
+    px = min(max(px, PX_MIN), PX_MAX)
+    steps = max(1, int(math.ceil(width_floor / (2.0 * px))))
+    return width_floor / (2.0 * steps), steps
+
+
+@dataclass
+class TileMask:
+    """One tile of the pattern as a boolean material mask, in master mm.
+
+    Row 0 is master y = 0 (the gore base). `px` is the mask's OWN pitch, which
+    is half the gore raster's: the inverse warp stretches master x by
+    hw0/right_x(y), so an equal-pitch nearest-neighbor lookup would start
+    skipping master pixels as the gore narrows.
+    """
+    mask: np.ndarray
+    px: float
+    W: float
+    tile_h: float
+
+
+def build_tile(pattern, circumference, repeats_x, px):
+    """Rasterize one pattern tile at half of `px`, honoring fill and nesting.
+
+    Filled elements are material; the color is not interpreted. Each element
+    is filled separately so overlapping shapes weld, while subpaths within one
+    element obey its fill rule so an inner ring becomes a hole.
+    """
+    W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    tpx = px / 2.0
+    nx = max(1, int(round(W / tpx)))
+    ny = max(1, int(round(tile_h / tpx)))
+    mask = np.zeros((ny, nx), dtype=bool)
+    filled = 0
+    for element in pattern.elements:
+        if element.fill is None:
+            continue
+        rings = []
+        for subpath in element.subpaths:
+            segs, _corners, _closed = _subpath_geometry(subpath)
+            pts = _sample_subpath_local(segs, k, tile_h, tpx)
+            if len(pts) >= 3:
+                rings.append(pts)
+        if not rings:
+            continue
+        filled += 1
+        raster.fill_into(mask, rings, tpx, even_odd=element.even_odd)
+    if not filled:
+        raise PatternError(
+            "No filled shapes in the pattern. Placement scoring measures "
+            "pieces of material, so the artwork must be filled, not just "
+            "stroked outlines.")
+    return TileMask(mask=mask, px=tpx, W=W, tile_h=tile_h)
+
+
+def _sample_subpath_local(segs, k, tile_h, tol):
+    """Sample one subpath into tile-local master mm (tile origin at 0, 0).
+
+    Fixed density: unlike the exporter's adaptive sampler this never consults
+    the warp, so the result is a plain ring of points that gets rasterized
+    once per pattern and reused for every candidate offset. The y flip matches
+    pattern_warp._sample_subpath_master with dx = dy = 0.
+    """
+    pts = []
+    for seg in segs:
+        probe = [seg.point(t) for t in np.linspace(0.0, 1.0, 8)]
+        length = sum(np.hypot(b.x - a.x, b.y - a.y)
+                     for a, b in zip(probe, probe[1:])) * k
+        n = int(np.clip(np.ceil(length / tol) + 1, 2, 512))
+        # Drop each segment's last point: it is the next segment's first, and
+        # _subpath_geometry already appended the closing edge, so the ring
+        # comes back to its own start without a duplicate.
+        for t in np.linspace(0.0, 1.0, n)[:-1]:
+            p = seg.point(t)
+            pts.append((p.x * k, tile_h - p.y * k))
+    return np.array(pts) if pts else np.empty((0, 2))
