@@ -11,7 +11,7 @@ import time
 import numpy as np
 import bpy
 
-from . import geometry, pipeline, svg_export, pattern_warp, pattern_fit, export_job
+from . import geometry, pipeline, svg_export, pattern_warp, export_job
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -243,45 +243,6 @@ def _make_preview_object(context, result, scale_factor, start_angle, highlight,
     return obj
 
 
-def placement_stamp(props, obj):
-    """Digest of everything an optimal placement depends on.
-
-    Compared against props.pattern_fit_stamp to tell the user their placement
-    has gone stale. The mesh is covered only by name and vertex count: hashing
-    a scan on every panel redraw is out of the question, so switching objects
-    and gross edits are caught while a single nudged vertex is not. The stat()
-    is one syscall per redraw, which is nothing next to what Blender already
-    does; an unreadable file simply reads as stale. A non-mesh active object
-    (camera, light, the preview itself) folds in neutral values instead of its
-    name/count, so merely selecting one does not flip the panel to stale.
-
-    Also folds in pattern_rotation/pattern_rise -- the search's own outputs,
-    which Manual mode lets the user override by hand -- so a hand edit after
-    Optimize is caught too, not just the inputs that fed the search.
-    """
-    try:
-        st = os.stat(bpy.path.abspath(props.pattern_svg))
-        svg_stat = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        svg_stat = None
-    return pattern_fit.fingerprint(
-        svg=props.pattern_svg, svg_stat=svg_stat,
-        repeats_x=props.pattern_repeats_x,
-        min_feature=props.pattern_min_feature,
-        slide_vertically=props.pattern_slide_vertically,
-        strip_angle=props.strip_angle, mode=props.mode,
-        seam_offset=props.seam_offset, start_angle=props.start_angle,
-        crop_z=props.crop_z, smoothing_sigma=props.smoothing_sigma,
-        tolerance=props.tolerance, scale_factor=props.scale_factor,
-        limit_top=props.pattern_limit_top,
-        top_offset=props.pattern_top_offset,
-        top_mode=props.pattern_top_mode,
-        rotation=props.pattern_rotation, rise=props.pattern_rise,
-        obj_name=obj.name if obj is not None and obj.type == "MESH" else "",
-        n_verts=(len(obj.data.vertices)
-                 if obj is not None and obj.type == "MESH" else 0))
-
-
 class GOREWRAP_OT_preview(bpy.types.Operator):
     bl_idname = "gorewrap.preview"
     bl_label = "Preview Gores"
@@ -464,14 +425,6 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
                         "Choose a pattern SVG or turn off Fill With Pattern.")
             return {"CANCELLED"}
 
-        if (props.use_pattern
-                and props.pattern_placement_mode == "AUTO"
-                and props.has_pattern_fit
-                and props.pattern_fit_stamp != placement_stamp(props, obj)):
-            self.report({"WARNING"},
-                        "Pattern placement is stale — settings changed since "
-                        "Optimize. Exporting with the stored placement.")
-
         params = {
             "seam_offset": props.seam_offset,
             "labels": props.labels and props.mode == "FITTED",
@@ -505,80 +458,5 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
 
 
-class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
-    bl_idname = "gorewrap.optimize_placement"
-    bl_label = "Optimize Placement"
-    bl_description = ("Search for a pattern placement that leaves fewer tiny "
-                      "orphaned fragments along the gore cuts")
-    bl_options = {"REGISTER", "UNDO"}
-
-    _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)
-    _cancel_message = "Placement search canceled."
-
-    def execute(self, context):
-        obj = context.active_object
-        error = _validate(obj, context)
-        if error:
-            self.report({"ERROR"}, error)
-            return {"CANCELLED"}
-
-        props = context.scene.gore_wrap
-        if not props.use_pattern or not props.pattern_svg:
-            self.report({"ERROR"},
-                        "Choose a pattern SVG or turn off Fill With Pattern.")
-            return {"CANCELLED"}
-
-        result = _run(obj, context)
-        _store_readouts(props, result)
-
-        if not (MIN_MM <= result.dims.height <= MAX_MM):
-            self.report({"ERROR"},
-                        f"Object height {result.dims.height:.0f} mm is implausible "
-                        f"(expected {MIN_MM:.0f}-{MAX_MM:.0f} mm). Check scene "
-                        f"units or calibrate the scale.")
-            return {"CANCELLED"}
-
-        try:
-            layout = svg_export.layout(result.outlines, props.seam_offset)
-            pattern = pattern_warp.load_pattern(
-                bpy.path.abspath(props.pattern_svg))
-        except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
-            self.report({"ERROR"}, str(exc))
-            return {"CANCELLED"}
-
-        top_inset = 0.0
-        if props.pattern_limit_top:
-            top_inset = export_job.resolve_top_inset(
-                props.pattern_top_mode, props.pattern_top_offset,
-                result.profile)
-
-        self._props = props
-        self._obj = obj
-        self._circ = result.dims.bottom_circumference
-        self._gen = pattern_fit.search_placement(
-            pattern, layout.placements, result.outlines, self._circ,
-            props.pattern_repeats_x, props.pattern_min_feature,
-            slide_vertically=props.pattern_slide_vertically,
-            top_inset=top_inset)
-        return self._start(context)
-
-    def _on_success(self, value):
-        (phi_x, phi_y), best, baseline = value
-        props = self._props
-        props.pattern_rotation = 360.0 * phi_x / self._circ
-        props.pattern_rise = phi_y
-        props.pattern_orphans = best.orphans
-        props.pattern_orphans_base = baseline.orphans
-        props.pattern_fit_stamp = placement_stamp(props, self._obj)
-        props.has_pattern_fit = True
-        self.report({"INFO"},
-                    f"{best.orphans} fragments below "
-                    f"{props.pattern_min_feature:.1f} mm "
-                    f"(was {baseline.orphans}) at "
-                    f"{props.pattern_rotation:.1f} deg, "
-                    f"rise {props.pattern_rise:.1f} mm")
-        return {"FINISHED"}
-
-
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
-           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_export)
+           GOREWRAP_OT_export)
