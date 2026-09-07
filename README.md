@@ -161,11 +161,12 @@ TBD.
        two fields, so you can optimize first and then nudge.
      - **Mark Defects in Export** (default off) — adds a `defects` layer of
        magenta rectangles, one per flagged piece, so you can see what is at
-       risk in Silhouette Studio before cutting and calibrate the two floors
-       against real blasted results. It boxes only the pieces a cut created —
-       the same count the panel reports as defects — since the pieces no
-       placement can fix are reported but not boxed. **Those rectangles are
-       cuttable geometry**: hide or delete the `defects` layer before you cut.
+       risk in the cutting software before cutting and calibrate the two
+       floors against real blasted results. It boxes only the pieces a cut
+       created — the same count the panel reports as defects — since the
+       pieces no placement can fix are reported but not boxed. **Those
+       rectangles are cuttable geometry**: hide or delete the `defects` layer
+       before you cut.
 
      The exported SVG records the placement, both floors and both counts it
      was written with in an XML comment at the top of the file.

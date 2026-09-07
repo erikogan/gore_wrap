@@ -514,7 +514,7 @@ axis-aligned rectangle per flagged fragment**, its bounding box in final mm,
 stroked in a distinct color, unfilled. Rectangles rather than traced component
 outlines, because tracing a raster component gives stair-stepped paths that
 bloat the file and read as artwork, whereas a rectangle is unmistakably a
-marker that can be hidden or deleted by layer in Silhouette Studio.
+marker that can be hidden or deleted by layer in the cutting software.
 
 The hazard is real: those rectangles are cuttable geometry. Mitigations are the
 same shape as the existing `labels` group — its own named group, **default

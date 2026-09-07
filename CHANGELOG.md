@@ -10,25 +10,20 @@ Every version bump gets an entry here, in the same commit as the bump.
 
 ### Added
 
-- **Placement** in the Pattern section, scoring what a gore cut actually
-  leaves behind: a defect is a connected piece of material, not a closed
-  contour, so a pattern that is one connected web with holes in it is scored
-  correctly instead of reading as a single healthy shape. Polarity, nesting
-  and welding all fall out of one rule read straight from the SVG: a filled
-  element is material, a subpath nested inside another *in the same element*
-  is a hole in it, and two overlapping shapes in *different* elements weld
-  into a single piece.
+- **Placement** in the Pattern section, searches pattern locations on the
+  gores looking for a place where the gore cuts themselves produce the fewest
+  small orphaned bits of material.
   - **Automatic** takes two floors instead of one, and a piece fails if it
     trips either: **Min Fragment Area (mm²)** (default 10), the main dial, and
     **Min Fragment Width (mm)** (default 0.6, floored at 0.10), a guard
-    against hair-thin slivers rather than the main test. **Optimize
-    Placement** searches where the pattern can sit and reports two counts —
-    defects a gore cut created, which moving the pattern can fix, against how
-    many there were before; and, on its own line when there are any, pieces no
-    placement can fix because they are simply small artwork. When the search
-    cannot beat the placement already shown, it says so plainly ("Best
-    placement is no better than this one") instead of reporting a count that
-    only looks like success.
+    against hair-thin slivers rather than the main test.
+  - **Optimize Placement** searches where the pattern can sit and reports two
+    counts — defects a gore cut created, which moving the pattern can fix,
+    against how many there were before; and, on its own line when there are
+    any, pieces no placement can fix because they are simply small artwork.
+    When the search cannot beat the placement already shown, it says so
+    plainly ("Best placement is no better than this one") instead of
+    reporting a count that only looks like success.
   - A warning fires when the pattern's ceiling reaches into a part of a gore
     narrower than **Min Fragment Width** — defects there cannot be fixed by
     placement, only by a lower ceiling — and suggests **Limit Pattern
@@ -37,9 +32,9 @@ Every version bump gets an entry here, in the same commit as the bump.
     well as around the object.
 - **Mark Defects in Export** (default off): adds a `defects` layer of magenta
   rectangles, one per piece a gore cut flagged, so risk can be inspected in
-  Silhouette Studio before cutting and the two floors calibrated against real
-  blasted results. **Those rectangles are cuttable geometry** — hide or delete
-  the `defects` layer before cutting.
+  the cutting software before cutting and the two floors calibrated against
+  real blasted results. **Those rectangles are cuttable geometry** — hide or
+  delete the `defects` layer before cutting.
 - **Manual** placement as the advanced alternative: **Rotation** in degrees
   around the object and **Rise** in mm up the strip. Both always drive the
   warp, and Optimize writes into them, so a found placement can be nudged by

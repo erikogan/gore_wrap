@@ -1,7 +1,7 @@
 # Pattern Bezier Refit — design spec
 
 Emit the warped pattern as smooth cubic-bezier paths fitted to cutter resolution,
-instead of the dense polyline that makes the Silhouette stutter-step.
+instead of the dense polyline that makes the cutting machine stutter-step.
 
 ## Problem
 

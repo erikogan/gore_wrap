@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-MAT_MM = 610.0        # 24" Silhouette mat
+MAT_MM = 610.0        # 24" cutting mat
 MARGIN_MM = 5.0       # keep shapes off the very edge
 ROW_GAP_MM = 10.0     # vertical gap between wrapped rows
 
@@ -179,7 +179,7 @@ def _xml_comment_safe(text):
 
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
               edge_lines=None, comment=None, defect_boxes=None):
-    """Write the placed strips to a real-scale SVG for Silhouette Studio.
+    """Write the placed strips to a real-scale SVG for the cutting software.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
     labels are enabled, a separate `labels` group holds the wrap-order number
