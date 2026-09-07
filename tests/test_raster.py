@@ -75,3 +75,65 @@ def test_fill_into_ignores_rings_entirely_outside_the_tile():
     tile = np.zeros((40, 40), dtype=bool)
     raster.fill_into(tile, [square(100.0, 100.0, 10.0)], 1.0)
     assert not tile.any()
+
+
+def test_label_counts_separate_blobs():
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[2:5, 2:5] = True
+    mask[10:14, 10:14] = True
+    lab, n = raster.label(mask)
+    assert n == 2
+    assert lab[3, 3] != lab[11, 11]
+    assert lab[0, 0] == 0
+    assert set(np.unique(lab)) == {0, 1, 2}
+
+
+def test_label_treats_a_corner_touch_as_one_component():
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[2:4, 2:4] = True
+    mask[4:6, 4:6] = True          # touches the first only at a corner
+    lab, n = raster.label(mask)
+    assert n == 1
+
+
+def test_label_separates_blobs_one_pixel_apart():
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[2:4, 2:4] = True
+    mask[5:7, 5:7] = True          # a full pixel of gap, diagonally
+    lab, n = raster.label(mask)
+    assert n == 2
+
+
+def test_label_leaves_a_hole_unlabeled():
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[4:16, 4:16] = True
+    mask[8:12, 8:12] = False       # a hole
+    lab, n = raster.label(mask)
+    assert n == 1
+    assert lab[10, 10] == 0
+    assert lab[5, 5] == 1
+
+
+def test_label_of_an_empty_mask():
+    lab, n = raster.label(np.zeros((5, 5), dtype=bool))
+    assert n == 0
+    assert not lab.any()
+
+
+def test_label_joins_runs_across_many_rows():
+    # A U shape: two arms joined only along the bottom row.
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[1:9, 1:3] = True
+    mask[1:9, 7:9] = True
+    mask[1:3, 1:9] = True
+    lab, n = raster.label(mask)
+    assert n == 1
+
+
+def test_areas_converts_pixel_counts_to_square_millimeters():
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[2:6, 2:6] = True          # 16 px
+    mask[10:12, 10:15] = True      # 10 px
+    lab, n = raster.label(mask)
+    got = sorted(raster.areas(lab, n, 0.5))
+    assert got == pytest.approx([10 * 0.25, 16 * 0.25])
