@@ -43,168 +43,367 @@ TBD.
 
 ## Use
 
-1. Orient the scan **Z-up**, centered on the **X** & **Y** axes and delete
+Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`). The sidebar has
+four panels — **Strips**, **Quality**, **Scale** and **Pattern** — with
+**Preview** and **Export SVG** beneath them. Each is documented below in that
+order.
+
+### Quick start
+
+Header order is panel order, not the order you work in. For a first cut:
+
+1. Orient the scan **Z-up**, centered on the **X** and **Y** axes, and delete
    obvious base junk.
 2. Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`).
-3. Set the strip geometry in the **Strips** panel:
-   - **Strip Angle** — the target angular width of one gore (24° → 15 strips,
-     18° → 20 strips, etc.). The **strip count** below it is what that angle
-     snapped to, since only a whole number of strips fits around the object.
-   - **Seam Offset** — edge allowance in mm: positive overlaps the neighboring
-     strip, negative leaves a gap, zero is a butt joint.
-4. Choose the **Mode**:
-   - **Averaged** — one averaged gore shape is repeated for every strip. The
-     strips are interchangeable, so they can go on in any order, anywhere.
-   - **Fitted** — each gore is fitted to its own angular sector of the scan, so
-     it tracks local bumps and dents. The strips all differ, so they have to be
-     applied in order at the right place. Choosing it adds two things:
-     - **Start Angle** — which sector becomes gore 1 (degrees counter-clockwise
-       from +X seen from above), so you can line gore 1 up with a landmark on
-       the object.
-     - a reminder that **gore 1 is green and gore 2 is orange** in the Preview
-       — the two colors give you the starting strip and the direction to wind
-       in. See [Fitted mode: where to start
-       applying](#fitted-mode-where-to-start-applying) below.
-5. Trim the base and preview:
-   - **Bottom Crop** (in the **Scale** panel) — discard everything below this
-     height.
-   - **Preview** — draws a semi-transparent reconstructed surface over the scan
-     and fills the **Scale** panel with height / max diameter / bottom
-     circumference and a fit-error. This step is optional, but quite helpful for
-     Fitted Mode cuts.
-6. **Calibrate** to override the dimensions found in the scanned mesh:
-   - Measure one real dimension on the object.
-   - Pick which dimension it is under *Calibrate By*.
-   - Enter it as *Measured Value*, then click *Apply Measured Scale*.
-7. Click **Export SVG** and open the file in you editor / controller of choice.
-   Strips are laid out on a common baseline in wrap order.
-   - **Number Strips** (on by default) — writes a separate red `labels` layer
-     numbering the strips in wrap order; exclude that layer from cutting.
-     Uncheck it for an outline-only file. Fitted mode only, since Averaged
-     strips are identical and need no numbering.
-8. To apply a repeating design, check **Fill With Pattern**. The pattern is
-   warped to each gore — squeezed horizontally so it fills the taper without
-   distorting vertically — and written as a separate `pattern` layer.
-   - **Pattern SVG** — a seamless (tileable) SVG; export EPS to SVG from your
-     vector editor first.
-   - **Repeats Around** — how many times the pattern tiles around the object.
-   - **Limit Pattern Height** — stop the pattern short of the top instead of
-     filling the whole gore, and close it off with a straight cut parallel to
-     the bottom. The cuts go in their own `pattern-edge` layer, one per strip.
-     Set this before **Placement**, if you want it: it materially changes what
-     the search below optimizes. With no limit the pattern runs all the way to
-     the apex, where the gore has narrowed to a hair — shapes up there get cut
-     into slivers no matter how the pattern is placed, and those slivers count
-     against every placement alike, putting a floor under the orphan number
-     that Placement cannot search its way past.
-     - **Distance From Top (mm)** — how far down from the top the pattern ends.
-     - **Measured** — how that distance is read:
-       - **Along Surface** (default) — distance up the strip itself, the number
-         you get laying a ruler on the flat pattern from its tip down.
-       - **Model Height** — a vertical drop on the object, converted through the
-         profile. A domed or flared top covers far more surface than height, so
-         a small drop there can be a much larger distance on the pattern.
+3. Set [**Strip Angle**](#strip-angle) and [**Mode**](#mode) in **Strips**.
+4. Set [**Bottom Crop**](#bottom-crop), then click [**Preview**](#preview) to
+   check the fit and read the dimensions.
+5. [**Calibrate**](#calibrate-by) against one measured dimension, if the scan
+   is not already at real scale.
+6. Optional: check [**Fill With Pattern**](#fill-with-pattern), pick a
+   [**Pattern SVG**](#pattern-svg), and set
+   [**Repeats Around**](#repeats-around).
+7. Optional: set [**Limit Pattern Height**](#limit-pattern-height) *first*,
+   then click [**Optimize Placement**](#optimize-placement).
+8. Click [**Export SVG**](#export-svg) and open the file in your editor or
+   cutter controller of choice.
 
-     With the limit on, the next **Preview** shades the part of the object the
-     pattern will not reach in a dim grey, split at the cut itself — so you can
-     check the height against the real shape before exporting.
-   - **Placement** — where the pattern sits on the gores. A gore cut can slice
-     through the pattern and leave a defect behind: a piece of material too
-     small to survive weeding, transfer or the blast itself. A defect is a
-     connected piece of material, not a closed contour — a pattern that is one
-     connected web with holes in it is a single healthy shape to a per-contour
-     test, and every real defect in it is invisible, so the search measures
-     connected pieces of material directly instead. Polarity, nesting and
-     welding all fall out of that one rule: a filled SVG element is material, a
-     subpath nested inside another *in the same element* is a hole in it, and
-     two overlapping shapes in *different* elements weld into one piece. If you
-     plan to use **Limit Pattern Height**, set it first — see above.
-     - **Automatic** (default) — two floors, and a piece fails if it trips
-       either:
-       - **Min Fragment Area (mm²)** (default 10) — the main dial. Set it to
-         the smallest area of material your vinyl and your patience will
-         actually survive.
-       - **Min Fragment Width (mm)** (default 0.6, floored at 0.10) — a guard
-         against hair-thin slivers, not the main test. Keep it low.
+### Strips
 
-       Click **Optimize Placement**. It searches where the pattern can sit and
-       reports two counts: defects a gore cut created, against how many there
-       were before — these are the ones moving the pattern can fix — and, on
-       its own line when there are any, pieces no placement can fix because
-       they are simply small artwork. The placement it finds is shown beneath
-       the button. When the search cannot beat the placement already shown, it
-       says so plainly ("Best placement is no better than this one") instead
-       of reporting a count that only looks like success.
-       - **Slide Vertically** — also search up and down the strip, not just
-         around the object. Slower, and it changes what the base and top cuts
-         pass through as well as the seams. The search itself takes a moment —
-         it runs with a progress bar you can cancel with Esc — and turning
-         Slide Vertically on searches a second axis, which costs substantially
-         more time than the spin-only search. A dense pattern that fills its
-         whole tile is slower still to search than an open one, since there is
-         more of it for cuts to graze.
-       - The counts are estimates read off a raster and drift a few percent
-         with its resolution. A reported zero is trustworthy; a reported
-         non-zero may be pessimistic.
-       - If the pattern's ceiling reaches into a part of a gore narrower than
-         **Min Fragment Width** — the bare apex, unless **Limit Pattern
-         Height** already stops short of it — a warning says so: no placement
-         can rescue material up there, only a lower ceiling can. Consider
-         **Limit Pattern Height**.
-       - If **Placement is stale** appears, a setting the search depended on has
-         changed. Export still works and uses the stored placement; click
-         **Optimize Placement** again to bring it up to date. Editing the scan
-         mesh itself is only partly detected, so re-optimize after a re-scan.
-     - **Manual** — place it by hand instead. **Rotation** spins the pattern
-       around the object in degrees (it repeats every 360 ÷ Repeats Around) and
-       **Rise** slides it up the strip in mm. Optimize writes into these same
-       two fields, so you can optimize first and then nudge.
-     - **Mark Defects in Export** (default off) — adds a `defects` layer of
-       magenta rectangles, one per flagged piece, so you can see what is at
-       risk in the cutting software before cutting and calibrate the two
-       floors against real blasted results. It boxes only the pieces a cut
-       created — the same count the panel reports as defects — since the
-       pieces no placement can fix are reported but not boxed. **Those
-       rectangles are cuttable geometry**: hide or delete the `defects` layer
-       before you cut.
+The geometry of the individual gore strips.
 
-     The exported SVG records the placement, both floors and both counts it
-     was written with in an XML comment at the top of the file.
-   - **Smooth to Curves** — fit the warped pattern to smooth bezier curves so
-     the cutter does not stutter through many tiny line segments.
-   - **Simplify Mode** — with **Smooth to Curves** on, how aggressively to fit:
-     - **Visual** (default) — fewest nodes and the smoothest cut, while keeping
-       genuine corners crisp.
-     - **Cutter Resolution** — hugs the true warped shape to cutter precision;
-       more nodes, use it when exact fidelity matters.
-     - **Custom** — reveals **Simplify Tol (mm)** (max deviation of the fitted
-       curves from the true shape) and **Corner Angle (deg)**.
+#### Strip Angle
 
-         The **Corner Angle** is the *turn* angle — how far the path bends at a
-         join. A join is kept as a sharp corner only when it turns by more than
-         this; gentler bends are smoothed into one curve, so a **lower** value
-         smooths more. Note this is the opposite sense from some vector editors,
-         whose "corner angle threshold" measures the *interior* angle (180° −
-         turn): their 150° default corresponds to about 30° here.
+The target angular width of one gore (24° → 15 strips, 18° → 20 strips, etc.).
+The **Strip count** shown below it is what that angle snapped to, since only a
+whole number of strips fits around the object.
 
-         Some vector editors simplify with a *curve-precision percentage*
-         instead of a distance. That runs the opposite way — a higher percentage
-         keeps the path *closer* to the original (less simplification) — and it
-         is a relative setting with no real-world unit, so the same percentage
-         deviates by different amounts on different artwork. **Simplify Tol** is
-         an absolute limit in millimeters, so it stays predictable at cut scale
-         regardless of the pattern's size.
+#### Seam Offset (mm)
 
-### Fitted mode: where to start applying
+Edge allowance in millimeters: positive overlaps the neighboring strip,
+negative leaves a gap, zero is a butt joint.
 
-Fitted strips are sector-specific, so they must go on in order at the right
-place. Mark a landmark on the object (a seam, a blemish, a dab of tape), then
-set **Start Angle** so gore 1 lands on it — in the Preview, **gore 1 is green**
-and **gore 2 is orange**. Apply the green strip (label 1) at your landmark, then
-continue toward the orange strip (winding counter-clockwise seen from the top)
-with strips 2, 3, …. Each gore is left-right symmetric, so you never need to
-flip one; only the start and direction matter. (Averaged mode gores are
-identical, so none of this applies — start anywhere.)
+#### Mode
+
+Whether every strip shares one averaged shape or each is fitted to its own
+sector of the scan.
+
+##### Averaged
+
+One averaged gore shape is repeated for every strip. The strips are
+interchangeable, so they can go on in any order, anywhere.
+
+##### Fitted
+
+Each gore is fitted to its own angular sector of the scan, so it tracks local
+bumps and dents. The strips all differ, so they have to be applied in order at
+the right place.
+
+**Where to start applying.** Mark a landmark on the object (a seam, a blemish,
+a dab of tape), then set [**Start Angle**](#start-angle) so gore 1 lands on it.
+In the [Preview](#preview), **gore 1 is green** and **gore 2 is orange** — the
+two colors give you the starting strip and the direction to wind in. Apply the
+green strip (label 1) at your landmark, then continue toward the orange strip,
+winding counter-clockwise seen from the top, with strips 2, 3, …. Each gore is
+left-right symmetric, so you never need to flip one; only the start and the
+direction matter.
+
+Averaged gores are identical, so none of this applies to them — start anywhere.
+
+#### Start Angle
+
+Fitted mode only. Which sector becomes gore 1, in degrees counter-clockwise
+from +X seen from above, so you can line gore 1 up with a landmark on the
+object.
+
+### Quality
+
+How closely the reconstructed surface and the flattened outlines track the
+scan. The defaults suit a clean scan; reach for these when the mesh is noisy,
+or when the cut file carries more nodes than the cutter needs.
+
+#### Smoothing
+
+Gaussian smoothing of the radius profile, in bands (default 2, range 0–20). The
+profile is the object's radius sampled up its height, and smoothing averages
+neighboring bands together.
+
+Raise it when scanner noise puts ripples in the gore edges that are not on the
+real object. Lower it toward 0 when the object has genuine steps or ridges that
+the default is rounding away. Too high, and a flared or waisted profile
+flattens out toward a plain cone.
+
+#### Outline Tolerance (mm)
+
+Ramer–Douglas–Peucker simplification of each gore outline (default 0.3 mm,
+range 0.01–5). A point is dropped when dropping it moves the outline by less
+than this.
+
+Lower it when the cut is visibly faceted against a curved object; raise it when
+the outline carries far more nodes than the cutter needs. This governs the gore
+*outline* only — the pattern has its own control in
+[**Simplify Mode**](#simplify-mode).
+
+#### Fit error and Interpolated
+
+Read-only, filled in by [**Preview**](#preview).
+
+- **Fit error** — how far the reconstructed surface sits from the scan, in
+  millimeters. Read it as the price of the current **Smoothing** and **Outline
+  Tolerance**: if it is larger than your tolerance for the finished wrap, lower
+  one of them and preview again.
+- **Interpolated** — the percentage of the profile that had no scan data behind
+  it and was filled in by interpolation. It appears only when there is
+  something to report. A high number means the scan has holes — an undercut, a
+  missed base, a shiny patch the scanner dropped — and the gores through those
+  bands are guesses.
+
+### Scale
+
+Cropping the model and getting it to real-world size. The exported SVG is
+real-scale, so the numbers here are what make a cut strip actually fit the
+object.
+
+#### Bottom Crop
+
+Discard everything below this height, to cut off the base junk a scan usually
+carries.
+
+#### Calibrate By
+
+Which dimension you measured, for when the scan is not already at true scale.
+Pick it here, enter the measurement in [**Measured (mm)**](#measured-mm), then
+click **Apply Measured Scale**.
+
+The height, max diameter and bottom circumference readouts above it are filled
+in by [**Preview**](#preview); until you run one, the panel says so rather than
+showing stale numbers.
+
+#### Measured (mm)
+
+The real dimension you measured on the object, matching the choice in
+[**Calibrate By**](#calibrate-by). **Apply Measured Scale** rescales the model
+so the two agree.
+
+### Pattern
+
+An optional repeating design. The pattern is warped to each gore — squeezed
+horizontally so it fills the taper without distorting vertically — and written
+as a separate `pattern` layer.
+
+#### Fill With Pattern
+
+Turns the pattern pipeline on and reveals everything below.
+
+#### Pattern SVG
+
+A seamless (tileable) SVG. Export EPS to SVG from your vector editor first.
+
+#### Repeats Around
+
+How many times the pattern tiles around the object. The panel shows the
+resulting repeats per gore beneath it.
+
+#### Limit Pattern Height
+
+Stop the pattern short of the top instead of filling the whole gore, closing it
+off with a straight cut parallel to the bottom. The cuts go in their own
+`pattern-edge` layer, one per strip.
+
+**Set this before [Placement](#placement)** — it materially changes what the
+search optimizes. With no limit the pattern runs all the way to the apex, where
+the gore has narrowed to a hair. Shapes up there get cut into slivers no matter
+how the pattern is placed, and those slivers count against every placement
+alike, putting a floor under the orphan number that Placement cannot search its
+way past.
+
+With the limit on, the next [**Preview**](#preview) shades the part of the
+object the pattern will not reach in a dim grey, split at the cut itself, so
+you can check the height against the real shape before exporting.
+
+##### Distance From Top (mm)
+
+How far down from the top the pattern ends.
+
+##### Measured
+
+How that distance is read.
+
+- **Along Surface** (default) — distance up the strip itself, the number you
+  get laying a ruler on the flat pattern from its tip down.
+- **Model Height** — a vertical drop on the object, converted through the
+  profile. A domed or flared top covers far more surface than height, so a
+  small drop there can be a much larger distance on the pattern.
+
+#### Smooth to Curves
+
+Fit the warped pattern to smooth bezier curves, so the cutter does not stutter
+through many tiny line segments.
+
+#### Simplify Mode
+
+With [**Smooth to Curves**](#smooth-to-curves) on, how aggressively to fit.
+
+##### Visual
+
+Default. Fewest nodes and the smoothest cut, while keeping genuine corners
+crisp.
+
+##### Cutter Resolution
+
+Hugs the true warped shape to cutter precision. More nodes; use it when exact
+fidelity matters.
+
+##### Custom
+
+Reveals **Simplify Tol (mm)** and **Corner Angle (deg)**, below.
+
+##### Simplify Tol (mm)
+
+Custom only. The maximum deviation of the fitted curves from the true shape.
+
+Some vector editors simplify with a *curve-precision percentage* instead of a
+distance. That runs the opposite way — a higher percentage keeps the path
+*closer* to the original, meaning less simplification — and it is a relative
+setting with no real-world unit, so the same percentage deviates by different
+amounts on different artwork. **Simplify Tol** is an absolute limit in
+millimeters, so it stays predictable at cut scale regardless of the pattern's
+size.
+
+##### Corner Angle (deg)
+
+Custom only. The *turn* angle: how far the path bends at a join. A join is kept
+as a sharp corner only when it turns by more than this, and gentler bends are
+smoothed into one curve — so a **lower** value smooths more.
+
+Note this is the opposite sense from some vector editors, whose "corner angle
+threshold" measures the *interior* angle (180° − turn). Their 150° default
+corresponds to about 30° here.
+
+### Placement
+
+Where the pattern sits on the gores. A gore cut can slice through the pattern
+and leave a **defect** behind: a piece of material too small to survive
+weeding, transfer, or the blast itself.
+
+A defect is a connected piece of material, not a closed contour. A pattern that
+is one connected web with holes in it is a single healthy shape to a
+per-contour test, and every real defect in it would be invisible, so the search
+measures connected pieces of material directly instead. Polarity, nesting and
+welding all fall out of that one rule: a filled SVG element is material, a
+subpath nested inside another *in the same element* is a hole in it, and two
+overlapping shapes in *different* elements weld into one piece.
+
+If you plan to use [**Limit Pattern Height**](#limit-pattern-height), set it
+first.
+
+#### Automatic
+
+The default. Two floors, and a piece fails if it trips either one.
+
+##### Min Fragment Area (mm²)
+
+Default 10. The main dial. Set it to the smallest area of material your vinyl
+and your patience will actually survive.
+
+##### Min Fragment Width (mm)
+
+Default 0.6, floored at 0.10. A guard against hair-thin slivers rather than the
+main test. Keep it low.
+
+##### Optimize Placement
+
+Searches where the pattern can sit and reports two counts: defects a gore cut
+created, against how many there were before — the ones moving the pattern can
+fix — and, on its own line when there are any, pieces no placement can fix
+because they are simply small artwork. The placement it finds is shown beneath
+the button.
+
+When the search cannot beat the placement already shown, it says so plainly
+("Best placement is no better than this one") instead of reporting a count that
+only looks like success.
+
+The search runs behind a progress bar you can cancel with `Esc`. It writes its
+result into the [**Manual**](#manual) **Rotation** and **Rise (mm)** fields, so
+you can optimize first and then nudge by hand.
+
+##### Slide Vertically
+
+Also search up and down the strip, not just around the object. Slower, and it
+changes what the base and top cuts pass through as well as the seams. Turning
+it on searches a second axis, which costs substantially more time than the
+spin-only search. A dense pattern that fills its whole tile is slower still to
+search than an open one, since there is more of it for cuts to graze.
+
+#### Manual
+
+Place the pattern by hand instead.
+
+##### Rotation
+
+Spins the pattern around the object, in degrees. It repeats every
+360 ÷ [**Repeats Around**](#repeats-around).
+
+##### Rise (mm)
+
+Slides the pattern up the strip, in millimeters.
+
+#### Mark Defects in Export
+
+Default off. Adds a `defects` layer of magenta rectangles, one per flagged
+piece, so you can see what is at risk in the cutting software before cutting,
+and calibrate the two floors against real blasted results. It boxes only the
+pieces a cut created — the same count the panel reports as defects — since the
+pieces no placement can fix are reported but not boxed.
+
+**Those rectangles are cuttable geometry**: hide or delete the `defects` layer
+before you cut.
+
+#### Reading the status line
+
+- **The counts are estimates**, read off a raster, and they drift a few percent
+  with its resolution. A reported zero is trustworthy; a reported non-zero may
+  be pessimistic.
+- **Not optimized** means no search has run yet.
+- **Placement is stale** means a setting the search depended on has changed.
+  Export still works and uses the stored placement; click **Optimize
+  Placement** again to bring it up to date. Editing the scan mesh itself is
+  only partly detected, so re-optimize after a re-scan.
+- **A narrow-apex warning** appears when the pattern's ceiling reaches into a
+  part of a gore narrower than
+  [**Min Fragment Width (mm)**](#min-fragment-width-mm) — the bare apex, unless
+  [**Limit Pattern Height**](#limit-pattern-height) already stops short of it.
+  No placement can rescue material up there; only a lower ceiling can.
+
+### Preview and Export
+
+#### Preview
+
+Draws a semi-transparent reconstructed surface over the scan and fills in the
+[**Scale**](#scale) readouts — height, max diameter, bottom circumference —
+along with [**Fit error and Interpolated**](#fit-error-and-interpolated).
+Optional, but the fastest way to catch a bad crop or a noisy profile, and quite
+helpful for Fitted mode cuts.
+
+In Fitted mode it also colors **gore 1 green and gore 2 orange**; see
+[Fitted](#fitted). With [**Limit Pattern Height**](#limit-pattern-height) on,
+it shades the part of the object the pattern will not reach in a dim grey.
+
+#### Number Strips
+
+On by default. Writes a separate red `labels` layer numbering the strips in
+wrap order; exclude that layer from cutting. Uncheck it for an outline-only
+file.
+
+The checkbox is always shown, but numbering is only written in
+[Fitted](#fitted) mode — Averaged strips are identical and need no numbering.
+
+#### Export SVG
+
+Writes the file. Strips are laid out on a common baseline in wrap order.
+
+The exported SVG records the placement, both floors, and both counts it was
+written with, in an XML comment at the top of the file.
 
 ## Development
 
