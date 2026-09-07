@@ -84,3 +84,66 @@ def test_build_tile_rejects_a_pattern_with_nothing_filled(tmp_path):
     pattern = load(tmp_path, UNFILLED_SVG)
     with pytest.raises(pattern_warp.PatternError, match="filled"):
         pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+
+
+class _FlatGore:
+    """A straight-sided gore: right_x is constant, so the warp is identity in
+    x and every area is exactly computable by hand."""
+
+    def __init__(self, half_width=10.0, height=60.0, xc=50.0):
+        self.warp = lambda mx, my: (mx - xc, -my)
+        self.tx = 0.0
+        self.base_y = 0.0
+        self.xc = xc
+        self.hw0 = half_width
+        self.right_x = lambda y: np.full_like(np.asarray(y, float), half_width)
+        self.pattern_top = height
+
+
+def test_gore_mask_of_a_fully_covered_tile_fills_the_gore(tmp_path):
+    full = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+width="40" height="40"><rect x="0" y="0" width="40" height="40"/></svg>'''
+    pattern = load(tmp_path, full, "full.svg")
+    tile = pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+    prep = pattern_fit.prepare_gore(_FlatGore(), 0.5)
+    mask = pattern_fit.gore_mask(prep, tile, (0.0, 0.0))
+    assert np.array_equal(mask, prep.inside)
+
+
+def test_gore_mask_area_matches_the_tile_coverage(tmp_path):
+    pattern = load(tmp_path, SQUARE_SVG)          # a quarter of its tile
+    tile = pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+    prep = pattern_fit.prepare_gore(_FlatGore(half_width=50.0, height=100.0),
+                                    0.5)
+    mask = pattern_fit.gore_mask(prep, tile, (0.0, 0.0))
+    # The gore is 100 mm wide by 100 mm tall = exactly one tile.
+    assert mask.mean() == pytest.approx(0.25, abs=0.02)
+
+
+def test_gore_mask_is_periodic_in_one_tile_width(tmp_path):
+    pattern = load(tmp_path, SQUARE_SVG)
+    tile = pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+    prep = pattern_fit.prepare_gore(_FlatGore(), 0.5)
+    a = pattern_fit.gore_mask(prep, tile, (0.0, 0.0))
+    b = pattern_fit.gore_mask(prep, tile, (tile.W, 0.0))
+    assert np.array_equal(a, b)
+
+
+def test_gore_mask_is_periodic_in_one_tile_height(tmp_path):
+    pattern = load(tmp_path, SQUARE_SVG)
+    tile = pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+    prep = pattern_fit.prepare_gore(_FlatGore(), 0.5)
+    a = pattern_fit.gore_mask(prep, tile, (0.0, 0.0))
+    b = pattern_fit.gore_mask(prep, tile, (0.0, tile.tile_h))
+    assert np.array_equal(a, b)
+
+
+def test_prepare_gore_marks_the_boundary_band(tmp_path):
+    prep = pattern_fit.prepare_gore(_FlatGore(), 0.5)
+    # Everything outside the gore, plus the raster border, plus the ring of
+    # inside-pixels adjacent to them.
+    assert prep.boundary[0, :].all()
+    assert prep.boundary[-1, :].all()
+    assert prep.boundary[:, 0].all()
+    assert not prep.boundary[prep.inside.shape[0] // 2,
+                             prep.inside.shape[1] // 2]
