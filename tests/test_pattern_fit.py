@@ -439,3 +439,86 @@ def test_no_reduction_when_outlines_differ(tmp_path):
                                top_inset=20.0)
     assert prep.multiplier == 1
     assert len(prep.preps) == 20
+
+
+def _drain(gen):
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
+
+
+def test_search_returns_an_offset_inside_one_period(tmp_path):
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    (phi_x, phi_y), best, base = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        top_inset=20.0))
+    assert 0.0 <= phi_x < circ / 4
+    assert phi_y == 0.0
+    assert best.score <= base.score
+
+
+def test_search_never_returns_worse_than_the_baseline(tmp_path):
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    _off, best, base = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        top_inset=20.0))
+    assert best.score <= base.score
+    assert best.defects <= base.defects
+
+
+def test_search_reports_monotonic_progress(tmp_path):
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    gen = pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        top_inset=20.0)
+    seen = []
+    try:
+        while True:
+            frac, label = next(gen)
+            seen.append(frac)
+            assert isinstance(label, str) and label
+    except StopIteration:
+        pass
+    assert seen == sorted(seen)
+    assert 0.0 < seen[0] <= 1.0
+    assert seen[-1] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_vertical_slide_searches_both_axes(tmp_path):
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    (phi_x, phi_y), _best, _base = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        slide_vertically=True, top_inset=20.0))
+    _W, _k, tile_h = pattern_warp._tile_metrics(pattern, circ, 4)
+    assert 0.0 <= phi_x < circ / 4
+    assert 0.0 <= phi_y < tile_h
+
+
+def test_fingerprint_is_stable_and_order_independent():
+    a = pattern_fit.fingerprint(alpha=1, beta="two")
+    b = pattern_fit.fingerprint(beta="two", alpha=1)
+    assert a == b
+    assert len(a) == 40
+
+
+@pytest.mark.parametrize("field,value", [
+    ("svg", "other.svg"), ("repeats_x", 3), ("area_floor", 12.0),
+    ("width_floor", 0.8), ("slide_vertically", True), ("strip_angle", 20.0),
+])
+def test_fingerprint_changes_with_each_input(field, value):
+    base = dict(svg="a.svg", repeats_x=2, area_floor=10.0, width_floor=0.6,
+                slide_vertically=False, strip_angle=18.0)
+    changed = dict(base)
+    changed[field] = value
+    assert pattern_fit.fingerprint(**base) != pattern_fit.fingerprint(**changed)
+
+
+def test_fingerprint_distinguishes_types():
+    assert (pattern_fit.fingerprint(v=1) != pattern_fit.fingerprint(v="1")
+            != pattern_fit.fingerprint(v=True))
