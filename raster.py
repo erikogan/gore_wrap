@@ -155,3 +155,34 @@ def label(mask):
 def areas(lab, n, px):
     """Area in mm^2 of each label 1..n."""
     return np.bincount(lab.ravel(), minlength=n + 1)[1:n + 1] * (px * px)
+
+
+def erode(mask, steps=1):
+    """Binary erosion by a 3x3 SQUARE element, `steps` times.
+
+    Square rather than the 4-neighbor plus, and the choice decides which way
+    the width test errs. A plus-shaped ball is SMALLER than the disc of the
+    same radius, so a plus element lets thin shapes survive -- permissive, and
+    a piece of resist wrongly passed is a piece lost in the blast. The square
+    ball CONTAINS the disc, so surviving it proves the width; the cost is
+    over-flagging diagonal strips by at most sqrt(2).
+
+    The border is treated as background, so a component running off the edge of
+    the raster erodes from that edge too.
+    """
+    out = np.asarray(mask, dtype=bool)
+    for _ in range(int(steps)):
+        m = out
+        e = m.copy()
+        e[1:, :] &= m[:-1, :]
+        e[:-1, :] &= m[1:, :]
+        e[:, 1:] &= m[:, :-1]
+        e[:, :-1] &= m[:, 1:]
+        e[1:, 1:] &= m[:-1, :-1]
+        e[1:, :-1] &= m[:-1, 1:]
+        e[:-1, 1:] &= m[1:, :-1]
+        e[:-1, :-1] &= m[1:, 1:]
+        e[0, :] = e[-1, :] = False
+        e[:, 0] = e[:, -1] = False
+        out = e
+    return out

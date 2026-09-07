@@ -137,3 +137,52 @@ def test_areas_converts_pixel_counts_to_square_millimeters():
     lab, n = raster.label(mask)
     got = sorted(raster.areas(lab, n, 0.5))
     assert got == pytest.approx([10 * 0.25, 16 * 0.25])
+
+
+@pytest.mark.parametrize("width,survives", [(3, 1), (4, 1), (5, 2), (6, 2),
+                                            (7, 3), (2, 0), (1, 0)])
+def test_a_strip_survives_exactly_floor_width_minus_one_over_two_steps(
+        width, survives):
+    # A strip `width` pixels tall, well clear of the border. Each erosion step
+    # removes one pixel from every side, so it survives (width - 1) // 2 steps.
+    mask = np.zeros((30, 30), dtype=bool)
+    mask[10:10 + width, 2:28] = True
+    assert raster.erode(mask, survives).any()
+    assert not raster.erode(mask, survives + 1).any()
+
+
+def test_erode_uses_a_square_element_so_a_diagonal_strip_is_not_spared():
+    # A 3-px-wide diagonal band. With a square element its inscribed width is
+    # under 3 px, so it must NOT survive the step a 3-px axis-aligned strip
+    # survives -- the conservative direction the spec argues for.
+    mask = np.zeros((40, 40), dtype=bool)
+    r, c = np.mgrid[0:40, 0:40]
+    mask[(np.abs(r - c) <= 1) & (r > 2) & (r < 37)] = True
+    assert not raster.erode(mask, 2).any()
+
+
+def test_erode_treats_the_border_as_background():
+    mask = np.ones((6, 6), dtype=bool)
+    assert raster.erode(mask, 1).sum() == 16      # a 4x4 core survives
+    assert raster.erode(mask, 3).sum() == 0
+
+
+def test_erode_zero_steps_is_the_identity():
+    mask = np.zeros((8, 8), dtype=bool)
+    mask[2:6, 2:6] = True
+    assert np.array_equal(raster.erode(mask, 0), mask)
+
+
+def test_erode_uses_a_square_element_and_not_a_four_neighbor_plus():
+    # An L1 diamond of radius 2 separates the two structuring elements: a 3x3
+    # SQUARE element leaves only the center pixel, because every pixel at L1
+    # distance 1 has a diagonal neighbor at L1 distance 3 that is outside the
+    # diamond. A 4-neighbor plus element would leave 5 pixels (the radius-1
+    # diamond). The brief's other erode tests give identical answers for both
+    # elements, so this is the one that pins the choice.
+    r, c = np.mgrid[0:24, 0:24]
+    mask = (np.abs(r - 10) + np.abs(c - 10)) <= 2
+    assert mask.sum() == 13
+    eroded = raster.erode(mask, 1)
+    assert eroded.sum() == 1
+    assert eroded[10, 10]
