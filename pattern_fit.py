@@ -190,3 +190,102 @@ def gore_mask(prep, tile, offset):
     ix = (((prep.mx - phi_x) % tile.W) / tile.px).astype(np.int64) % nx_t
     iy = (((prep.my - phi_y) % tile.tile_h) / tile.px).astype(np.int64) % ny_t
     return tile.mask[iy, ix] & prep.inside
+
+
+MIN_PIXELS = 6       # below this a component is not evidence of anything
+
+
+@dataclass
+class FitScore:
+    score: float             # continuous penalty; drives the search
+    defects: int             # cut-made pieces below a floor; placement can fix
+    intrinsic: int           # pieces below a floor that no placement can fix
+    worst: float | None      # smallest q seen among cut pieces, for diagnostics
+
+
+@dataclass
+class Prepared:
+    """Everything a search reuses across its hundreds of evaluations."""
+    tile: TileMask
+    preps: list              # [GorePrep]
+    px: float
+    steps: int
+    multiplier: int          # gore-phase reduction factor (see Task 11)
+
+
+def _component_widths(mask, lab, n, px, steps):
+    """Inscribed width of each label, quantised to the erosion ladder.
+
+    The width floor is a THRESHOLD, not a measurement, so instead of a distance
+    transform this erodes step by step and records the last step each component
+    survives. A component surviving s steps contains a (2s+1)-pixel square, so
+    its inscribed width is at least (2s+1)*px -- which is why a component that
+    survives all `steps` lands just ABOVE the floor rather than exactly on it.
+    """
+    survived = np.zeros(n + 1, dtype=np.int64)
+    core = mask
+    for s in range(1, int(steps) + 1):
+        core = raster.erode(core, 1)
+        if not core.any():
+            break
+        survived[np.unique(lab[core])] = s
+    return px * (2.0 * survived[1:n + 1] + 1.0)
+
+
+def score_gore(prep, tile, offset, area_floor, width_floor, steps):
+    """FitScore for a single gore at one offset."""
+    mask = gore_mask(prep, tile, offset)
+    lab, n = raster.label(mask)
+    if n == 0:
+        return FitScore(score=0.0, defects=0, intrinsic=0, worst=None)
+    a = raster.areas(lab, n, prep.px)
+    w = _component_widths(mask, lab, n, prep.px, steps)
+    cut = np.zeros(n + 1, dtype=bool)
+    cut[np.unique(lab[prep.boundary & mask])] = True
+    cut = cut[1:n + 1]
+    resolved = a >= MIN_PIXELS * prep.px * prep.px
+
+    q = np.minimum(a / float(area_floor), w / float(width_floor))
+    bad = (q < 1.0) & resolved
+    penal = (1.0 - np.minimum(q, 1.0)) ** 2
+    cut_bad = bad & cut
+    seen = q[cut & resolved]
+    return FitScore(score=float(penal[cut_bad].sum()),
+                    defects=int(cut_bad.sum()),
+                    intrinsic=int((bad & ~cut).sum()),
+                    worst=float(seen.min()) if seen.size else None)
+
+
+def prepare(pattern, placements, outlines, circumference, repeats_x,
+            area_floor, width_floor, top_inset=0.0):
+    """Build the tile mask and per-gore rasters once, for reuse in a search."""
+    px, steps = raster_pitch(area_floor, width_floor)
+    tile = build_tile(pattern, circumference, repeats_x, px)
+    preps = [prepare_gore(geom, px)
+             for _i, geom in _gore_geometry(placements, outlines,
+                                            circumference, top_inset)
+             if geom is not None]
+    return Prepared(tile=tile, preps=preps, px=px, steps=steps, multiplier=1)
+
+
+def score_placement(pattern, placements, outlines, circumference, repeats_x,
+                    area_floor, width_floor, offset=(0.0, 0.0), top_inset=0.0,
+                    prepared=None):
+    """Penalty for the pieces this placement's gore cuts would leave behind."""
+    prep = prepared or prepare(pattern, placements, outlines, circumference,
+                               repeats_x, area_floor, width_floor, top_inset)
+    score = 0.0
+    defects = 0
+    intrinsic = 0
+    worst = None
+    for gore in prep.preps:
+        fs = score_gore(gore, prep.tile, offset, area_floor, width_floor,
+                        prep.steps)
+        score += fs.score
+        defects += fs.defects
+        intrinsic += fs.intrinsic
+        if fs.worst is not None:
+            worst = fs.worst if worst is None else min(worst, fs.worst)
+    m = prep.multiplier
+    return FitScore(score=score * m, defects=defects * m,
+                    intrinsic=intrinsic * m, worst=worst)
