@@ -657,3 +657,83 @@ def test_gore_frames_cover_the_rect_vertically(tmp_path):
     ys = sorted({dy for _dx, dy in frame.tiles})
     assert ys[0] <= 0.0 < ys[0] + frame.tile_h
     assert ys[-1] + frame.tile_h >= frame.pattern_top
+
+
+SQUARE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+width="40" height="40"><rect x="10" y="10" width="20" height="20"/></svg>'''
+
+TWO_ELEMENT_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="2" y="2" width="10" height="10" fill="#ff0000"/>\
+<rect x="20" y="20" width="10" height="10" fill="#00ff00"/></svg>'''
+
+HOLE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+width="40" height="40"><path fill="#123456" \
+d="M5,5 H35 V35 H5 Z M15,15 V25 H25 V15 Z"/></svg>'''
+
+UNFILLED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+width="40" height="40"><rect x="5" y="5" width="10" height="10" \
+fill="none"/></svg>'''
+
+EVENODD_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+width="40" height="40"><path fill="#000000" fill-rule="evenodd" \
+d="M5,5 H35 V35 H5 Z"/></svg>'''
+
+
+def test_load_pattern_keeps_elements_grouped(tmp_path):
+    path = tmp_path / "two.svg"
+    path.write_text(TWO_ELEMENT_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert len(pattern.elements) == 2
+    assert [len(el.subpaths) for el in pattern.elements] == [1, 1]
+
+
+def test_load_pattern_groups_a_hole_with_its_outer_ring(tmp_path):
+    path = tmp_path / "hole.svg"
+    path.write_text(HOLE_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert len(pattern.elements) == 1
+    assert len(pattern.elements[0].subpaths) == 2
+
+
+def test_subpaths_property_is_a_flat_view_in_document_order(tmp_path):
+    path = tmp_path / "two.svg"
+    path.write_text(TWO_ELEMENT_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert len(pattern.subpaths) == 2
+    assert pattern.subpaths == [pattern.elements[0].subpaths[0],
+                                pattern.elements[1].subpaths[0]]
+
+
+def test_load_pattern_records_resolved_fill(tmp_path):
+    path = tmp_path / "two.svg"
+    path.write_text(TWO_ELEMENT_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert [el.fill for el in pattern.elements] == ["#ff0000", "#00ff00"]
+    assert pattern.fill_colors == ["#00ff00", "#ff0000"]
+
+
+def test_an_element_with_no_fill_attribute_is_filled_black(tmp_path):
+    # SVG's initial fill value is black, so the existing fixtures -- which
+    # carry no fill attribute -- are material, not unfilled.
+    path = tmp_path / "bare.svg"
+    path.write_text(SQUARE_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert pattern.elements[0].fill == "#000000"
+
+
+def test_fill_none_is_recorded_as_unfilled(tmp_path):
+    path = tmp_path / "unfilled.svg"
+    path.write_text(UNFILLED_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    assert pattern.elements[0].fill is None
+    assert pattern.fill_colors == []
+
+
+def test_fill_rule_is_read_from_the_element(tmp_path):
+    plain = tmp_path / "plain.svg"
+    plain.write_text(HOLE_SVG)
+    assert pattern_warp.load_pattern(str(plain)).elements[0].even_odd is False
+    eo = tmp_path / "eo.svg"
+    eo.write_text(EVENODD_SVG)
+    assert pattern_warp.load_pattern(str(eo)).elements[0].even_odd is True

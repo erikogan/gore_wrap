@@ -101,14 +101,56 @@ class PatternError(Exception):
 
 
 @dataclass
-class Pattern:
+class PatternElement:
+    """One source SVG shape: its subpaths, its fill, and its fill rule.
+
+    Grouping is the point. SVG's fill rule applies WITHIN one element, so an
+    inner subpath here is a hole, while two overlapping shapes in DIFFERENT
+    elements are one welded piece. Flattening everything into a single list --
+    what load_pattern used to do -- makes those two cases indistinguishable.
+    """
     subpaths: list      # svgelements Subpath objects, transforms reified to px
+    fill: str | None    # resolved fill as '#rrggbb', or None when unfilled
+    even_odd: bool      # the element's fill-rule
+
+
+@dataclass
+class Pattern:
+    elements: list      # [PatternElement], in document order
     px_width: float     # reified viewBox width  (content in [0, px_width])
     px_height: float    # reified viewBox height (content in [0, px_height])
 
+    @property
+    def subpaths(self):
+        """Flat view in document order, for the polarity-agnostic exporter.
+
+        A cutter cuts every contour regardless of which side is weeded, so
+        iter_warp_gores has no business knowing about fill or grouping.
+        """
+        return [sp for el in self.elements for sp in el.subpaths]
+
+    @property
+    def fill_colors(self):
+        """Sorted distinct fills, for the operator's multi-color note."""
+        return sorted({el.fill for el in self.elements if el.fill})
+
+
+def _element_fill(element):
+    """Resolved fill as '#rrggbb', or None when the element is not filled.
+
+    Goes through svgelements' resolved `.fill` rather than the source text:
+    both real-world sample patterns deliver fill through a CSS class with zero
+    `fill=` attributes, and svgelements resolves that correctly. A shape with
+    no fill attribute at all resolves to black, which is SVG's initial value
+    and the behavior we want -- such a shape is material.
+    """
+    color = getattr(element, "fill", None)
+    hexval = getattr(color, "hex", None)
+    return str(hexval).lower() if hexval else None
+
 
 def load_pattern(path):
-    """Parse a pattern SVG into transform-reified subpaths plus its box size.
+    """Parse a pattern SVG into per-element subpaths plus its box size.
 
     Coordinates are the SVG's reified pixels; iter_warp_gores rescales them
     to the target tile size, so only their aspect ratio matters here.
@@ -116,7 +158,7 @@ def load_pattern(path):
     doc = SVG.parse(path)
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
         raise PatternError(f"{path} has no usable viewBox.")
-    subpaths = []
+    elements = []
     dropped = []
     shape_index = 0
     for element in doc.elements():
@@ -128,14 +170,21 @@ def load_pattern(path):
         except Exception:
             dropped.append(_shape_locator(element, shape_index))
             continue
-        subpaths.extend(geom.as_subpaths())
+        subpaths = list(geom.as_subpaths())
+        if not subpaths:
+            continue
+        rule = element.values.get("fill-rule") or element.values.get("fill_rule")
+        elements.append(PatternElement(
+            subpaths=subpaths,
+            fill=_element_fill(element),
+            even_odd=str(rule).strip().lower() == "evenodd"))
     if dropped:
         raise PatternError(
             f"{len(dropped)} shape(s) in {path} could not be parsed and were "
             f"left out: {', '.join(dropped)}. Fix or remove them and re-export.")
-    if not subpaths:
+    if not elements:
         raise PatternError(f"No drawable shapes found in {path}.")
-    return Pattern(subpaths=subpaths,
+    return Pattern(elements=elements,
                    px_width=float(doc.width), px_height=float(doc.height))
 
 
