@@ -88,3 +88,70 @@ def fill_into(tile, rings, px, even_odd=False):
     shift = np.array([c0 * px, r0 * px])
     tile[r0:r1, c0:c1] |= fill([p - shift for p in pts],
                                c1 - c0, r1 - r0, px, even_odd)
+
+
+def label(mask):
+    """8-connected component labels, numbered 1..n with 0 as background.
+
+    Run-length encodes each row and unions runs against the row above, so the
+    work is proportional to the number of runs rather than to the pixel count.
+    Returns (labels int32 (ny, nx), n).
+
+    8-connectivity is deliberate and matches the square structuring element
+    used by `erode`: two pieces of resist that meet only at a corner are one
+    piece, not two.
+    """
+    ny, nx = mask.shape
+    padded = np.zeros((ny, nx + 2), dtype=bool)
+    padded[:, 1:-1] = mask
+    d = np.diff(padded.astype(np.int8), axis=1)
+    # A run starting at mask column c shows as +1 at index c; a run whose last
+    # True is mask column e shows as -1 at index e+1, i.e. an exclusive end.
+    run_row, run_lo = np.nonzero(d == 1)
+    run_hi = np.nonzero(d == -1)[1]
+    n_runs = len(run_row)
+    if n_runs == 0:
+        return np.zeros((ny, nx), dtype=np.int32), 0
+
+    parent = np.arange(n_runs)
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]        # path halving
+            a = parent[a]
+        return a
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    rows = np.arange(ny)
+    row_start = np.searchsorted(run_row, rows)
+    row_end = np.searchsorted(run_row, rows, side="right")
+    for r in range(1, ny):
+        i, i_end = row_start[r], row_end[r]
+        j, j_end = row_start[r - 1], row_end[r - 1]
+        while i < i_end and j < j_end:
+            # Ends are exclusive, so <= (rather than <) admits runs that merely
+            # abut diagonally -- that is what makes this 8-connected.
+            if run_lo[i] <= run_hi[j] and run_lo[j] <= run_hi[i]:
+                union(i, j)
+            if run_hi[i] < run_hi[j]:
+                i += 1
+            else:
+                j += 1
+
+    roots = np.array([find(i) for i in range(n_runs)])
+    uniq, inv = np.unique(roots, return_inverse=True)
+    ids = (np.ravel(inv) + 1).astype(np.int32)
+
+    out = np.zeros((ny, nx + 1), dtype=np.int32)
+    np.add.at(out, (run_row, run_lo), ids)
+    np.add.at(out, (run_row, run_hi), -ids)
+    return np.cumsum(out[:, :nx], axis=1).astype(np.int32), len(uniq)
+
+
+def areas(lab, n, px):
+    """Area in mm^2 of each label 1..n."""
+    return np.bincount(lab.ravel(), minlength=n + 1)[1:n + 1] * (px * px)
