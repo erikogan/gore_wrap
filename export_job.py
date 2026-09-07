@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import geometry, svg_export, pattern_warp
+from . import geometry, svg_export, pattern_warp, pattern_fit
 from . import __version__ as _VERSION
 
 
@@ -101,6 +101,7 @@ def export_steps(result, params, filepath):
     pattern_polys = None
     edge_lines = None
     comment = None
+    defect_rects = None
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
@@ -147,10 +148,18 @@ def export_steps(result, params, filepath):
                 pattern_polys.extend((_flatten_cubics(c), cl) for c, cl in subpaths)
             yield 0.10 + 0.85 * (i + 1) / n, f"Warping & smoothing gore {i + 1}/{n}"
 
+        if params["pattern_mark_defects"]:
+            yield 0.96, "Marking defects…"
+            defect_rects = pattern_fit.defect_boxes(
+                pattern, layout.placements, result.outlines, circ,
+                params["pattern_repeats_x"], params["pattern_min_area"],
+                params["pattern_min_width"], offset=offset,
+                top_inset=top_inset)
+
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],
                          pattern_polys=pattern_polys, edge_lines=edge_lines,
-                         comment=comment)
+                         comment=comment, defect_boxes=defect_rects)
     yield 1.0, "Done"
     return ExportSummary(n_strips=len(layout.placements),
                          pattern_empty=params["use_pattern"] and not pattern_polys)
