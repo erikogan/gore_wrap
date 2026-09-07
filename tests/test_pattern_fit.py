@@ -368,3 +368,74 @@ def test_offset_representations_agree_between_scorer_and_exporter():
             exporter_local = mx - max(x for x in starts if x <= mx)
             scorer_local = (mx - phi_x) % W
             assert exporter_local == pytest.approx(scorer_local, abs=1e-9)
+
+
+def _averaged_setup(n_strips, tmp_path, svg=None):
+    from gore_wrap import pipeline, svg_export
+    from tests.synthetic import cylinder_with_hemisphere
+    pattern = load(tmp_path, svg or SQUARE_SVG)
+    result = pipeline.build_gores(
+        cylinder_with_hemisphere(), strip_angle=360.0 / n_strips,
+        mode="AVERAGED", seam_offset=0.0, crop_z=None, smoothing_sigma=1.0,
+        tolerance=0.2)
+    layout = svg_export.layout(result.outlines, 0.0)
+    return pattern, layout, result
+
+
+@pytest.mark.parametrize("n_strips,repeats,expect_distinct", [
+    (20, 2, 10), (20, 4, 5), (20, 3, 20), (12, 6, 2), (12, 5, 12),
+])
+def test_reduction_keeps_only_the_distinct_seam_phases(
+        n_strips, repeats, expect_distinct, tmp_path):
+    pattern, layout, result = _averaged_setup(n_strips, tmp_path)
+    prep = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                               result.dims.bottom_circumference, repeats,
+                               10.0, 0.6, top_inset=20.0)
+    assert len(prep.preps) == expect_distinct
+    assert len(prep.preps) * prep.multiplier == n_strips
+
+
+@pytest.mark.parametrize("n_strips,repeats", [(20, 2), (20, 4), (12, 6),
+                                              (20, 3)])
+def test_reduced_scoring_equals_scoring_every_gore(n_strips, repeats,
+                                                   tmp_path):
+    pattern, layout, result = _averaged_setup(n_strips, tmp_path)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=10.0, width_floor=0.6, top_inset=20.0)
+
+    reduced = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                                  circ, repeats, **kw)
+    full = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                               circ, repeats, **kw)
+    # Defeat the reduction on the reference by restoring every gore.
+    full.preps = [pattern_fit.prepare_gore(g, full.px)
+                  for _i, g in pattern_warp._gore_geometry(
+                      layout.placements, result.outlines, circ,
+                      kw["top_inset"]) if g is not None]
+    full.multiplier = 1
+
+    for phi in (0.0, 3.7, 11.25, 40.0):
+        r = pattern_fit.score_placement(
+            pattern, layout.placements, result.outlines, circ, repeats,
+            offset=(phi, 0.0), prepared=reduced, **kw)
+        f = pattern_fit.score_placement(
+            pattern, layout.placements, result.outlines, circ, repeats,
+            offset=(phi, 0.0), prepared=full, **kw)
+        assert r.defects == f.defects
+        assert r.intrinsic == f.intrinsic
+        assert r.score == pytest.approx(f.score, rel=1e-9)
+
+
+def test_no_reduction_when_outlines_differ(tmp_path):
+    from gore_wrap import pipeline, svg_export
+    from tests.synthetic import elliptical_column
+    pattern = load(tmp_path, SQUARE_SVG)
+    result = pipeline.build_gores(
+        elliptical_column(), strip_angle=18.0, mode="FITTED", seam_offset=0.0,
+        crop_z=None, smoothing_sigma=1.0, tolerance=0.2)
+    layout = svg_export.layout(result.outlines, 0.0)
+    prep = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                               result.dims.bottom_circumference, 2, 10.0, 0.6,
+                               top_inset=20.0)
+    assert prep.multiplier == 1
+    assert len(prep.preps) == 20
