@@ -52,3 +52,26 @@ def test_horizontal_edges_do_not_double_count():
     # A shape whose top and bottom edges land exactly on pixel boundaries.
     mask = raster.fill([square(0.0, 0.0, 10.0)], 10, 10, 1.0)
     assert mask.all()
+
+
+def test_fill_into_matches_a_full_tile_fill_exactly():
+    rings = [square(5.0, 5.0, 30.0), square(15.0, 15.0, 10.0)[::-1]]
+    reference = raster.fill(rings, 40, 40, 1.0)
+    tile = np.zeros((40, 40), dtype=bool)
+    raster.fill_into(tile, rings, 1.0)
+    assert np.array_equal(tile, reference)
+
+
+def test_fill_into_unions_separate_elements_rather_than_canceling():
+    # Two overlapping squares as SEPARATE elements are one welded piece.
+    tile = np.zeros((40, 40), dtype=bool)
+    raster.fill_into(tile, [square(5.0, 5.0, 20.0)], 1.0)
+    raster.fill_into(tile, [square(15.0, 5.0, 20.0)], 1.0)
+    assert tile.sum() == 30 * 20          # union, not 2 * 400 and not a hole
+    assert tile[10, 20]                   # inside the overlap, still material
+
+
+def test_fill_into_ignores_rings_entirely_outside_the_tile():
+    tile = np.zeros((40, 40), dtype=bool)
+    raster.fill_into(tile, [square(100.0, 100.0, 10.0)], 1.0)
+    assert not tile.any()

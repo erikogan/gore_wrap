@@ -61,3 +61,30 @@ def fill(rings, nx, ny, px, even_odd=False):
                       np.where(e1[:, 1] > e0[:, 1], 1, -1).astype(np.int32))
     wind = np.cumsum(acc[:, :nx], axis=1)
     return (wind % 2 == 1) if even_odd else (wind != 0)
+
+
+def fill_into(tile, rings, px, even_odd=False):
+    """OR one element's filled region into an existing boolean `tile`.
+
+    Each element needs its own winding accumulation -- sharing one across
+    elements would make two overlapping filled shapes cancel in the overlap
+    instead of uniting -- but it only needs an accumulator the size of its own
+    bounding box. That distinction is the whole reason this function exists:
+    rings passed together here are one element (so an inner ring is a hole),
+    and separate calls unite (so overlapping shapes weld).
+    """
+    ny, nx = tile.shape
+    pts = [np.asarray(r, dtype=float) for r in rings if len(r) >= 3]
+    if not pts:
+        return
+    lo = np.minimum.reduce([p.min(axis=0) for p in pts])
+    hi = np.maximum.reduce([p.max(axis=0) for p in pts])
+    c0 = max(0, int(np.floor(lo[0] / px)) - 1)
+    r0 = max(0, int(np.floor(lo[1] / px)) - 1)
+    c1 = min(nx, int(np.ceil(hi[0] / px)) + 2)
+    r1 = min(ny, int(np.ceil(hi[1] / px)) + 2)
+    if c1 <= c0 or r1 <= r0:
+        return
+    shift = np.array([c0 * px, r0 * px])
+    tile[r0:r1, c0:c1] |= fill([p - shift for p in pts],
+                               c1 - c0, r1 - r0, px, even_odd)
