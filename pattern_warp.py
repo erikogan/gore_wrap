@@ -384,15 +384,32 @@ def _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset=(0.0, 0.0)):
             for r in range(r_lo, r_hi + 1)]
 
 
-def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
-                      top_inset=0.0, offset=(0.0, 0.0)):
-    """Yield (index, GoreFrame) per gore; the frame is None if degenerate.
+@dataclass
+class GoreGeometry:
+    """One gore's frame, with no reference to the pattern or the tiling.
 
-    A gore is degenerate when it has no width at the base or the pattern's
-    ceiling has been pushed to or below the baseline; it gets no tiles at all.
+    Split out from GoreFrame because the raster scorer needs the warp and the
+    gore rect but never the tile list: an offset is a lookup shift inside the
+    tile mask, not a different set of tile origins. Sharing GoreFrame would
+    mean building a tile list on every one of a search's hundreds of
+    evaluations and discarding it.
+    """
+    warp: object        # (mx, my) -> (fx, fy); scalars or numpy arrays
+    tx: float
+    base_y: float
+    xc: float           # master-space centre of the gore
+    hw0: float          # half-width at the base
+    right_x: object     # y -> half-width at that height
+    pattern_top: float
+
+
+def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
+    """Yield (index, GoreGeometry) per gore; None when the gore is degenerate.
+
+    Degenerate means no width at the base, or a pattern ceiling pushed to or
+    below the baseline -- such a gore gets no pattern at all.
     """
     n = len(placements)
-    W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
     for (i, poly), outline in zip(placements, outlines):
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
@@ -404,20 +421,36 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
             continue
         xc = (i + 0.5) * circumference / n
 
-        # Defaults bind the loop variables at definition time. The old inline
-        # closure was consumed in the same iteration so late binding never
-        # showed; a caller that collects frames first would see every warp use
-        # the last gore's values.
+        # Defaults bind the loop variables at definition time; a caller that
+        # collects geometries before using them would otherwise see every warp
+        # use the last gore's values.
         def warp(mx, my, tx=tx, xc=xc, hw0=hw0, right_x=right_x, base_y=base_y):
             # Works for scalars (adaptive sampler) and numpy arrays (final
             # pass) -- np.interp inside right_x handles both. One definition,
             # so the sampler and the final warp can never drift apart.
             return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
 
-        x_lo, x_hi = xc - hw0, xc + hw0
-        tiles = _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset)
-        yield i, GoreFrame(warp=warp, x_lo=x_lo, x_hi=x_hi,
-                           pattern_top=pattern_top, tiles=tiles, k=k,
+        yield i, GoreGeometry(warp=warp, tx=tx, base_y=base_y, xc=xc, hw0=hw0,
+                              right_x=right_x, pattern_top=pattern_top)
+
+
+def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
+                      top_inset=0.0, offset=(0.0, 0.0)):
+    """Yield (index, GoreFrame) per gore; the frame is None if degenerate.
+
+    GoreGeometry plus the tile grid that covers it. The exporter needs both;
+    the scorer needs only the geometry.
+    """
+    W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    for i, geom in _gore_geometry(placements, outlines, circumference,
+                                  top_inset):
+        if geom is None:
+            yield i, None
+            continue
+        x_lo, x_hi = geom.xc - geom.hw0, geom.xc + geom.hw0
+        tiles = _tile_origins(x_lo, x_hi, geom.pattern_top, W, tile_h, offset)
+        yield i, GoreFrame(warp=geom.warp, x_lo=x_lo, x_hi=x_hi,
+                           pattern_top=geom.pattern_top, tiles=tiles, k=k,
                            tile_h=tile_h)
 
 
