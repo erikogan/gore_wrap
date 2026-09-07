@@ -12,11 +12,40 @@ Originally built for transferring complex patterns onto glass stuff-cups.
 
 ## Install
 
-### From Blender Marketplace
+Requires Blender 4.2 or newer (tested on 4.5 LTS and 5.0).
 
-TBD.
+### From Blender Extensions
 
-###  From Source
+Gore Wrap is listed on
+[Blender Extensions](https://extensions.blender.org/add-ons/gore-wrap/), so
+Blender can find, install and update it for you:
+
+1. **Edit → Preferences → Get Extensions**.
+2. Search for **Gore Wrap**.
+3. Click **Install**.
+
+Blender 4.2+ ships with the extensions.blender.org repository already enabled,
+so there is no repository to add first. If the search turns up nothing online,
+Blender's online access is off — allow it from the banner in **Get
+Extensions**, or under **Edit → Preferences → System → Network → Allow Online
+Access** — then search again.
+
+Updates come through **Get Extensions → ▾ → Check for Updates**.
+
+### From a GitHub Release
+
+Every tagged release attaches a prebuilt `gore_wrap-<version>.zip`, so you can
+install the exact bytes CI built without a toolchain:
+
+1. Download the zip from the
+   [Releases page](https://github.com/erikogan/gore_wrap/releases).
+2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
+   and pick the zip.
+
+Installed this way the add-on will not update itself; repeat for a new version,
+or use [Blender Extensions](#from-blender-extensions) instead.
+
+### From Source
 1. Build the extension zip into the `dist/` directory (pick one):
    - If you have make and Python installed:
       ```
@@ -39,7 +68,7 @@ TBD.
       This is the command `make` runs, minus the cleanup it does afterwards, so
       prefer `make` when you have it.
 2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
-   and pick the zip. Works on Blender 4.2+ (tested on 4.5 LTS and 5.0).
+   and pick the zip.
 
 ## Use
 
