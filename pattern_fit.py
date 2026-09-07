@@ -439,11 +439,10 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
     Scores every gore, never the reduced phase set -- the reduction is sound
     for COUNTS but a box has to land on the gore it actually belongs to.
 
-    Marks every under-floor, raster-resolved piece, cut-made or intrinsic
-    alike. score_gore separates those two because only a cut-made piece can
-    be fixed by moving the placement, so only it should drive the search --
-    but here the goal is showing the user everything a blast could lift, and
-    an intrinsic piece is exactly as fragile as a cut-made one.
+    Marks only pieces a cut created -- the same population the panel counts as
+    defects. Intrinsic pieces are just as fragile, but they are reported on
+    their own line precisely because no placement can move them, and a layer
+    that marked more boxes than the readout claims defects would contradict it.
     """
     px, steps = raster_pitch(area_floor, width_floor)
     tile = build_tile(pattern, circumference, repeats_x, px)
@@ -459,9 +458,11 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
             continue
         a = raster.areas(lab, n, px)
         w = _component_widths(mask, lab, n, px, steps)
+        cut = np.zeros(n + 1, dtype=bool)
+        cut[np.unique(lab[prep.boundary & mask])] = True
         resolved = a >= MIN_PIXELS * px * px
         q = np.minimum(a / float(area_floor), w / float(width_floor))
-        for i in np.nonzero((q < 1.0) & resolved)[0]:
+        for i in np.nonzero((q < 1.0) & resolved & cut[1:n + 1])[0]:
             rows, cols = np.nonzero(lab == i + 1)
             # Raster (row, col) -> final SVG mm. The gore's own frame has x
             # measured from its centre and y up from its base, so undo both.
