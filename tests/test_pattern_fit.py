@@ -272,6 +272,9 @@ def test_a_small_isolated_shape_is_counted_as_intrinsic(tmp_path):
     fs = _flat_scored(tmp_path, DOT_SVG, "dot.svg", (0.0, 0.0))
     assert fs.intrinsic == 1
     assert fs.defects == 0
+    # The dot is a defect by size but was not made by a cut, so it must not
+    # contribute to the score the search minimizes.
+    assert fs.score == 0.0
 
 
 def test_the_same_shape_becomes_a_defect_when_a_seam_crosses_it(tmp_path):
@@ -310,19 +313,58 @@ def test_score_placement_is_periodic_in_one_tile_width(tmp_path):
     assert a.score == pytest.approx(b.score)
 
 
-def test_offset_representations_agree_between_scorer_and_exporter(tmp_path):
-    """The exporter's tile-local x and the scorer's modulo must be the same.
+def test_a_prepared_bundle_is_reused_rather_than_rebuilt(tmp_path):
+    from gore_wrap import pipeline, svg_export
+    from tests.synthetic import cylinder_with_hemisphere
+    pattern = load(tmp_path, SQUARE_SVG)
+    result = pipeline.build_gores(
+        cylinder_with_hemisphere(), strip_angle=30.0, mode="AVERAGED",
+        seam_offset=0.0, crop_z=None, smoothing_sigma=1.0, tolerance=0.2)
+    layout = svg_export.layout(result.outlines, 0.0)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=10.0, width_floor=0.6, top_inset=20.0)
 
-    The two no longer share a code path, so this identity is what keeps them
-    from drifting: for the tile column c containing mx, the exporter's
-    tile-local coordinate is mx - (c*W + phi_x), and the scorer looks up
-    (mx - phi_x) mod W.
+    prep = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                               circ, 4, **kw)
+    assert prep.preps, "a non-degenerate cylinder must yield gore rasters"
+    assert prep.tile.mask.any()
+
+    # Same answer whether the bundle is supplied or built internally...
+    supplied = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(3.0, 0.0), prepared=prep, **kw)
+    internal = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(3.0, 0.0), **kw)
+    assert supplied.defects == internal.defects
+    assert supplied.score == pytest.approx(internal.score)
+
+    # ...and the supplied bundle must actually be the one used. Emptying its
+    # tile must change the answer; if `prepared` were ignored it would not.
+    prep.tile.mask[:] = False
+    blanked = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(3.0, 0.0), prepared=prep, **kw)
+    assert blanked.defects == 0
+    assert blanked.score == 0.0
+
+
+def test_offset_representations_agree_between_scorer_and_exporter():
+    """The exporter's tile-local x and the scorer's modulo must agree.
+
+    The two no longer share a code path, so this is what keeps them from
+    drifting. It drives the real pattern_warp._tile_origins rather than
+    re-deriving the exporter's arithmetic, which would only restate the
+    definition of floor-modulo and could never fail.
     """
+    W = tile_h = 100.0
+    x_lo, x_hi, pattern_top = 40.0, 60.0, 60.0
     rng = np.random.default_rng(0)
-    W = 197.87
-    for phi_x in rng.uniform(-3 * W, 3 * W, 50):
-        for mx in rng.uniform(-500.0, 500.0, 10):
-            c = np.floor((mx - phi_x) / W)
-            exporter_local = mx - (c * W + phi_x)
+    for phi_x in rng.uniform(-3 * W, 3 * W, 25):
+        origins = pattern_warp._tile_origins(
+            x_lo, x_hi, pattern_top, W, tile_h, (float(phi_x), 0.0))
+        starts = sorted({dx for dx, _dy in origins})
+        for mx in rng.uniform(x_lo, x_hi, 10):
+            exporter_local = mx - max(x for x in starts if x <= mx)
             scorer_local = (mx - phi_x) % W
             assert exporter_local == pytest.approx(scorer_local, abs=1e-9)
