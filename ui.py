@@ -2,8 +2,6 @@
 
 import bpy
 
-from . import operators
-
 
 # `separator(type=...)` post-dates 4.2, the version floor in the manifest, so
 # ask the RNA rather than guessing from a version number.
@@ -102,36 +100,6 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
                         and props.pattern_top_offset >= props.derived_height):
                     col.label(text="Deeper than the object is tall",
                               icon="ERROR")
-
-            _divider(box)
-            col = box.column(align=True)
-            _labeled(col, props, "pattern_placement_mode")
-            if props.pattern_placement_mode == "AUTO":
-                _labeled(col, props, "pattern_min_feature")
-                col.prop(props, "pattern_slide_vertically")
-                col.operator("gorewrap.optimize_placement", icon="SHADERFX")
-                stale = (props.has_pattern_fit
-                         and props.pattern_fit_stamp
-                         != operators.placement_stamp(props,
-                                                      context.active_object))
-                if not props.has_pattern_fit:
-                    col.label(text="Not optimized", icon="INFO")
-                elif stale:
-                    col.label(text="Placement is stale", icon="ERROR")
-                else:
-                    col.label(text=f"{props.pattern_orphans} orphans "
-                                   f"(was {props.pattern_orphans_base})",
-                              icon="CHECKMARK")
-                    if (props.pattern_orphans == props.pattern_orphans_base
-                            and not props.pattern_limit_top):
-                        col.label(text="No improvement; try Limit Pattern Height",
-                                  icon="INFO")
-                col.label(text=f"at {props.pattern_rotation:.1f}°, "
-                               f"rise {props.pattern_rise:.1f} mm")
-            else:
-                adv = col.column(align=True)
-                adv.prop(props, "pattern_rotation")
-                adv.prop(props, "pattern_rise")
 
             _divider(box)
             col = box.column(align=True)
