@@ -250,6 +250,31 @@ def test_mark_defects_with_a_stroke_only_pattern_does_not_abort_the_export(tmp_p
     assert os.path.exists(out)
     assert summary.pattern_empty is False
     assert 'id="defects"' not in open(out).read()
+    # The summary must describe the file, not the request: Mark Defects was on,
+    # but no layer was written, and the operator's "these rectangles are
+    # cuttable" warning keys off this rather than off the setting.
+    assert summary.defects_marked is False
+
+
+def test_defects_marked_reports_whether_the_layer_reached_the_file(tmp_path):
+    # Same pattern and settings either way; only the toggle differs. With it
+    # off no layer is written; with it on and real defects to flag, one is.
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_repeats_x": 6,
+              "pattern_min_area": 400.0, "pattern_min_width": 0.6}
+
+    off = str(tmp_path / "off.svg")
+    summary_off = _drain(export_job.export_steps(
+        _result(), {**common, "pattern_mark_defects": False}, off))
+    assert summary_off.defects_marked is False
+    assert 'id="defects"' not in open(off).read()
+
+    on = str(tmp_path / "on.svg")
+    summary_on = _drain(export_job.export_steps(
+        _result(), {**common, "pattern_mark_defects": True}, on))
+    assert summary_on.defects_marked is True
+    assert 'id="defects"' in open(on).read()
 
 
 def test_rotation_moves_the_pattern(tmp_path):

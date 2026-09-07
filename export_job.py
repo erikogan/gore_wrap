@@ -43,6 +43,13 @@ def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
 class ExportSummary:
     n_strips: int
     pattern_empty: bool
+    # Whether a `defects` layer actually reached the file. NOT the same as the
+    # Mark Defects setting: the layer is skipped when region scoring cannot run
+    # (a stroke-only pattern) and when the placement leaves nothing to flag, so
+    # the toggle can be on with no layer written. The operator warns that the
+    # file contains cuttable rectangles, and that warning has to describe the
+    # file rather than the request.
+    defects_marked: bool = False
 
 
 def _flatten_cubics(cubics, n=8):
@@ -185,4 +192,7 @@ def export_steps(result, params, filepath):
                          comment=comment, defect_boxes=defect_rects)
     yield 1.0, "Done"
     return ExportSummary(n_strips=len(layout.placements),
-                         pattern_empty=params["use_pattern"] and not pattern_polys)
+                         pattern_empty=params["use_pattern"] and not pattern_polys,
+                         # Mirrors write_svg's own emission condition, so this
+                         # is true exactly when the group is in the file.
+                         defects_marked=bool(defect_rects))

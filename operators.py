@@ -592,7 +592,6 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
             "pattern_defects_intrinsic": props.pattern_defects_intrinsic,
             "pattern_counts_current": props.has_pattern_fit and not stale,
         }
-        self._props = props
         self._gen = export_job.export_steps(result, params, self.filepath)
         return self._start(context)
 
@@ -604,7 +603,11 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
         if summary is not None and summary.pattern_empty:
             self.report({"WARNING"},
                         "Pattern produced no geometry; exported outlines only.")
-        if self._props.pattern_mark_defects:
+        # Keyed off what the export actually wrote, not off the Mark Defects
+        # setting. The layer is skipped when region scoring cannot run and when
+        # there is nothing to flag, so warning from the setting would send the
+        # user hunting for cuttable rectangles that are not in the file.
+        if summary is not None and summary.defects_marked:
             self.report({"WARNING"},
                         "Exported with a 'defects' layer — those rectangles "
                         "are cuttable. Hide or delete that layer before "
