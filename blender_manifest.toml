@@ -45,6 +45,7 @@ paths = [
   "pattern_warp.py",
   "pipeline.py",
   "properties.py",
+  "raster.py",
   "registry.py",
   "svg_export.py",
   "ui.py",
