@@ -315,3 +315,98 @@ def score_placement(pattern, placements, outlines, circumference, repeats_x,
     m = prep.multiplier
     return FitScore(score=score * m, defects=defects * m,
                     intrinsic=intrinsic * m, worst=worst)
+
+
+COARSE_1D = 96      # samples across one tile width when only spinning
+COARSE_2D = 20      # samples per axis when sliding vertically too
+REFINE_TOP_1D = 5   # coarse minima worth a closer look
+REFINE_TOP_2D = 3
+REFINE_STEPS_1D = 8
+REFINE_STEPS_2D = 4
+
+
+def search_placement(pattern, placements, outlines, circumference, repeats_x,
+                     area_floor, width_floor, slide_vertically=False,
+                     top_inset=0.0):
+    """Search offsets for the placement leaving the fewest orphaned pieces.
+
+    A generator: yields (fraction, label) and returns
+    ((phi_x, phi_y), best FitScore, baseline FitScore) through StopIteration,
+    the same shape as export_job.export_steps, so one modal driver runs both.
+
+    Grids are fixed rather than adapted to the machine, so the same inputs give
+    the same placement anywhere -- which is what makes the staleness
+    fingerprint mean something.
+    """
+    W, _k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    prep = prepare(pattern, placements, outlines, circumference, repeats_x,
+                   area_floor, width_floor, top_inset)
+
+    def score_at(offset):
+        return score_placement(pattern, placements, outlines, circumference,
+                               repeats_x, area_floor, width_floor,
+                               offset=offset, top_inset=top_inset,
+                               prepared=prep)
+
+    n_x = COARSE_2D if slide_vertically else COARSE_1D
+    n_y = COARSE_2D if slide_vertically else 1
+    top_k = REFINE_TOP_2D if slide_vertically else REFINE_TOP_1D
+    r_steps = REFINE_STEPS_2D if slide_vertically else REFINE_STEPS_1D
+
+    xs = np.linspace(0.0, W, n_x, endpoint=False)
+    ys = (np.linspace(0.0, tile_h, n_y, endpoint=False) if slide_vertically
+          else np.array([0.0]))
+
+    coarse_total = n_x * n_y
+    per_axis = 2 * r_steps + 1
+    refine_total = (min(top_k, coarse_total) * per_axis
+                    * (per_axis if slide_vertically else 1))
+    total = coarse_total + refine_total
+    done = 0
+
+    baseline = score_at((0.0, 0.0))
+    best, best_offset = baseline, (0.0, 0.0)
+
+    coarse = []
+    for px_off in xs:
+        for py_off in ys:
+            offset = (float(px_off), float(py_off))
+            fs = score_at(offset)
+            coarse.append((fs, offset))
+            if fs.score < best.score:
+                best, best_offset = fs, offset
+            done += 1
+            yield done / total, f"Searching placement {done}/{coarse_total}"
+
+    coarse.sort(key=lambda item: item[0].score)
+    step_x = W / n_x
+    step_y = (tile_h / n_y) if slide_vertically else 0.0
+    for _fs, (cx, cy) in coarse[:top_k]:
+        rxs = np.linspace(cx - step_x, cx + step_x, per_axis)
+        rys = (np.linspace(cy - step_y, cy + step_y, per_axis)
+               if slide_vertically else np.array([0.0]))
+        for px_off in rxs:
+            for py_off in rys:
+                # Wrap into one period so the reported offset is canonical.
+                offset = (float(px_off % W),
+                          float(py_off % tile_h) if slide_vertically else 0.0)
+                fs = score_at(offset)
+                if fs.score < best.score:
+                    best, best_offset = fs, offset
+                done += 1
+                yield (done / total,
+                       f"Refining placement {done - coarse_total}/"
+                       f"{refine_total}")
+
+    return best_offset, best, baseline
+
+
+def fingerprint(**values):
+    """Digest of the inputs a placement depends on, for staleness checks.
+
+    Plain values in, hex string out -- no Blender, so it is directly testable.
+    Keys are sorted so caller argument order cannot change the digest, and each
+    value goes in as repr() so 1, "1" and True stay distinguishable.
+    """
+    payload = "\n".join(f"{k}={v!r}" for k, v in sorted(values.items()))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
