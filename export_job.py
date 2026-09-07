@@ -15,7 +15,8 @@ from . import geometry, svg_export, pattern_warp
 from . import __version__ as _VERSION
 
 
-def placement_comment(rotation_deg, rise_mm, min_feature, repeats_x):
+def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
+                      repeats_x, defects, intrinsic):
     """One-line provenance for the SVG: which placement produced this file.
 
     Numbers and the version only -- no user-supplied strings. A filename would
@@ -23,8 +24,9 @@ def placement_comment(rotation_deg, rise_mm, min_feature, repeats_x):
     that whole class of problem for a little reproducibility.
     """
     return (f"Gore Wrap {_VERSION} | placement: rotation {rotation_deg:.3f} "
-            f"deg, rise {rise_mm:.3f} mm | min feature {min_feature:.2f} mm, "
-            f"repeats {repeats_x}")
+            f"deg, rise {rise_mm:.3f} mm | floors {area_floor:.1f} mm2 / "
+            f"{width_floor:.2f} mm, repeats {repeats_x} | {defects} defects, "
+            f"{intrinsic} intrinsic")
 
 
 @dataclass
@@ -88,7 +90,8 @@ def export_steps(result, params, filepath):
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
     pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
-    pattern_rise, pattern_min_feature. Returns an ExportSummary via
+    pattern_rise, pattern_min_area, pattern_min_width, pattern_mark_defects,
+    pattern_defects, pattern_defects_intrinsic. Returns an ExportSummary via
     StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
     """
@@ -107,8 +110,11 @@ def export_steps(result, params, filepath):
                   params["pattern_rise"])
         comment = placement_comment(params["pattern_rotation"],
                                     params["pattern_rise"],
-                                    params["pattern_min_feature"],
-                                    params["pattern_repeats_x"])
+                                    params["pattern_min_area"],
+                                    params["pattern_min_width"],
+                                    params["pattern_repeats_x"],
+                                    params["pattern_defects"],
+                                    params["pattern_defects_intrinsic"])
         n = len(layout.placements)
         pattern_polys = []
         top_inset = 0.0

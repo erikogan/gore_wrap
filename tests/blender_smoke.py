@@ -228,6 +228,17 @@ def main():
 
     check_non_finite_rejected(obj)
     check_optimize_placement(obj)
+    test_placement_properties_exist(bpy.context.scene.gore_wrap)
+
+
+def test_placement_properties_exist(props):
+    for name in ("pattern_min_area", "pattern_min_width",
+                 "pattern_mark_defects", "pattern_defects",
+                 "pattern_defects_base", "pattern_defects_intrinsic"):
+        assert name in props.bl_rna.properties, name
+    assert "pattern_min_feature" not in props.bl_rna.properties
+    assert "pattern_orphans" not in props.bl_rna.properties
+    print("[smoke] placement properties ok")
 
 
 def check_optimize_placement(obj):
@@ -237,7 +248,8 @@ def check_optimize_placement(obj):
     props.use_pattern = True
     props.pattern_svg = _write_temp_pattern()      # see below
     props.pattern_repeats_x = 6
-    props.pattern_min_feature = 3.0
+    props.pattern_min_area = 10.0
+    props.pattern_min_width = 0.6
     props.pattern_placement_mode = "AUTO"
 
     with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
@@ -260,7 +272,8 @@ def check_optimize_placement(obj):
             area.tag_redraw()
     assert "optimize_placement" in dir(bpy.ops.gorewrap)
     print("[smoke] optimize placement ok: "
-          f"{props.pattern_orphans} orphans (was {props.pattern_orphans_base})")
+          f"{props.pattern_defects} defects (was {props.pattern_defects_base}), "
+          f"{props.pattern_defects_intrinsic} intrinsic")
 
 
 def _write_temp_pattern():

@@ -23,6 +23,7 @@ import numpy as np
 from . import raster
 from .pattern_warp import (PatternError, _gore_geometry, _subpath_geometry,
                            _tile_metrics)
+from .svg_export import _edge_profiles
 
 PX_MIN = 0.05        # mm; a floor on cost
 PX_MAX = 0.5         # mm; a ceiling on coarseness
@@ -399,6 +400,32 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
                        f"{refine_total}")
 
     return best_offset, best, baseline
+
+
+def narrow_apex_band(outlines, width_floor, top_inset=0.0):
+    """Height of the tallest band where a gore is narrower than the floor, mm.
+
+    Above the height at which a gore's full width 2*right_x(y) drops below
+    width_floor, no piece of material can pass the width test no matter where
+    the pattern sits -- those defects are unfixable by construction, and the
+    search will grind against them. With no height limit this is always
+    positive, because the gore's width runs to zero at the apex.
+
+    Returns 0.0 when no gore has such a band. Sampled at 512 heights, which is
+    finer than the outline simplification that produced these points.
+    """
+    worst = 0.0
+    for outline in outlines:
+        top, _left_x, right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
+        if pattern_top <= 0.0:
+            continue
+        ys = np.linspace(0.0, pattern_top, 512)
+        narrow = 2.0 * np.asarray(right_x(ys), dtype=float) < float(width_floor)
+        if not narrow.any():
+            continue
+        worst = max(worst, float(pattern_top - ys[np.argmax(narrow)]))
+    return worst
 
 
 def fingerprint(**values):

@@ -14,7 +14,9 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_limit_top=False, pattern_top_offset=0.0,
                   pattern_top_mode="SURFACE",
                   pattern_rotation=0.0, pattern_rise=0.0,
-                  pattern_min_feature=3.0)
+                  pattern_min_area=10.0, pattern_min_width=0.6,
+                  pattern_mark_defects=False, pattern_defects=0,
+                  pattern_defects_intrinsic=0)
 
 
 def _result():
