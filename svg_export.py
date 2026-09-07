@@ -57,7 +57,7 @@ def _required_delta(prev, cur, target):
     """Horizontal spacing between two strips so their closest approach = target.
 
     `prev` and `cur` are outlines centered near x=0; both share the baseline at
-    y=0. The gap between prev's right edge and cur's left edge is minimised over
+    y=0. The gap between prev's right edge and cur's left edge is minimized over
     their overlapping height; we shift `cur` right until that minimum equals
     `target`.
     """

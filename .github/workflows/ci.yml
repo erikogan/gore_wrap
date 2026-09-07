@@ -11,7 +11,7 @@ on:
   workflow_call:
 
 # A new push to a branch makes the in-flight run for that branch pointless.
-# Tag runs are exempt: they feed a release and must not be cancelled.
+# Tag runs are exempt: they feed a release and must not be canceled.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
