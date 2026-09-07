@@ -126,3 +126,67 @@ def _sample_subpath_local(segs, k, tile_h, tol):
             p = seg.point(t)
             pts.append((p.x * k, tile_h - p.y * k))
     return np.array(pts) if pts else np.empty((0, 2))
+
+
+@dataclass
+class GorePrep:
+    """One gore's raster grid, in FINAL SVG mm, minus anything offset-dependent.
+
+    Rendering in final space rather than master space is what makes the floors
+    mean what they say: the warp squeezes x by right_x(y)/hw0, so master-space
+    pixels vary in area by row and a master-space "width" is anisotropic. Here
+    pixels are square and uniform, so area is a pixel count and erosion
+    measures a real width.
+
+    mx/my are the master-space coordinates each pixel inverse-warps to;
+    `inside` is the gore outline; `boundary` is `~inside` grown by one pixel
+    plus the raster border, so a component touching it was made by a cut.
+    """
+    mx: np.ndarray
+    my: np.ndarray
+    inside: np.ndarray
+    boundary: np.ndarray
+    px: float
+
+
+def prepare_gore(geom, px):
+    """Everything about one gore's raster that does not depend on the offset."""
+    ny = max(1, int(np.ceil(geom.pattern_top / px)))
+    nx = max(1, int(np.ceil(2.0 * geom.hw0 / px)))
+    fx = (np.arange(nx) + 0.5) * px - geom.hw0
+    fy = (np.arange(ny) + 0.5) * px
+    FX, FY = np.meshgrid(fx, fy)
+    half = np.asarray(geom.right_x(FY), dtype=float)
+    inside = (np.abs(FX) <= half) & (FY <= geom.pattern_top)
+    # Inverse warp: fx = (mx - xc) * half / hw0, so mx = xc + fx * hw0 / half.
+    # half -> 0 at a bare apex; those pixels are outside anyway, so any finite
+    # value will do as long as it is not a nan.
+    safe = np.maximum(half, 1e-9)
+    mx = geom.xc + FX * (geom.hw0 / safe)
+    mx = np.where(np.isfinite(mx), mx, geom.xc)
+
+    outside = ~inside
+    boundary = outside.copy()
+    boundary[1:, :] |= outside[:-1, :]
+    boundary[:-1, :] |= outside[1:, :]
+    boundary[:, 1:] |= outside[:, :-1]
+    boundary[:, :-1] |= outside[:, 1:]
+    boundary[0, :] = boundary[-1, :] = True
+    boundary[:, 0] = boundary[:, -1] = True
+    return GorePrep(mx=mx, my=FY, inside=inside, boundary=boundary, px=px)
+
+
+def gore_mask(prep, tile, offset):
+    """The material region of one gore at one placement offset.
+
+    The offset never moves the gore or rebuilds the tile grid -- it is a shift
+    of the lookup into the periodic tile mask. `(mx - phi_x) mod W` here is
+    identically the exporter's tile-local coordinate `mx - (c*W + phi_x)` for
+    the tile column c that contains mx; that identity is what keeps the two
+    representations of the offset from drifting (see the test).
+    """
+    phi_x, phi_y = offset
+    ny_t, nx_t = tile.mask.shape
+    ix = (((prep.mx - phi_x) % tile.W) / tile.px).astype(np.int64) % nx_t
+    iy = (((prep.my - phi_y) % tile.tile_h) / tile.px).astype(np.int64) % ny_t
+    return tile.mask[iy, ix] & prep.inside
