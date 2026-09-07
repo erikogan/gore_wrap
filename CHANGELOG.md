@@ -52,9 +52,14 @@ Every version bump gets an entry here, in the same commit as the bump.
 
 ### Changed
 
-- `iter_warp_gores` gained an `offset`, and its tile-placement geometry moved
-  into a shared `_iter_gore_frames` that both the exporter and the placement
-  scorer use, so the two cannot drift apart.
+- `iter_warp_gores` gained an `offset`. Its tile-placement geometry split: the
+  exporter keeps `_iter_gore_frames`, and a bare `_gore_geometry` — the gore
+  alone, with no tiles and no offset — was pulled out for the placement
+  scorer, so a raster scorer never has to enumerate tiles it does not need. The
+  two no longer share that code path; instead they are pinned to each other by
+  `test_offset_representations_agree_between_scorer_and_exporter`, which
+  checks the exporter's and the scorer's two representations of the placement
+  offset directly against each other.
 - A shape a gore edge slices no longer carries that edge into the `pattern`
   layer. The edge is already the `cuts` layer's line (and, when **Limit
   Pattern Height** is on, the `pattern-edge` layer's), so keeping it in the
