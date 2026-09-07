@@ -751,7 +751,17 @@ def _cyl_setup(n_strips=12, seam_offset=0.0):
     return result, layout
 
 
-def test_gore_geometry_matches_the_frames_the_exporter_builds(tmp_path):
+def test_iter_gore_frames_does_not_recompute_gore_geometry(tmp_path):
+    """Divergence guard, not an equivalence proof.
+
+    `_iter_gore_frames` builds its `GoreFrame` directly from `_gore_geometry`'s
+    output, so `frame.warp` *is* `geom.warp` by construction today -- this test
+    is self-comparing and cannot show the split was inert. It is kept
+    deliberately anyway: it fails the moment a future edit makes
+    `_iter_gore_frames` recompute anything independently instead of reusing
+    `_gore_geometry`. The characterization golden from `b7a5cb3` is what
+    actually proves the refactor was inert.
+    """
     path = tmp_path / "sq.svg"
     path.write_text(SQUARE_SVG)
     pattern = pattern_warp.load_pattern(str(path))

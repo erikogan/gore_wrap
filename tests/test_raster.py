@@ -63,10 +63,15 @@ def test_fill_into_matches_a_full_tile_fill_exactly():
 
 
 def test_fill_into_unions_separate_elements_rather_than_canceling():
-    # Two overlapping squares as SEPARATE elements are one welded piece.
+    # Two overlapping squares as SEPARATE elements are one welded piece. The
+    # second ring is reversed so the two elements have OPPOSITE winding, the
+    # way real svgelements shapes typically do -- same winding would still
+    # union correctly even with a single shared accumulator (a winding number
+    # of 2 in the overlap still reads as material under the nonzero rule), so
+    # it would not catch fill_into sharing one accumulator across elements.
     tile = np.zeros((40, 40), dtype=bool)
     raster.fill_into(tile, [square(5.0, 5.0, 20.0)], 1.0)
-    raster.fill_into(tile, [square(15.0, 5.0, 20.0)], 1.0)
+    raster.fill_into(tile, [square(15.0, 5.0, 20.0)[::-1]], 1.0)
     assert tile.sum() == 30 * 20          # union, not 2 * 400 and not a hole
     assert tile[10, 20]                   # inside the overlap, still material
 

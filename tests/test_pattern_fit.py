@@ -10,10 +10,15 @@ HOLE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40"><path fill="#123456" \
 d="M5,5 H35 V35 H5 Z M15,15 V25 H25 V15 Z"/></svg>'''
 
+# Two rects would come out of svgelements with the SAME winding, which makes
+# a single shared accumulator read winding 2 in the overlap as material under
+# the nonzero rule -- the exact bug fill_into exists to prevent, silently
+# passing every current fixture. These paths are written with opposite
+# explicit winding so a single-accumulator mutant punches a hole instead.
 OVERLAP_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40">\
-<rect x="5" y="10" width="20" height="10" fill="#000000"/>\
-<rect x="15" y="10" width="20" height="10" fill="#000000"/></svg>'''
+<path fill="#000000" d="M5,10 L25,10 L25,20 L5,20 Z"/>\
+<path fill="#000000" d="M15,10 L15,20 L35,20 L35,10 Z"/></svg>'''
 
 UNFILLED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40"><rect x="5" y="5" width="10" height="10" \
