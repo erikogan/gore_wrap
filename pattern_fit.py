@@ -38,10 +38,21 @@ def raster_pitch(area_floor, width_floor):
     divides evenly, which is why it is the primary term; the second stage snaps
     the value for the case where the AREA term binds, i.e. when
     `area_floor < 4 * width_floor**2`.
+
+    The snap is bounded below by PX_MIN: if the exact pitch it would produce
+    undercuts the cost floor, `steps` backs off to the coarsest value that
+    still keeps px >= PX_MIN, and the threshold stays exact throughout. The
+    one case where that cannot hold -- `width_floor < 2 * PX_MIN`, where no
+    integer `steps` keeps px at or above PX_MIN -- is closed off by the UI's
+    own minimum on the width-floor setting.
     """
-    px = min(width_floor / 4.0, math.sqrt(area_floor) / 8.0)
-    px = min(max(px, PX_MIN), PX_MAX)
-    steps = max(1, int(math.ceil(width_floor / (2.0 * px))))
+    want = min(width_floor / 4.0, math.sqrt(area_floor) / 8.0)
+    want = min(max(want, PX_MIN), PX_MAX)
+    steps = max(1, int(math.ceil(width_floor / (2.0 * want))))
+    if width_floor / (2.0 * steps) < PX_MIN:
+        # Fine enough would cost more than PX_MIN allows. Back off to the
+        # finest pitch the cost floor permits, keeping the threshold exact.
+        steps = max(1, int(math.floor(width_floor / (2.0 * PX_MIN))))
     return width_floor / (2.0 * steps), steps
 
 

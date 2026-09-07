@@ -45,9 +45,15 @@ def test_raster_pitch_snaps_so_the_width_threshold_is_exact():
 
 def test_raster_pitch_is_bounded():
     px, _ = pattern_fit.raster_pitch(10000.0, 40.0)
-    assert px <= 0.5
-    px, _ = pattern_fit.raster_pitch(0.1, 0.05)
-    assert px > 0.0
+    assert px <= pattern_fit.PX_MAX
+    # Below 2 * PX_MIN an exact threshold is arithmetically impossible, so the
+    # floor is only promised from there up. The UI's own minimum on the width
+    # setting keeps callers inside that range.
+    for area_floor in (0.1, 0.5, 1.0, 3.0, 10.0, 200.0, 10000.0):
+        for width_floor in (0.1, 0.12, 0.35, 0.6, 1.0, 2.5, 40.0):
+            px, steps = pattern_fit.raster_pitch(area_floor, width_floor)
+            assert 2 * px * steps == pytest.approx(width_floor)
+            assert pattern_fit.PX_MIN <= px <= pattern_fit.PX_MAX
 
 
 def test_build_tile_covers_the_expected_fraction(tmp_path):
