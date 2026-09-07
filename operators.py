@@ -428,8 +428,9 @@ class _ModalJob:
 class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
     bl_idname = "gorewrap.optimize_placement"
     bl_label = "Optimize Placement"
-    bl_description = ("Search for a pattern placement that leaves fewer tiny "
-                      "orphaned fragments along the gore cuts")
+    bl_description = ("Search for a pattern placement that leaves fewer "
+                      "defects: small or disconnected pieces of material "
+                      "along the gore cuts")
     bl_options = {"REGISTER", "UNDO"}
 
     _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)

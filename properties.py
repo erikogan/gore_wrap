@@ -86,7 +86,8 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="How the pattern is positioned on the gores",
         items=[
             ("AUTO", "Automatic",
-             "Search for a placement that minimizes orphaned fragments"),
+             "Search for a placement that leaves fewer defects: small or "
+             "disconnected pieces of material"),
             ("MANUAL", "Manual", "Place the pattern by hand"),
         ],
         default="AUTO")

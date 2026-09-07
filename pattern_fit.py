@@ -211,7 +211,7 @@ class Prepared:
     preps: list              # [GorePrep]
     px: float
     steps: int
-    multiplier: int          # gore-phase reduction factor (see Task 11)
+    multiplier: int          # gore-phase reduction factor; see prepare()
 
 
 def _component_widths(mask, lab, n, px, steps):
@@ -290,6 +290,15 @@ def prepare(pattern, placements, outlines, circumference, repeats_x,
     distinct, multiplier = _phase_reduction(list(outlines), len(geoms),
                                             repeats_x)
     if multiplier > 1:
+        # Sliced BEFORE the None filter below, not after -- safe only because
+        # degeneracy (a gore going None, e.g. clipped away entirely by the
+        # height limit) depends solely on the gore's outline, and this
+        # reduction only fires when every outline is equal
+        # (_phase_reduction's "all outlines are equal" check). With one
+        # outline shared by every gore, whether a gore is degenerate is the
+        # same for all of them, so the truncated `geoms[:distinct]` still has
+        # a None (or not) in exactly the positions the full list would, and
+        # the kept subset represents every phase correctly.
         geoms = geoms[:distinct]
     preps = [prepare_gore(g, px) for g in geoms if g is not None]
     return Prepared(tile=tile, preps=preps, px=px, steps=steps,
