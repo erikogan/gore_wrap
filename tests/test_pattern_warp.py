@@ -737,3 +737,51 @@ def test_fill_rule_is_read_from_the_element(tmp_path):
     eo = tmp_path / "eo.svg"
     eo.write_text(EVENODD_SVG)
     assert pattern_warp.load_pattern(str(eo)).elements[0].even_odd is True
+
+
+def _cyl_setup(n_strips=12, seam_offset=0.0):
+    from gore_wrap import pipeline, svg_export
+    from tests.synthetic import cylinder_with_hemisphere
+    pts = cylinder_with_hemisphere()
+    result = pipeline.build_gores(
+        pts, strip_angle=360.0 / n_strips, mode="AVERAGED",
+        seam_offset=seam_offset, crop_z=None, smoothing_sigma=1.0,
+        tolerance=0.2)
+    layout = svg_export.layout(result.outlines, seam_offset)
+    return result, layout
+
+
+def test_gore_geometry_matches_the_frames_the_exporter_builds(tmp_path):
+    path = tmp_path / "sq.svg"
+    path.write_text(SQUARE_SVG)
+    pattern = pattern_warp.load_pattern(str(path))
+    result, layout = _cyl_setup()
+    circ = result.dims.bottom_circumference
+
+    geoms = dict(pattern_warp._gore_geometry(
+        layout.placements, result.outlines, circ, top_inset=10.0))
+    frames = dict(pattern_warp._iter_gore_frames(
+        pattern, layout.placements, result.outlines, circ, 2, top_inset=10.0))
+
+    assert set(geoms) == set(frames)
+    for i, frame in frames.items():
+        geom = geoms[i]
+        assert (geom is None) == (frame is None)
+        if frame is None:
+            continue
+        assert geom.pattern_top == pytest.approx(frame.pattern_top)
+        assert geom.xc - geom.hw0 == pytest.approx(frame.x_lo)
+        assert geom.xc + geom.hw0 == pytest.approx(frame.x_hi)
+        # The warps must be the same function, sampled anywhere in the gore.
+        for my in (0.0, 0.3 * frame.pattern_top, 0.9 * frame.pattern_top):
+            for mx in (frame.x_lo, geom.xc, frame.x_hi):
+                assert geom.warp(mx, my) == pytest.approx(frame.warp(mx, my))
+
+
+def test_gore_geometry_yields_none_for_a_ceiling_below_the_baseline(tmp_path):
+    result, layout = _cyl_setup()
+    circ = result.dims.bottom_circumference
+    huge = float(max(o[:, 1].max() for o in result.outlines)) + 10.0
+    geoms = dict(pattern_warp._gore_geometry(
+        layout.placements, result.outlines, circ, top_inset=huge))
+    assert all(g is None for g in geoms.values())
