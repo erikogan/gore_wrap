@@ -90,6 +90,7 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             if props.has_preview and props.pattern_repeats_x:
                 per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
                 col.label(text=f"~ {per_gore:.2f} repeats per gore", icon="INFO")
+            col.prop(props, "pattern_invert")
 
             _divider(box)
             col = box.column(align=True)

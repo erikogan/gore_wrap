@@ -91,6 +91,26 @@ def test_build_tile_rejects_a_pattern_with_nothing_filled(tmp_path):
         pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
 
 
+def test_build_tile_inverted_is_the_exact_complement(tmp_path):
+    pattern = load(tmp_path, SQUARE_SVG)
+    plain = pattern_fit.build_tile(pattern, 400.0, 4, 0.5)
+    flipped = pattern_fit.build_tile(pattern, 400.0, 4, 0.5, invert=True)
+    assert np.array_equal(flipped.mask, ~plain.mask)
+    # Only the polarity changes: the grid the search indexes into must not.
+    assert flipped.px == plain.px
+    assert flipped.W == plain.W
+    assert flipped.tile_h == plain.tile_h
+
+
+def test_build_tile_rejects_nothing_filled_even_when_inverting(tmp_path):
+    # Inverting a stroke-only pattern would read as "everything is material",
+    # but fills are still the only thing that tells material from background,
+    # so the diagnosis is the same in both polarities.
+    pattern = load(tmp_path, UNFILLED_SVG)
+    with pytest.raises(pattern_warp.PatternError, match="filled"):
+        pattern_fit.build_tile(pattern, 400.0, 4, 0.5, invert=True)
+
+
 class _FlatGore:
     """A straight-sided gore: right_x is constant, so the warp is identity in
     x and every area is exactly computable by hand."""
@@ -632,6 +652,77 @@ def test_defect_boxes_mark_exactly_what_the_panel_counts(tmp_path):
         top_inset=kw["top_inset"])
 
     assert fs.intrinsic > 0, "fixture must have intrinsic defects too"
+    assert len(boxes) == fs.defects
+
+
+def test_inverting_changes_what_the_scorer_counts(tmp_path):
+    # Nine loose dots per tile; inverted they become one connected web, so the
+    # two polarities cannot agree. Anything short of threading `invert` all the
+    # way to build_tile leaves these two calls scoring the same mask.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=120.0, width_floor=0.6, top_inset=20.0)
+
+    plain = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), **kw)
+    flipped = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), invert=True, **kw)
+    assert flipped.defects != plain.defects
+
+
+def test_the_search_scores_the_polarity_it_was_asked_for(tmp_path):
+    # search_placement builds its own Prepared bundle, so the flag has to reach
+    # prepare() there too, not only on the direct score_placement path.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=120.0, width_floor=0.6, top_inset=20.0)
+
+    _off, _best, baseline = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, invert=True,
+        **kw))
+    direct = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), invert=True, **kw)
+    assert baseline.defects == direct.defects
+    assert baseline.score == pytest.approx(direct.score)
+
+
+ISLAND_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+              'width="40" height="40"><path d="M0,0 H40 V40 H0 Z '
+              'M19,19 V21 H21 V19 Z"/></svg>')
+
+
+def test_an_inverted_island_is_still_classified_intrinsic(tmp_path):
+    # Inverting usually drives the intrinsic count to zero, because the
+    # material becomes one region reaching the gore edge everywhere. That is a
+    # property of ordinary artwork, not a broken classifier: a tile filled
+    # everywhere but one interior island inverts to a piece no cut created and
+    # no placement can rescue, and it must still be counted as such.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=ISLAND_SVG)
+    fs = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines,
+        result.dims.bottom_circumference, 4, area_floor=120.0,
+        width_floor=0.6, top_inset=20.0, offset=(0.0, 0.0), invert=True)
+    assert fs.intrinsic > 0
+    assert fs.defects == 0
+
+
+def test_defect_boxes_follow_the_inverted_polarity(tmp_path):
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=120.0, width_floor=0.6, top_inset=20.0)
+
+    fs = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), invert=True, **kw)
+    boxes = pattern_fit.defect_boxes(
+        pattern, layout.placements, result.outlines, circ, 4,
+        kw["area_floor"], kw["width_floor"], offset=(0.0, 0.0),
+        top_inset=kw["top_inset"], invert=True)
+    # Same contract as the non-inverted layer: the boxes are exactly the pieces
+    # the panel counts as defects.
     assert len(boxes) == fs.defects
 
 

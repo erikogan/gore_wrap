@@ -16,12 +16,18 @@ from . import __version__ as _VERSION
 
 
 def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
-                      repeats_x, defects, intrinsic, counts_current):
+                      repeats_x, defects, intrinsic, counts_current,
+                      invert=False):
     """One-line provenance for the SVG: which placement produced this file.
 
     Numbers and the version only -- no user-supplied strings. A filename would
     have to be sanitized into a structural position, and dropping it removes
     that whole class of problem for a little reproducibility.
+
+    The polarity clause is the one thing here that the geometry cannot tell
+    you: a cutter cuts every contour regardless of which side is weeded, so
+    the two polarities produce the same paths and this comment is the file's
+    only record of which side the placement was scored for.
 
     `defects`/`intrinsic` are only as fresh as the last Optimize run -- if the
     user never ran it, or ran it and then hand-edited rotation, rise or either
@@ -34,6 +40,8 @@ def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
     base = (f"Gore Wrap {_VERSION} | placement: rotation {rotation_deg:.3f} "
             f"deg, rise {rise_mm:.3f} mm | floors {area_floor:.1f} mm2 / "
             f"{width_floor:.2f} mm, repeats {repeats_x}")
+    if invert:
+        base += " | polarity inverted"
     if not counts_current:
         return base
     return base + f" | {defects} defects, {intrinsic} intrinsic"
@@ -107,8 +115,9 @@ def export_steps(result, params, filepath):
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
     pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
-    pattern_rise, pattern_min_area, pattern_min_width, pattern_mark_defects,
-    pattern_defects, pattern_defects_intrinsic, pattern_counts_current.
+    pattern_rise, pattern_min_area, pattern_min_width, pattern_invert,
+    pattern_mark_defects, pattern_defects, pattern_defects_intrinsic,
+    pattern_counts_current.
     Returns an ExportSummary via StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
 
@@ -138,7 +147,8 @@ def export_steps(result, params, filepath):
                                     params["pattern_repeats_x"],
                                     params["pattern_defects"],
                                     params["pattern_defects_intrinsic"],
-                                    params["pattern_counts_current"])
+                                    params["pattern_counts_current"],
+                                    params["pattern_invert"])
         n = len(layout.placements)
         pattern_polys = []
         top_inset = 0.0
@@ -178,7 +188,7 @@ def export_steps(result, params, filepath):
                     pattern, layout.placements, result.outlines, circ,
                     params["pattern_repeats_x"], params["pattern_min_area"],
                     params["pattern_min_width"], offset=offset,
-                    top_inset=top_inset)
+                    top_inset=top_inset, invert=params["pattern_invert"])
             except pattern_warp.PatternError:
                 # Region scoring needs filled material (e.g. a stroke-only
                 # pattern has none), but the pattern itself already warped and

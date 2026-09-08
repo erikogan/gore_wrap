@@ -137,6 +137,7 @@ def placement_stamp(props, obj):
         repeats_x=props.pattern_repeats_x,
         min_area=props.pattern_min_area,
         min_width=props.pattern_min_width,
+        invert=props.pattern_invert,
         slide_vertically=props.pattern_slide_vertically,
         strip_angle=props.strip_angle, mode=props.mode,
         seam_offset=props.seam_offset, start_angle=props.start_angle,
@@ -481,7 +482,7 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
             props.pattern_repeats_x, props.pattern_min_area,
             props.pattern_min_width,
             slide_vertically=props.pattern_slide_vertically,
-            top_inset=top_inset)
+            top_inset=top_inset, invert=props.pattern_invert)
         if len(pattern.fill_colors) > 1:
             self.report({"INFO"},
                         f"{len(pattern.fill_colors)} fill colors found; all "
@@ -587,6 +588,7 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
             "pattern_rise": props.pattern_rise,
             "pattern_min_area": props.pattern_min_area,
             "pattern_min_width": props.pattern_min_width,
+            "pattern_invert": props.pattern_invert,
             "pattern_mark_defects": props.pattern_mark_defects,
             "pattern_defects": props.pattern_defects,
             "pattern_defects_intrinsic": props.pattern_defects_intrinsic,

@@ -265,6 +265,14 @@ def check_optimize_placement(obj):
     props.pattern_repeats_x = 8
     assert operators.placement_stamp(props, obj) != props.pattern_fit_stamp
 
+    # Polarity is a search input like any other: flipping it invalidates the
+    # placement the old polarity was optimized for.
+    props.pattern_repeats_x = 6
+    props.pattern_fit_stamp = operators.placement_stamp(props, obj)
+    props.pattern_invert = True
+    assert operators.placement_stamp(props, obj) != props.pattern_fit_stamp
+    props.pattern_invert = False
+
     # The panel must draw in both placement modes.
     for mode in ("AUTO", "MANUAL"):
         props.pattern_placement_mode = mode

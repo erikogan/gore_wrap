@@ -10,6 +10,33 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 0.9.1 — 2026-09-08
+
+**Invert Pattern**: score the placement for artwork drawn as its own negative,
+where the filled shapes are the holes and the ground between them is the
+material. The cut is unchanged — a cutter cuts every contour regardless of
+which side you weed — so this changes only what the placement search protects
+and what the defects layer boxes.
+
+### Added
+
+- **Invert Pattern** in the Pattern section, under **Repeats Around**. Off by
+  default. With it on, the placement search treats the ground around the
+  filled shapes as the material to protect, and **Mark Defects in Export**
+  boxes pieces of that ground.
+  - The exported geometry is byte-for-byte the same in both polarities, so the
+    SVG's provenance comment now records the polarity the file was scored for
+    (`polarity inverted`). It is the only place the choice survives into the
+    file.
+  - Flipping it marks the stored placement stale, like any other search input.
+  - A pattern with nothing filled is still rejected in both polarities: fills
+    are what distinguishes material from background, so a stroke-only file has
+    nothing to invert.
+  - The count of pieces no placement can fix usually reads zero when inverted,
+    because the material becomes one region touching the gore edge nearly
+    everywhere. Artwork that really does enclose a small island still reports
+    it.
+
 ## 0.9.0 — 2026-09-07
 
 Pattern **Placement**: search the gores for a spot where the cuts leave the

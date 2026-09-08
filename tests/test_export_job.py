@@ -15,6 +15,7 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_top_mode="SURFACE",
                   pattern_rotation=0.0, pattern_rise=0.0,
                   pattern_min_area=10.0, pattern_min_width=0.6,
+                  pattern_invert=False,
                   pattern_mark_defects=False, pattern_defects=0,
                   pattern_defects_intrinsic=0, pattern_counts_current=True)
 
@@ -227,6 +228,42 @@ def test_placement_comment_omits_stale_counts(tmp_path):
     assert "defects" not in comment and "intrinsic" not in comment
     # The always-true clauses still appear.
     assert "floors" in comment and "repeats" in comment
+
+
+def test_placement_comment_records_inverted_polarity(tmp_path):
+    # The cut contours are identical in both polarities, so this comment is the
+    # file's only record of which side to weed.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path), "pattern_invert": True}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    assert "inverted" in _comment(open(out).read())
+
+
+def test_placement_comment_says_nothing_when_not_inverted(tmp_path):
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path)}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    assert "inverted" not in _comment(open(out).read())
+
+
+def test_the_defects_layer_follows_the_inverted_polarity(tmp_path):
+    # Everything but the polarity is held fixed, so the two layers can only
+    # differ if `pattern_invert` actually reaches defect_boxes().
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_repeats_x": 6, "pattern_min_area": 400.0,
+              "pattern_min_width": 0.6, "pattern_mark_defects": True}
+
+    def defects_group(params, name):
+        out = str(tmp_path / name)
+        _drain(export_job.export_steps(_result(), params, out))
+        return open(out).read().split('id="defects"')[-1]
+
+    plain = defects_group({**common, "pattern_invert": False}, "plain.svg")
+    flipped = defects_group({**common, "pattern_invert": True}, "flipped.svg")
+    assert plain != flipped
 
 
 def _write_stroke_only_pattern(tmp_path):

@@ -233,6 +233,29 @@ A seamless (tileable) SVG. Export EPS to SVG from your vector editor first.
 How many times the pattern tiles around the object. The panel shows the
 resulting repeats per gore beneath it.
 
+### Invert Pattern
+
+Default off. Treats the filled shapes in the pattern file as the holes and
+everything around them as the material — for artwork drawn as its own negative,
+where the shapes are what you want cut away rather than what you want left
+behind.
+
+**This does not change the exported geometry.** A cutter cuts every contour
+regardless of which side you weed, so the SVG is the same file either way. What
+changes is what [Placement](#placement) measures: with it on, the search
+protects the ground between the shapes instead of the shapes themselves, and
+[**Mark Defects in Export**](#mark-defects-in-export) boxes pieces of that
+ground. Because the polarity leaves no trace in the geometry, the SVG's
+provenance comment records it, so a file can be read back later and weeded the
+way it was scored.
+
+Two consequences worth expecting. The pattern still has to be *filled* — a
+stroke-only file has nothing to invert, and scoring rejects it in both
+polarities. And the count of pieces no placement can fix usually drops to zero,
+because inverted material is one region that reaches the gore edge nearly
+everywhere; when it does not, the line still appears and still means what it
+says.
+
 ### Limit Pattern Height
 
 Stop the pattern short of the top instead of filling the whole gore, closing it
@@ -321,7 +344,9 @@ per-contour test, and every real defect in it would be invisible, so the search
 measures connected pieces of material directly instead. Polarity, nesting and
 welding all fall out of that one rule: a filled SVG element is material, a
 subpath nested inside another *in the same element* is a hole in it, and two
-overlapping shapes in *different* elements weld into one piece.
+overlapping shapes in *different* elements weld into one piece. If your artwork
+is drawn the other way round, [**Invert Pattern**](#invert-pattern) flips which
+side counts as material.
 
 If you plan to use [**Limit Pattern Height**](#limit-pattern-height), set it
 first.

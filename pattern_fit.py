@@ -10,8 +10,12 @@ is the whole point: a pattern can be a single connected web with holes, in
 which case per-contour clipping reports one healthy fragment per gore and every
 real orphan is invisible.
 
-Deliberately separate from the export path, which stays polarity-agnostic: a
-cutter cuts every contour regardless of which side is weeded.
+Deliberately separate from the export path, whose GEOMETRY stays
+polarity-agnostic: a cutter cuts every contour regardless of which side is
+weeded, so the Invert Pattern option below changes what gets measured here and
+never what gets written. The export still reads the flag, for the defect layer
+(scored here) and for the provenance comment, which is the only record of the
+polarity that survives into a file the contours cannot distinguish.
 """
 
 from dataclasses import dataclass
@@ -72,12 +76,20 @@ class TileMask:
     tile_h: float
 
 
-def build_tile(pattern, circumference, repeats_x, px):
+def build_tile(pattern, circumference, repeats_x, px, invert=False):
     """Rasterize one pattern tile at half of `px`, honoring fill and nesting.
 
     Filled elements are material; the color is not interpreted. Each element
     is filled separately so overlapping shapes weld, while subpaths within one
     element obey its fill rule so an inner ring becomes a hole.
+
+    `invert` swaps which side is material, for artwork drawn as the holes
+    rather than the shapes. It is the last thing that happens, so everything
+    downstream -- the scorer, the floors, the cut-made split, the defect layer
+    -- reads the flipped mask without knowing the difference. The unfilled
+    check runs BEFORE the flip and is not conditioned on it: fills are what
+    tells material from background, so a stroke-only pattern is undiagnosable
+    in either polarity.
     """
     W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
     tpx = px / 2.0
@@ -103,6 +115,8 @@ def build_tile(pattern, circumference, repeats_x, px):
             "No filled shapes in the pattern. Placement scoring measures "
             "pieces of material, so the artwork must be filled, not just "
             "stroked outlines.")
+    if invert:
+        mask = ~mask
     return TileMask(mask=mask, px=tpx, W=W, tile_h=tile_h)
 
 
@@ -280,10 +294,10 @@ def _phase_reduction(outlines, n_strips, repeats_x):
 
 
 def prepare(pattern, placements, outlines, circumference, repeats_x,
-            area_floor, width_floor, top_inset=0.0):
+            area_floor, width_floor, top_inset=0.0, invert=False):
     """Build the tile mask and per-gore rasters once, for reuse in a search."""
     px, steps = raster_pitch(area_floor, width_floor)
-    tile = build_tile(pattern, circumference, repeats_x, px)
+    tile = build_tile(pattern, circumference, repeats_x, px, invert=invert)
     assert abs(tile.px * 2.0 - px) < 1e-12, "tile mask must be at half the gore pitch"
     geoms = [geom for _i, geom in _gore_geometry(placements, outlines,
                                                  circumference, top_inset)]
@@ -307,10 +321,15 @@ def prepare(pattern, placements, outlines, circumference, repeats_x,
 
 def score_placement(pattern, placements, outlines, circumference, repeats_x,
                     area_floor, width_floor, offset=(0.0, 0.0), top_inset=0.0,
-                    prepared=None):
-    """Penalty for the pieces this placement's gore cuts would leave behind."""
+                    prepared=None, invert=False):
+    """Penalty for the pieces this placement's gore cuts would leave behind.
+
+    `invert` is ignored when `prepared` is supplied: the bundle already carries
+    the polarity its tile was built with.
+    """
     prep = prepared or prepare(pattern, placements, outlines, circumference,
-                               repeats_x, area_floor, width_floor, top_inset)
+                               repeats_x, area_floor, width_floor, top_inset,
+                               invert=invert)
     score = 0.0
     defects = 0
     intrinsic = 0
@@ -338,7 +357,7 @@ REFINE_STEPS_2D = 4
 
 def search_placement(pattern, placements, outlines, circumference, repeats_x,
                      area_floor, width_floor, slide_vertically=False,
-                     top_inset=0.0):
+                     top_inset=0.0, invert=False):
     """Search offsets for the placement leaving the fewest orphaned pieces.
 
     A generator: yields (fraction, label) and returns
@@ -351,7 +370,7 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
     """
     W, _k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
     prep = prepare(pattern, placements, outlines, circumference, repeats_x,
-                   area_floor, width_floor, top_inset)
+                   area_floor, width_floor, top_inset, invert=invert)
 
     def score_at(offset):
         return score_placement(pattern, placements, outlines, circumference,
@@ -439,7 +458,8 @@ def narrow_apex_band(outlines, width_floor, top_inset=0.0):
 
 
 def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
-                 area_floor, width_floor, offset=(0.0, 0.0), top_inset=0.0):
+                 area_floor, width_floor, offset=(0.0, 0.0), top_inset=0.0,
+                 invert=False):
     """Bounding box of each flagged piece, in final SVG mm.
 
     Bounding boxes rather than traced component outlines: tracing a raster
@@ -455,7 +475,7 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
     that marked more boxes than the readout claims defects would contradict it.
     """
     px, steps = raster_pitch(area_floor, width_floor)
-    tile = build_tile(pattern, circumference, repeats_x, px)
+    tile = build_tile(pattern, circumference, repeats_x, px, invert=invert)
     boxes = []
     for _i, geom in _gore_geometry(placements, outlines, circumference,
                                    top_inset):

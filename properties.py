@@ -81,6 +81,13 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="How many times the pattern tiles around the full "
                     "circumference (fit exactly, for seamlessness)",
         default=12, min=1, soft_max=64)
+    pattern_invert: bpy.props.BoolProperty(
+        name="Invert Pattern",
+        description="Treat the pattern's filled shapes as the holes and "
+                    "everything around them as material. The cut is the same "
+                    "either way; this is what the placement search and the "
+                    "defects layer measure",
+        default=False)
     pattern_placement_mode: bpy.props.EnumProperty(
         name="Placement",
         description="How the pattern is positioned on the gores",
