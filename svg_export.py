@@ -178,7 +178,8 @@ def _xml_comment_safe(text):
 
 
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
-              edge_lines=None, comment=None, defect_boxes=None):
+              edge_lines=None, comment=None, defect_boxes=None,
+              intrinsic_boxes=None):
     """Write the placed strips to a real-scale SVG for the cutting software.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
@@ -194,9 +195,13 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
 
     `defect_boxes` is an optional list of (2, 2) `[[x0, y0], [x1, y1]]` arrays,
     each already in final SVG mm; when non-empty they are emitted as rects in
-    their own `defects` group, last in the file. These ARE cuttable geometry
-    — the named group and the caller's default-off toggle are the mitigation
-    against sending them to the cutter by mistake, not the shape itself.
+    their own `defects` group, last in the file. `intrinsic_boxes` takes the
+    same shape and follows in a `defects-intrinsic` group, drawn cyan rather
+    than magenta because it marks pieces no placement can fix. Two groups
+    rather than one so either can be hidden or deleted alone. All of these ARE
+    cuttable geometry — the named groups and the caller's default-off toggles
+    are the mitigation against sending them to the cutter by mistake, not the
+    shape itself.
     """
     lines = ['<?xml version="1.0" encoding="UTF-8"?>']
     if comment:
@@ -240,13 +245,17 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
                          f'text-anchor="middle">{index + 1}</text>')
         lines.append('  </g>')
 
-    if defect_boxes:
-        # Its own named group, so it can be hidden or deleted by layer. These
-        # ARE cuttable rectangles -- the group name and the default-off toggle
-        # are the mitigation, not the geometry.
-        lines.append('  <g id="defects" fill="none" stroke="#ff00ff" '
+    # Each population in its own named group, so either can be hidden or
+    # deleted by layer. These ARE cuttable rectangles -- the group names and
+    # the default-off toggles are the mitigation, not the geometry.
+    for group_id, stroke, group_boxes in (
+            ("defects", "#ff00ff", defect_boxes),
+            ("defects-intrinsic", "#00ffff", intrinsic_boxes)):
+        if not group_boxes:
+            continue
+        lines.append(f'  <g id="{group_id}" fill="none" stroke="{stroke}" '
                      'stroke-width="0.2">')
-        for box in defect_boxes:
+        for box in group_boxes:
             (x0, y0), (x1, y1) = box
             lines.append(f'    <rect x="{x0:.3f}" y="{y0:.3f}" '
                          f'width="{x1 - x0:.3f}" height="{y1 - y0:.3f}"/>')

@@ -408,10 +408,26 @@ Default off. Adds a `defects` layer of magenta rectangles, one per flagged
 piece, so you can see what is at risk in the cutting software before cutting,
 and calibrate the two floors against real blasted results. It boxes only the
 pieces a cut created — the same count the panel reports as defects — since the
-pieces no placement can fix are reported but not boxed.
+pieces no placement can fix are left to the sub-option below.
 
 **Those rectangles are cuttable geometry**: hide or delete the `defects` layer
 before you cut.
+
+#### Include All Cuts Under Threshold
+
+Appears under **Mark Defects in Export** when that is on, and is itself default
+off. It adds a second layer, `defects-intrinsic`, boxing every remaining piece
+under the two floors: the ones no cut created, which the panel counts on its
+own line as unfixable by placement. Between the two layers, every piece the
+scoring flags is on screen.
+
+The rectangles are **cyan** rather than magenta, and in their own layer,
+because the two populations are read differently. A magenta box may be worth
+moving the pattern for; a cyan one will not move, so the answer is to change
+the artwork, the floors, or nothing at all. Either layer can be hidden alone.
+
+These rectangles are cuttable too: hide or delete `defects-intrinsic` before
+you cut.
 
 ### Reading the status line
 

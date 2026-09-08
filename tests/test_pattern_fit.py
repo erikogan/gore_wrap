@@ -646,13 +646,36 @@ def test_defect_boxes_mark_exactly_what_the_panel_counts(tmp_path):
     fs = pattern_fit.score_placement(
         pattern, layout.placements, result.outlines, circ, 4,
         offset=(0.0, 0.0), **kw)
-    boxes = pattern_fit.defect_boxes(
+    boxes, _intrinsic = pattern_fit.defect_boxes(
         pattern, layout.placements, result.outlines, circ, 4,
         kw["area_floor"], kw["width_floor"], offset=(0.0, 0.0),
         top_inset=kw["top_inset"])
 
     assert fs.intrinsic > 0, "fixture must have intrinsic defects too"
     assert len(boxes) == fs.defects
+
+
+def test_defect_boxes_return_the_intrinsic_pieces_separately(tmp_path):
+    # The second list is the population the panel reports on its own line:
+    # under-floor pieces no cut created, and so no placement can fix. It has
+    # to stay a list of its own rather than join the first, because the two
+    # are drawn in different colors and the counts must keep agreeing with
+    # the two lines the panel shows.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    circ = result.dims.bottom_circumference
+    kw = dict(area_floor=120.0, width_floor=0.6, top_inset=20.0)
+
+    fs = pattern_fit.score_placement(
+        pattern, layout.placements, result.outlines, circ, 4,
+        offset=(0.0, 0.0), **kw)
+    _cut, intrinsic = pattern_fit.defect_boxes(
+        pattern, layout.placements, result.outlines, circ, 4,
+        kw["area_floor"], kw["width_floor"], offset=(0.0, 0.0),
+        top_inset=kw["top_inset"])
+
+    assert fs.defects != fs.intrinsic, "the two counts must differ to tell " \
+                                       "the lists apart"
+    assert len(intrinsic) == fs.intrinsic
 
 
 def test_inverting_changes_what_the_scorer_counts(tmp_path):
@@ -717,7 +740,7 @@ def test_defect_boxes_follow_the_inverted_polarity(tmp_path):
     fs = pattern_fit.score_placement(
         pattern, layout.placements, result.outlines, circ, 4,
         offset=(0.0, 0.0), invert=True, **kw)
-    boxes = pattern_fit.defect_boxes(
+    boxes, _intrinsic = pattern_fit.defect_boxes(
         pattern, layout.placements, result.outlines, circ, 4,
         kw["area_floor"], kw["width_floor"], offset=(0.0, 0.0),
         top_inset=kw["top_inset"], invert=True)
@@ -729,11 +752,12 @@ def test_defect_boxes_follow_the_inverted_polarity(tmp_path):
 def test_defect_boxes_are_returned_in_final_millimeters(tmp_path):
     pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
     circ = result.dims.bottom_circumference
-    boxes = pattern_fit.defect_boxes(
+    cut, intrinsic = pattern_fit.defect_boxes(
         pattern, layout.placements, result.outlines, circ, 4, 120.0, 0.6,
         top_inset=20.0)
-    assert boxes
-    for box in boxes:
+    assert cut and intrinsic
+    # Both lists share the frame: they are drawn into the same SVG.
+    for box in cut + intrinsic:
         assert box.shape == (2, 2)
         assert box[1, 0] > box[0, 0] and box[1, 1] > box[0, 1]
         assert 0.0 <= box[0, 0] and box[1, 0] <= svg_export.MAT_MM

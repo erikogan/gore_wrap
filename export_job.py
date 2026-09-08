@@ -58,6 +58,35 @@ class ExportSummary:
     # file contains cuttable rectangles, and that warning has to describe the
     # file rather than the request.
     defects_marked: bool = False
+    # Same contract for the `defects-intrinsic` layer, tracked separately
+    # because the two are written independently: either can reach the file
+    # without the other, and the warning names the layers that are actually
+    # there so the user is not sent hunting for one that is not.
+    intrinsic_marked: bool = False
+
+
+def cuttable_layer_warning(summary):
+    """The operator's warning about marker layers, or None when there are none.
+
+    Built from what the export actually wrote, never from the Mark Defects
+    settings: a layer is skipped when region scoring cannot run and when there
+    is nothing to flag, so warning from the settings would send the user
+    hunting for cuttable rectangles that are not in the file. Each layer is
+    named only when it is there, because either can be written without the
+    other.
+
+    Here rather than in the operator so it can be tested without Blender.
+    """
+    written = [name for name, marked in
+               (("'defects'", summary.defects_marked),
+                ("'defects-intrinsic'", summary.intrinsic_marked)) if marked]
+    if not written:
+        return None
+    if len(written) == 1:
+        return (f"Exported with a {written[0]} layer — those rectangles are "
+                "cuttable. Hide or delete that layer before cutting.")
+    return (f"Exported with {' and '.join(written)} layers — those rectangles "
+            "are cuttable. Hide or delete them before cutting.")
 
 
 def _flatten_cubics(cubics, n=8):
@@ -116,14 +145,19 @@ def export_steps(result, params, filepath):
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
     pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
     pattern_rise, pattern_min_area, pattern_min_width, pattern_invert,
-    pattern_mark_defects, pattern_defects, pattern_defects_intrinsic,
-    pattern_counts_current.
+    pattern_mark_defects, pattern_mark_intrinsic, pattern_defects,
+    pattern_defects_intrinsic, pattern_counts_current.
     Returns an ExportSummary via StopIteration.value.
     Raises svg_export.LayoutError or pattern_warp.PatternError on bad input.
 
+    `pattern_mark_intrinsic` adds the second, cyan layer for the pieces no
+    placement can fix. It is read only under `pattern_mark_defects`, which is
+    what the panel shows too: both populations come out of the same scoring
+    pass, so there is nothing to write when that pass never runs.
+
     With Mark Defects on, a stroke-only pattern makes defect_boxes() raise
     PatternError (build_tile finds nothing filled) -- that failure is caught
-    and the defects layer is simply skipped rather than aborting the whole
+    and both defect layers are simply skipped rather than aborting the whole
     export, since the same file exports fine with the toggle off.
     """
     yield 0.0, "Laying out strips…"
@@ -133,6 +167,7 @@ def export_steps(result, params, filepath):
     edge_lines = None
     comment = None
     defect_rects = None
+    intrinsic_rects = None
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
@@ -184,7 +219,7 @@ def export_steps(result, params, filepath):
         if params["pattern_mark_defects"]:
             yield 0.96, "Marking defects…"
             try:
-                defect_rects = pattern_fit.defect_boxes(
+                defect_rects, intrinsic_rects = pattern_fit.defect_boxes(
                     pattern, layout.placements, result.outlines, circ,
                     params["pattern_repeats_x"], params["pattern_min_area"],
                     params["pattern_min_width"], offset=offset,
@@ -192,17 +227,24 @@ def export_steps(result, params, filepath):
             except pattern_warp.PatternError:
                 # Region scoring needs filled material (e.g. a stroke-only
                 # pattern has none), but the pattern itself already warped and
-                # wrote fine above -- skip the defects layer rather than
+                # wrote fine above -- skip the defects layers rather than
                 # aborting an export that would otherwise succeed.
                 defect_rects = None
+                intrinsic_rects = None
+            if not params["pattern_mark_intrinsic"]:
+                # Scored either way in the one pass above; dropped here so the
+                # opt-in decides only what reaches the file.
+                intrinsic_rects = None
 
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],
                          pattern_polys=pattern_polys, edge_lines=edge_lines,
-                         comment=comment, defect_boxes=defect_rects)
+                         comment=comment, defect_boxes=defect_rects,
+                         intrinsic_boxes=intrinsic_rects)
     yield 1.0, "Done"
     return ExportSummary(n_strips=len(layout.placements),
                          pattern_empty=params["use_pattern"] and not pattern_polys,
-                         # Mirrors write_svg's own emission condition, so this
-                         # is true exactly when the group is in the file.
-                         defects_marked=bool(defect_rects))
+                         # Mirror write_svg's own emission conditions, so these
+                         # are true exactly when the groups are in the file.
+                         defects_marked=bool(defect_rects),
+                         intrinsic_marked=bool(intrinsic_rects))

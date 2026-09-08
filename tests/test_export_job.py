@@ -16,7 +16,8 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_rotation=0.0, pattern_rise=0.0,
                   pattern_min_area=10.0, pattern_min_width=0.6,
                   pattern_invert=False,
-                  pattern_mark_defects=False, pattern_defects=0,
+                  pattern_mark_defects=False, pattern_mark_intrinsic=False,
+                  pattern_defects=0,
                   pattern_defects_intrinsic=0, pattern_counts_current=True)
 
 
@@ -39,6 +40,43 @@ def _write_pattern(tmp_path):
     p = tmp_path / "pat.svg"
     p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
                  'width="20" height="20"><circle cx="10" cy="10" r="6"/></svg>')
+    return str(p)
+
+
+def test_the_cuttable_layer_warning_names_only_the_layers_written():
+    # The message is built where it can be tested: the operator that reports
+    # it needs Blender, and this is the one thing about it that can be wrong
+    # in a way the user sees -- naming a layer that is not in their file.
+    def warn(**flags):
+        return export_job.cuttable_layer_warning(
+            export_job.ExportSummary(n_strips=1, pattern_empty=False, **flags))
+
+    assert warn(defects_marked=False, intrinsic_marked=False) is None
+    assert warn(defects_marked=True, intrinsic_marked=False) == (
+        "Exported with a 'defects' layer — those rectangles are cuttable. "
+        "Hide or delete that layer before cutting.")
+    assert warn(defects_marked=False, intrinsic_marked=True) == (
+        "Exported with a 'defects-intrinsic' layer — those rectangles are "
+        "cuttable. Hide or delete that layer before cutting.")
+    assert warn(defects_marked=True, intrinsic_marked=True) == (
+        "Exported with 'defects' and 'defects-intrinsic' layers — those "
+        "rectangles are cuttable. Hide or delete them before cutting.")
+
+
+def _write_dots_pattern(tmp_path):
+    """Loose dots, small enough that whole ones land inside a single gore.
+
+    The single circle `_write_pattern` writes is wider than a gore, so every
+    piece of it touches a cut and nothing is ever intrinsic. Nine separate
+    dots per tile leave both populations: the ones the gore edges slice, and
+    the ones that sit whole in the middle and no placement can rescue.
+    """
+    p = tmp_path / "dots.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+                 'width="40" height="40">'
+                 + ''.join(f'<rect x="{x}" y="{y}" width="6" height="6"/>'
+                           for x in (2, 14, 26) for y in (2, 14, 26))
+                 + '</svg>')
     return str(p)
 
 
@@ -312,6 +350,45 @@ def test_defects_marked_reports_whether_the_layer_reached_the_file(tmp_path):
         _result(), {**common, "pattern_mark_defects": True}, on))
     assert summary_on.defects_marked is True
     assert 'id="defects"' in open(on).read()
+
+
+def test_the_intrinsic_layer_is_written_only_when_asked_for(tmp_path):
+    # Mark Defects alone must keep writing exactly the layer it always has:
+    # the second population is opt-in, and turning it on is what puts the
+    # cyan rectangles in the file.
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_dots_pattern(tmp_path),
+              "pattern_repeats_x": 6, "pattern_min_area": 400.0,
+              "pattern_min_width": 0.6, "pattern_mark_defects": True}
+
+    cut_only = str(tmp_path / "cut-only.svg")
+    summary_cut = _drain(export_job.export_steps(_result(), common, cut_only))
+    assert 'id="defects-intrinsic"' not in open(cut_only).read()
+    assert summary_cut.intrinsic_marked is False
+
+    both = str(tmp_path / "both.svg")
+    summary_both = _drain(export_job.export_steps(
+        _result(), {**common, "pattern_mark_intrinsic": True}, both))
+    text = open(both).read()
+    assert 'id="defects"' in text and 'id="defects-intrinsic"' in text
+    assert summary_both.intrinsic_marked is True
+
+
+def test_marking_intrinsic_pieces_needs_mark_defects_on(tmp_path):
+    # The sub-toggle only shows in the panel under Mark Defects, but the job
+    # must not depend on the UI for that: with the parent off, neither layer
+    # is written no matter what the sub-toggle says.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_repeats_x": 6, "pattern_min_area": 400.0,
+              "pattern_min_width": 0.6, "pattern_mark_defects": False,
+              "pattern_mark_intrinsic": True}
+    out = str(tmp_path / "out.svg")
+    summary = _drain(export_job.export_steps(_result(), params, out))
+    text = open(out).read()
+    assert 'id="defects"' not in text and 'id="defects-intrinsic"' not in text
+    assert summary.defects_marked is False
+    assert summary.intrinsic_marked is False
 
 
 def test_rotation_moves_the_pattern(tmp_path):

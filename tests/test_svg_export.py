@@ -239,3 +239,26 @@ def test_defects_group_is_emitted_only_when_boxes_are_given(tmp_path):
     assert 'id="defects"' in text
     import xml.etree.ElementTree as ET
     ET.fromstring(text)                  # must stay well-formed
+
+
+def test_intrinsic_boxes_get_their_own_group_and_color(tmp_path, zero_layout):
+    # A different layer and a different stroke, because these mark pieces no
+    # placement can fix: they are read differently from the cut-made ones, and
+    # each layer has to be hideable on its own before cutting.
+    cut = [np.array([[10.0, 10.0], [14.0, 16.0]])]
+    intrinsic = [np.array([[20.0, 20.0], [22.0, 23.0]])]
+
+    path = tmp_path / "both.svg"
+    svg_export.write_svg(str(path), zero_layout, defect_boxes=cut,
+                         intrinsic_boxes=intrinsic)
+    text = path.read_text()
+    assert 'id="defects-intrinsic"' in text
+    assert '#00ffff' in text
+    ET.fromstring(text)
+
+
+def test_no_intrinsic_group_when_none_are_given(tmp_path, zero_layout):
+    path = tmp_path / "cut-only.svg"
+    svg_export.write_svg(str(path), zero_layout,
+                         defect_boxes=[np.array([[1.0, 1.0], [2.0, 2.0]])])
+    assert 'id="defects-intrinsic"' not in path.read_text()

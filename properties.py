@@ -162,6 +162,12 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
                     "you can see what is at risk before cutting. Delete or "
                     "hide that layer before you cut",
         default=False)
+    pattern_mark_intrinsic: bpy.props.BoolProperty(
+        name="Include All Cuts Under Threshold",
+        description="Also box the pieces no placement can fix, in a separate "
+                    "cyan 'defects-intrinsic' layer. Those rectangles are "
+                    "cuttable too: delete or hide that layer before you cut",
+        default=False)
 
     pattern_limit_top: bpy.props.BoolProperty(
         name="Limit Pattern Height",

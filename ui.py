@@ -139,6 +139,9 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
                 adv.prop(props, "pattern_rotation")
                 adv.prop(props, "pattern_rise")
             col.prop(props, "pattern_mark_defects")
+            if props.pattern_mark_defects:
+                sub = col.column(align=True)
+                sub.prop(props, "pattern_mark_intrinsic")
 
             _divider(box)
             col = box.column(align=True)

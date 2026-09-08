@@ -233,7 +233,8 @@ def main():
 
 def test_placement_properties_exist(props):
     for name in ("pattern_min_area", "pattern_min_width",
-                 "pattern_mark_defects", "pattern_defects",
+                 "pattern_mark_defects", "pattern_mark_intrinsic",
+                 "pattern_defects",
                  "pattern_defects_base", "pattern_defects_intrinsic"):
         assert name in props.bl_rna.properties, name
     assert "pattern_min_feature" not in props.bl_rna.properties
@@ -293,8 +294,19 @@ def check_optimize_placement(obj):
         res = bpy.ops.gorewrap.export_svg(filepath=out_defects)
     assert res == {"FINISHED"}, res
     assert os.path.exists(out_defects), "SVG not written with Mark Defects on"
+
+    # The sub-toggle rides the same path, and the operator has to hand it to
+    # the job: a missing key would raise inside the modal export rather than
+    # anywhere the headless suite can see.
+    props.pattern_mark_intrinsic = True
+    out_all = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_all.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_all)
+    assert res == {"FINISHED"}, res
+    assert os.path.exists(out_all), "SVG not written with the sub-toggle on"
+    props.pattern_mark_intrinsic = False
     props.pattern_mark_defects = False
-    print(f"[smoke] mark defects export ok: {out_defects}")
+    print(f"[smoke] mark defects export ok: {out_defects}, {out_all}")
 
 
 def _write_temp_pattern():

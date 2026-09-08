@@ -462,21 +462,27 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
                  invert=False):
     """Bounding box of each flagged piece, in final SVG mm.
 
+    Returns `(cut_boxes, intrinsic_boxes)`: the pieces a cut created, and the
+    ones no cut created and so no placement can fix. They are the two
+    populations the panel reports on its own two lines, and they stay separate
+    lists all the way to the file so each can be drawn and hidden on its own --
+    a single list would put boxes on screen that no readout accounts for.
+
+    Both are computed in one pass over the same labels; the intrinsic ones cost
+    only a second boolean mask, which is why there is no separate entry point
+    that would rebuild the tile and re-raster every gore.
+
     Bounding boxes rather than traced component outlines: tracing a raster
     component yields stair-stepped paths that bloat the file and read as
     artwork, whereas a rectangle is unmistakably a marker.
 
     Scores every gore, never the reduced phase set -- the reduction is sound
     for COUNTS but a box has to land on the gore it actually belongs to.
-
-    Marks only pieces a cut created -- the same population the panel counts as
-    defects. Intrinsic pieces are just as fragile, but they are reported on
-    their own line precisely because no placement can move them, and a layer
-    that marked more boxes than the readout claims defects would contradict it.
     """
     px, steps = raster_pitch(area_floor, width_floor)
     tile = build_tile(pattern, circumference, repeats_x, px, invert=invert)
     boxes = []
+    intrinsic = []
     for _i, geom in _gore_geometry(placements, outlines, circumference,
                                    top_inset):
         if geom is None:
@@ -492,16 +498,20 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
         cut[np.unique(lab[prep.boundary & mask])] = True
         resolved = a >= MIN_PIXELS * px * px
         q = np.minimum(a / float(area_floor), w / float(width_floor))
-        for i in np.nonzero((q < 1.0) & resolved & cut[1:n + 1])[0]:
-            rows, cols = np.nonzero(lab == i + 1)
-            # Raster (row, col) -> final SVG mm. The gore's own frame has x
-            # measured from its center and y up from its base, so undo both.
-            x0 = geom.tx + (cols.min() + 0.0) * px - geom.hw0
-            x1 = geom.tx + (cols.max() + 1.0) * px - geom.hw0
-            y_hi = geom.base_y - (rows.min() + 0.0) * px
-            y_lo = geom.base_y - (rows.max() + 1.0) * px
-            boxes.append(np.array([[x0, y_lo], [x1, y_hi]]))
-    return boxes
+        bad = (q < 1.0) & resolved
+        made_by_cut = cut[1:n + 1]
+        for target, flagged in ((boxes, bad & made_by_cut),
+                                (intrinsic, bad & ~made_by_cut)):
+            for i in np.nonzero(flagged)[0]:
+                rows, cols = np.nonzero(lab == i + 1)
+                # Raster (row, col) -> final SVG mm. The gore's own frame has x
+                # measured from its center and y up from its base, so undo both.
+                x0 = geom.tx + (cols.min() + 0.0) * px - geom.hw0
+                x1 = geom.tx + (cols.max() + 1.0) * px - geom.hw0
+                y_hi = geom.base_y - (rows.min() + 0.0) * px
+                y_lo = geom.base_y - (rows.max() + 1.0) * px
+                target.append(np.array([[x0, y_lo], [x1, y_hi]]))
+    return boxes, intrinsic
 
 
 def fingerprint(**values):

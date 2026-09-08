@@ -10,6 +10,27 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 0.9.2 — 2026-09-08
+
+**Include All Cuts Under Threshold**: mark every piece under the two floors,
+not just the ones a gore cut created. The pieces no placement can fix go in
+their own cyan layer, so the export shows the whole population the scoring
+flags while keeping the two kinds — the movable and the unmovable — apart at a
+glance.
+
+### Added
+
+- **Include All Cuts Under Threshold**, under **Mark Defects in Export** and
+  shown only when that is on. Off by default. It adds a second layer,
+  `defects-intrinsic`, boxing the pieces the panel counts on its own line as
+  unfixable by placement.
+  - The rectangles are cyan, against the magenta of the cut-made ones, and in
+    a separate layer so either can be hidden or deleted alone. Both are
+    cuttable geometry, and both still need hiding or deleting before a cut.
+  - The export warning now names the layers that actually reached the file,
+    rather than always naming `defects` — either layer can be written without
+    the other.
+
 ## 0.9.1 — 2026-09-08
 
 **Invert Pattern**: score the placement for artwork drawn as its own negative,
