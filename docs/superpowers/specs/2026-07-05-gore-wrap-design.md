@@ -6,7 +6,8 @@ exports a real-scale SVG for a 2D cutter.
 ## Problem
 
 Erik hand-makes roughly conical/cylindrical objects with rounded (roughly spherical)
-tops and wants to cover them with adhesive vinyl cut on a Silhouette (24″×24″ mat).
+tops and wants to cover them with adhesive vinyl cut on a cutting machine
+(24″×24″ mat).
 Qlone 3D scans of the objects exist but are far too dense to use directly. The scans
 must be simplified to the closest approximation that can be cut as plain strips that
 taper to a point, then exported as SVG.
@@ -71,8 +72,8 @@ direction matter.
 
 ### SVG export
 
-- Real-scale mm SVG, 610×610 document (24″ mat), one closed path per gore, Silhouette
-  Studio as the consumer.
+- Real-scale mm SVG, 610×610 document (24″ mat), one closed path per gore, the
+  cutting software as the consumer.
 - **Layout mirrors the wrap**: bottoms aligned on a common baseline, strips in wrap
   order. Adjacent outlines' closest approach: touching when offset = 0 (separate
   paths, both edges cut); exactly |gap| when offset < 0; a gap equal to the overlap

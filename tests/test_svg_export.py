@@ -184,3 +184,58 @@ def test_write_svg_emits_pattern_edge_group(zero_layout, tmp_path):
 def test_write_svg_no_pattern_edge_group_when_absent(svg_root_no_labels):
     ids = {g.get("id") for g in svg_root_no_labels.findall(f".//{{{SVG_NS}}}g")}
     assert "pattern-edge" not in ids
+
+
+# --- placement comment -------------------------------------------------------
+
+def test_write_svg_emits_the_placement_comment(zero_layout, tmp_path):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout,
+                         comment="placement: rotation 12.400 deg")
+    text = path.read_text()
+    assert "<!-- placement: rotation 12.400 deg -->" in text
+    ET.fromstring(text)          # still well-formed
+
+
+def test_write_svg_without_a_comment_emits_none(zero_layout, tmp_path):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout)
+    assert "<!--" not in path.read_text()
+
+
+@pytest.mark.parametrize("comment", [
+    "a -- b ---",       # the original case: residual pair lands at the end
+    "a --- b",          # odd run of 3 in the middle: naive replace leaves "--"
+    "x ----- y",        # odd run of 5 in the middle
+    "ends with -",      # single trailing hyphen, no pair at all
+    "---",              # all hyphens, nothing else
+])
+def test_write_svg_neutralizes_arbitrary_hyphen_runs(zero_layout, tmp_path, comment):
+    path = tmp_path / "out.svg"
+    svg_export.write_svg(str(path), zero_layout, comment=comment)
+    text = path.read_text()
+    assert "--" not in text.split("-->")[0].split("<!--")[1]
+    ET.fromstring(text)   # would raise on an illegal comment
+
+
+def test_defects_group_is_emitted_only_when_boxes_are_given(tmp_path):
+    import numpy as np
+    from gore_wrap import svg_export
+    from tests.synthetic import cylinder_with_hemisphere
+    from gore_wrap import pipeline
+    result = pipeline.build_gores(
+        cylinder_with_hemisphere(), strip_angle=30.0, mode="AVERAGED",
+        seam_offset=0.0, crop_z=None, smoothing_sigma=1.0, tolerance=0.2)
+    layout = svg_export.layout(result.outlines, 0.0)
+
+    plain = tmp_path / "plain.svg"
+    svg_export.write_svg(str(plain), layout)
+    assert 'id="defects"' not in plain.read_text()
+
+    marked = tmp_path / "marked.svg"
+    boxes = [np.array([[10.0, 10.0], [14.0, 16.0]])]
+    svg_export.write_svg(str(marked), layout, defect_boxes=boxes)
+    text = marked.read_text()
+    assert 'id="defects"' in text
+    import xml.etree.ElementTree as ET
+    ET.fromstring(text)                  # must stay well-formed

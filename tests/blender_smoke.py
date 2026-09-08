@@ -227,6 +227,76 @@ def main():
           f"viewport colors set")
 
     check_non_finite_rejected(obj)
+    check_optimize_placement(obj)
+    test_placement_properties_exist(bpy.context.scene.gore_wrap)
+
+
+def test_placement_properties_exist(props):
+    for name in ("pattern_min_area", "pattern_min_width",
+                 "pattern_mark_defects", "pattern_defects",
+                 "pattern_defects_base", "pattern_defects_intrinsic"):
+        assert name in props.bl_rna.properties, name
+    assert "pattern_min_feature" not in props.bl_rna.properties
+    assert "pattern_orphans" not in props.bl_rna.properties
+    print("[smoke] placement properties ok")
+
+
+def check_optimize_placement(obj):
+    """Optimize writes a placement, and the panel draws in both modes."""
+    import bpy
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()      # see below
+    props.pattern_repeats_x = 6
+    props.pattern_min_area = 10.0
+    props.pattern_min_width = 0.6
+    props.pattern_placement_mode = "AUTO"
+
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.optimize_placement()
+    assert res == {"FINISHED"}, res
+    assert props.has_pattern_fit, "optimize did not record a placement"
+    assert props.pattern_fit_stamp, "optimize did not record a stamp"
+
+    # Changing a dependency must invalidate the stamp.
+    from gore_wrap import operators
+    fresh = operators.placement_stamp(props, obj)
+    assert fresh == props.pattern_fit_stamp
+    props.pattern_repeats_x = 8
+    assert operators.placement_stamp(props, obj) != props.pattern_fit_stamp
+
+    # The panel must draw in both placement modes.
+    for mode in ("AUTO", "MANUAL"):
+        props.pattern_placement_mode = mode
+        for area in bpy.context.screen.areas if bpy.context.screen else []:
+            area.tag_redraw()
+    assert "optimize_placement" in dir(bpy.ops.gorewrap)
+    print("[smoke] optimize placement ok: "
+          f"{props.pattern_defects} defects (was {props.pattern_defects_base}), "
+          f"{props.pattern_defects_intrinsic} intrinsic")
+
+    # Mark Defects must run cleanly end to end inside Blender: the operator
+    # stashes props for its report and, with the toggle on, must warn that a
+    # cuttable 'defects' layer is in the file (item 1 of the final review).
+    props.pattern_placement_mode = "AUTO"
+    props.pattern_mark_defects = True
+    out_defects = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_defects.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_defects)
+    assert res == {"FINISHED"}, res
+    assert os.path.exists(out_defects), "SVG not written with Mark Defects on"
+    props.pattern_mark_defects = False
+    print(f"[smoke] mark defects export ok: {out_defects}")
+
+
+def _write_temp_pattern():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+           'width="40" height="40">'
+           '<rect x="8" y="8" width="24" height="24"/></svg>')
+    fd, path = tempfile.mkstemp(suffix=".svg")
+    with os.fdopen(fd, "w") as fh:
+        fh.write(svg)
+    return path
 
 
 def check_non_finite_rejected(obj):

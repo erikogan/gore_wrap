@@ -6,6 +6,84 @@ manifest.
 
 Every version bump gets an entry here, in the same commit as the bump.
 
+An entry opens with a plain paragraph summarizing the release. That paragraph
+is what the Blender Extensions Platform shows when the full entry is past the
+1024 characters its release notes allow — see `tools/release_notes.py`.
+
+## 0.9.0 — 2026-09-07
+
+Pattern **Placement**: search the gores for a spot where the cuts leave the
+fewest small orphaned scraps of material, mark the pieces still at risk in the
+export so they can be inspected before cutting, and place the pattern by hand
+when the search is not what you want.
+
+### Added
+
+- **Placement** in the Pattern section, searches pattern locations on the
+  gores looking for a place where the gore cuts themselves produce the fewest
+  small orphaned bits of material.
+  - **Automatic** takes two floors instead of one, and a piece fails if it
+    trips either: **Min Fragment Area (mm²)** (default 10), the main dial, and
+    **Min Fragment Width (mm)** (default 0.6, floored at 0.10), a guard
+    against hair-thin slivers rather than the main test.
+  - **Optimize Placement** searches where the pattern can sit and reports two
+    counts — defects a gore cut created, which moving the pattern can fix,
+    against how many there were before; and, on its own line when there are
+    any, pieces no placement can fix because they are simply small artwork.
+    When the search cannot beat the placement already shown, it says so
+    plainly ("Best placement is no better than this one") instead of
+    reporting a count that only looks like success.
+  - A warning fires when the pattern's ceiling reaches into a part of a gore
+    narrower than **Min Fragment Width** — defects there cannot be fixed by
+    placement, only by a lower ceiling — and suggests **Limit Pattern
+    Height**.
+  - **Slide Vertically** widens the search to run up and down the strip as
+    well as around the object.
+- **Mark Defects in Export** (default off): adds a `defects` layer of magenta
+  rectangles, one per piece a gore cut flagged, so risk can be inspected in
+  the cutting software before cutting and the two floors calibrated against
+  real blasted results. **Those rectangles are cuttable geometry** — hide or
+  delete the `defects` layer before cutting.
+- **Manual** placement as the advanced alternative: **Rotation** in degrees
+  around the object and **Rise** in mm up the strip. Both always drive the
+  warp, and Optimize writes into them, so a found placement can be nudged by
+  hand or recorded and returned to.
+- The exported SVG carries an XML comment naming the placement, both floors,
+  the repeat count and both defect counts that produced it.
+- A staleness warning: change a setting the search depended on and the panel
+  says so. Export never re-runs the search on its own — it stays fast and
+  predictable — but it does report exporting with a stale placement.
+
+### Changed
+
+- `iter_warp_gores` gained an `offset`. Its tile-placement geometry split: the
+  exporter keeps `_iter_gore_frames`, and a bare `_gore_geometry` — the gore
+  alone, with no tiles and no offset — was pulled out for the placement
+  scorer, so a raster scorer never has to enumerate tiles it does not need. The
+  two no longer share that code path; instead they are pinned to each other by
+  `test_offset_representations_agree_between_scorer_and_exporter`, which
+  checks the exporter's and the scorer's two representations of the placement
+  offset directly against each other.
+- A shape a gore edge slices no longer carries that edge into the `pattern`
+  layer. The edge is already the `cuts` layer's line (and, when **Limit
+  Pattern Height** is on, the `pattern-edge` layer's), so keeping it in the
+  pattern too just re-cut the outline along every seam and turned each sliced
+  motif into a closed weedable sliver. Sliced shapes now come out as open
+  bezier paths ending at the cut (no closing `Z`) instead; a shape no edge
+  touches is unaffected.
+
+### Known limitations
+
+- The two defect counts are estimates read off a raster, and drift a few
+  percent with its resolution. A reported zero is trustworthy; a reported
+  non-zero may be pessimistic.
+- Staleness covers the scan mesh only by object name and vertex count, so an
+  edit that does not change the count goes unnoticed. Re-optimize after
+  reworking a scan.
+- The `defects` layer boxes only the pieces a gore cut created — the same
+  count the panel reports as defects — since the pieces no placement can fix
+  are reported but, having nowhere placement can move them, are not boxed.
+
 ## 0.8.0 — 2026-09-04
 
 ### Added

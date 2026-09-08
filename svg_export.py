@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-MAT_MM = 610.0        # 24" Silhouette mat
+MAT_MM = 610.0        # 24" cutting mat
 MARGIN_MM = 5.0       # keep shapes off the very edge
 ROW_GAP_MM = 10.0     # vertical gap between wrapped rows
 
@@ -57,7 +57,7 @@ def _required_delta(prev, cur, target):
     """Horizontal spacing between two strips so their closest approach = target.
 
     `prev` and `cur` are outlines centered near x=0; both share the baseline at
-    y=0. The gap between prev's right edge and cur's left edge is minimised over
+    y=0. The gap between prev's right edge and cur's left edge is minimized over
     their overlapping height; we shift `cur` right until that minimum equals
     `target`.
     """
@@ -158,9 +158,28 @@ def _bezier_path_d(cubics, closed):
     return " ".join(cmds)
 
 
+def _xml_comment_safe(text):
+    """Make any string legal inside an XML comment.
+
+    `--` cannot appear in a comment and one cannot end in `-`. Callers here
+    only pass numbers, but the guard costs a few lines and means write_svg can
+    never emit a malformed file whatever it is handed.
+
+    A single `str.replace("--", "- -")` pass is NOT enough: replace() matches
+    non-overlapping left to right, so on an odd run of 3+ hyphens the leftover
+    hyphen recombines with the inserted space's trailing hyphen and re-forms
+    "--" (e.g. "---" -> "- --", still illegal). Looping until no "--" remains
+    fixes that; each pass strictly reduces the count of adjacent hyphen pairs,
+    so it terminates.
+    """
+    while "--" in text:
+        text = text.replace("--", "- -")
+    return text.rstrip("-")
+
+
 def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None,
-              edge_lines=None):
-    """Write the placed strips to a real-scale SVG for Silhouette Studio.
+              edge_lines=None, comment=None, defect_boxes=None):
+    """Write the placed strips to a real-scale SVG for the cutting software.
 
     One closed path per gore in a `cuts` group (black stroke, no fill). When
     labels are enabled, a separate `labels` group holds the wrap-order number
@@ -169,12 +188,22 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
     edge_lines is a non-empty list of (2, 2) segments — the straight cut closing
     off a height-limited pattern — they go in their own `pattern-edge` group so
     they can be handled separately from both the pattern and the outlines.
+
+    `comment` is written as an XML comment between the declaration and the
+    root element, recording the pattern placement that produced the file.
+
+    `defect_boxes` is an optional list of (2, 2) `[[x0, y0], [x1, y1]]` arrays,
+    each already in final SVG mm; when non-empty they are emitted as rects in
+    their own `defects` group, last in the file. These ARE cuttable geometry
+    — the named group and the caller's default-off toggle are the mitigation
+    against sending them to the cutter by mistake, not the shape itself.
     """
-    lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    if comment:
+        lines.append(f"<!-- {_xml_comment_safe(comment)} -->")
+    lines.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{mat:.0f}mm" '
-        f'height="{mat:.0f}mm" viewBox="0 0 {mat:.0f} {mat:.0f}">',
-    ]
+        f'height="{mat:.0f}mm" viewBox="0 0 {mat:.0f} {mat:.0f}">')
     if pattern_polys:
         lines.append('  <g id="pattern" fill="none" stroke="#000000" '
                      'stroke-width="0.2">')
@@ -209,6 +238,18 @@ def write_svg(path, result, labels_enabled=False, mat=MAT_MM, pattern_polys=None
             cx = float(base_pts[:, 0].mean())
             lines.append(f'    <text x="{cx:.3f}" y="{base_y - 2:.3f}" '
                          f'text-anchor="middle">{index + 1}</text>')
+        lines.append('  </g>')
+
+    if defect_boxes:
+        # Its own named group, so it can be hidden or deleted by layer. These
+        # ARE cuttable rectangles -- the group name and the default-off toggle
+        # are the mitigation, not the geometry.
+        lines.append('  <g id="defects" fill="none" stroke="#ff00ff" '
+                     'stroke-width="0.2">')
+        for box in defect_boxes:
+            (x0, y0), (x1, y1) = box
+            lines.append(f'    <rect x="{x0:.3f}" y="{y0:.3f}" '
+                         f'width="{x1 - x0:.3f}" height="{y1 - y0:.3f}"/>')
         lines.append('  </g>')
 
     lines.append('</svg>')

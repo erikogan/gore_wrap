@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Emit the warped pattern as smooth cubic-bezier paths fitted to cutter resolution (adaptive warp-space sampling + corner-aware fit), so the Silhouette stops stutter-stepping through dense polyline facets.
+**Goal:** Emit the warped pattern as smooth cubic-bezier paths fitted to cutter resolution (adaptive warp-space sampling + corner-aware fit), so the cutting machine stops stutter-stepping through dense polyline facets.
 
 **Architecture:** Keep the pattern as source bezier segments; per gore/tile-instance, adaptively subdivide each segment in warp-space, clip to the gore's master rect (carrying corner flags), warp, then fit cubic beziers per corner-to-corner run. Emit `C` paths. Corners come from the source geometry so they stay crisp.
 

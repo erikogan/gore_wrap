@@ -81,6 +81,44 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
         description="How many times the pattern tiles around the full "
                     "circumference (fit exactly, for seamlessness)",
         default=12, min=1, soft_max=64)
+    pattern_placement_mode: bpy.props.EnumProperty(
+        name="Placement",
+        description="How the pattern is positioned on the gores",
+        items=[
+            ("AUTO", "Automatic",
+             "Search for a placement that leaves fewer defects: small or "
+             "disconnected pieces of material"),
+            ("MANUAL", "Manual", "Place the pattern by hand"),
+        ],
+        default="AUTO")
+    pattern_min_area: bpy.props.FloatProperty(
+        name="Min Fragment Area (mm²)",
+        description="Smallest piece of material that survives weeding, "
+                    "transfer and the blast; the search avoids leaving "
+                    "anything smaller",
+        default=10.0, min=0.1, max=500.0)
+    pattern_min_width: bpy.props.FloatProperty(
+        name="Min Fragment Width (mm)",
+        description="Narrowest piece that survives regardless of how long it "
+                    "is. Kept low: it is a guard against hair-thin slivers, "
+                    "not the main test. Floored at 0.10 mm, below which an "
+                    "exact threshold is not achievable",
+        default=0.6, min=0.10, max=10.0)
+    pattern_slide_vertically: bpy.props.BoolProperty(
+        name="Slide Vertically",
+        description="Also search up and down the strip, not just around the "
+                    "object. Slower, and it moves what the base and top cuts "
+                    "pass through",
+        default=False)
+    pattern_rotation: bpy.props.FloatProperty(
+        name="Rotation",
+        description="Spin the pattern around the object (degrees); the tiling "
+                    "repeats every 360 / Repeats Around",
+        default=0.0)
+    pattern_rise: bpy.props.FloatProperty(
+        name="Rise (mm)",
+        description="Slide the pattern up the strip",
+        default=0.0)
     pattern_smooth: bpy.props.BoolProperty(
         name="Smooth to Curves",
         description="Fit the warped pattern to smooth cubic bezier curves so the "
@@ -110,6 +148,13 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
                     "path turns by more than this many degrees; gentler bends "
                     "are smoothed into one curve",
         default=30.0, min=0.0, max=90.0)
+
+    pattern_mark_defects: bpy.props.BoolProperty(
+        name="Mark Defects in Export",
+        description="Add a 'defects' layer outlining each flagged piece, so "
+                    "you can see what is at risk before cutting. Delete or "
+                    "hide that layer before you cut",
+        default=False)
 
     pattern_limit_top: bpy.props.BoolProperty(
         name="Limit Pattern Height",
@@ -158,3 +203,10 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
     derived_circumference: bpy.props.FloatProperty(default=0.0)
     fit_error_mm: bpy.props.FloatProperty(default=0.0)
     interp_fraction: bpy.props.FloatProperty(default=0.0)
+
+    # Readouts written by the Optimize Placement operator.
+    has_pattern_fit: bpy.props.BoolProperty(default=False)
+    pattern_defects: bpy.props.IntProperty(default=0)
+    pattern_defects_base: bpy.props.IntProperty(default=0)
+    pattern_defects_intrinsic: bpy.props.IntProperty(default=0)
+    pattern_fit_stamp: bpy.props.StringProperty(default="")

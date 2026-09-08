@@ -12,7 +12,11 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_smooth=True, pattern_simplify_mode="VISUAL",
                   pattern_simplify_tol=0.1, pattern_corner_angle=30.0,
                   pattern_limit_top=False, pattern_top_offset=0.0,
-                  pattern_top_mode="SURFACE")
+                  pattern_top_mode="SURFACE",
+                  pattern_rotation=0.0, pattern_rise=0.0,
+                  pattern_min_area=10.0, pattern_min_width=0.6,
+                  pattern_mark_defects=False, pattern_defects=0,
+                  pattern_defects_intrinsic=0, pattern_counts_current=True)
 
 
 def _result():
@@ -101,7 +105,7 @@ def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypat
     captured = {}
 
     def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
-                  corner_cos, top_inset=0.0):
+                  corner_cos, top_inset=0.0, offset=(0.0, 0.0)):
         captured["resolution"] = resolution
         captured["corner_cos"] = corner_cos
         return iter(())
@@ -174,3 +178,111 @@ def test_export_steps_limit_past_the_apex_leaves_no_pattern(tmp_path):
         _result(), _limited(tmp_path, pattern_top_offset=1000.0),
         str(tmp_path / "g.svg")))
     assert summary.pattern_empty is True
+
+
+# --- placement comment -------------------------------------------------------
+
+def test_export_writes_a_placement_comment(tmp_path):
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_rotation": 12.4, "pattern_rise": 3.0}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    text = open(out).read()
+    assert "rotation 12.400 deg" in text and "rise 3.000 mm" in text
+
+
+def test_no_placement_comment_without_a_pattern(tmp_path):
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), NO_PATTERN, out))
+    assert "<!--" not in open(out).read()
+
+
+def _comment(text):
+    return text.split("<!--")[1].split("-->")[0]
+
+
+def test_placement_comment_includes_counts_when_current(tmp_path):
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_defects": 5, "pattern_defects_intrinsic": 2,
+              "pattern_counts_current": True}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    assert "5 defects, 2 intrinsic" in _comment(open(out).read())
+
+
+def test_placement_comment_omits_stale_counts(tmp_path):
+    # Neither "ran Optimize" nor "hand-edited since" is true by construction
+    # for these two numbers -- unlike everything else in the comment -- so a
+    # stale/never-run set of counts must not appear at all rather than
+    # asserting a defect count nobody measured against this placement.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_defects": 5, "pattern_defects_intrinsic": 2,
+              "pattern_counts_current": False}
+    out = str(tmp_path / "out.svg")
+    _drain(export_job.export_steps(_result(), params, out))
+    comment = _comment(open(out).read())
+    assert "defects" not in comment and "intrinsic" not in comment
+    # The always-true clauses still appear.
+    assert "floors" in comment and "repeats" in comment
+
+
+def _write_stroke_only_pattern(tmp_path):
+    p = tmp_path / "stroke.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" '
+                 'width="20" height="20"><circle cx="10" cy="10" r="6" '
+                 'fill="none" stroke="#000000"/></svg>')
+    return str(p)
+
+
+def test_mark_defects_with_a_stroke_only_pattern_does_not_abort_the_export(tmp_path):
+    # defect_boxes() needs filled material and raises PatternError on a
+    # stroke-only pattern; the export must still finish (with no defects
+    # layer) rather than fail with nothing written, since the same file
+    # exports fine with Mark Defects off.
+    params = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_stroke_only_pattern(tmp_path),
+              "pattern_mark_defects": True}
+    out = str(tmp_path / "out.svg")
+    summary = _drain(export_job.export_steps(_result(), params, out))
+    assert os.path.exists(out)
+    assert summary.pattern_empty is False
+    assert 'id="defects"' not in open(out).read()
+    # The summary must describe the file, not the request: Mark Defects was on,
+    # but no layer was written, and the operator's "these rectangles are
+    # cuttable" warning keys off this rather than off the setting.
+    assert summary.defects_marked is False
+
+
+def test_defects_marked_reports_whether_the_layer_reached_the_file(tmp_path):
+    # Same pattern and settings either way; only the toggle differs. With it
+    # off no layer is written; with it on and real defects to flag, one is.
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_pattern(tmp_path),
+              "pattern_repeats_x": 6,
+              "pattern_min_area": 400.0, "pattern_min_width": 0.6}
+
+    off = str(tmp_path / "off.svg")
+    summary_off = _drain(export_job.export_steps(
+        _result(), {**common, "pattern_mark_defects": False}, off))
+    assert summary_off.defects_marked is False
+    assert 'id="defects"' not in open(off).read()
+
+    on = str(tmp_path / "on.svg")
+    summary_on = _drain(export_job.export_steps(
+        _result(), {**common, "pattern_mark_defects": True}, on))
+    assert summary_on.defects_marked is True
+    assert 'id="defects"' in open(on).read()
+
+
+def test_rotation_moves_the_pattern(tmp_path):
+    # A non-zero rotation must actually change the emitted geometry.
+    base_params = {**NO_PATTERN, "use_pattern": True,
+                   "pattern_svg": _write_pattern(tmp_path)}
+    a, b = str(tmp_path / "a.svg"), str(tmp_path / "b.svg")
+    _drain(export_job.export_steps(_result(), base_params, a))
+    _drain(export_job.export_steps(
+        _result(), {**base_params, "pattern_rotation": 7.5}, b))
+    assert open(a).read() != open(b).read()

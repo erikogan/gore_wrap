@@ -5,12 +5,14 @@ these operators are the glue that reads vertices, builds a preview surface, and
 writes the SVG.
 """
 
+import os
 import time
 
 import numpy as np
 import bpy
 
-from . import geometry, pipeline, svg_export, pattern_warp, export_job
+from . import (geometry, pipeline, svg_export, pattern_warp, pattern_fit,
+               export_job)
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -106,6 +108,47 @@ def _validate(obj, context):
         return (f"Only {len(kept)} vertices above the crop plane; need at least "
                 f"{MIN_VERTS}. Lower the crop or use a denser scan.")
     return None
+
+
+def placement_stamp(props, obj):
+    """Digest of everything an optimal placement depends on.
+
+    Compared against props.pattern_fit_stamp to tell the user their placement
+    has gone stale. The mesh is covered only by name and vertex count: hashing
+    a scan on every panel redraw is out of the question, so switching objects
+    and gross edits are caught while a single nudged vertex is not. The stat()
+    is one syscall per redraw, which is nothing next to what Blender already
+    does; an unreadable file simply reads as stale. A non-mesh active object
+    (camera, light, the preview itself) folds in neutral values instead of its
+    name/count, so merely selecting one does not flip the panel to stale.
+
+    Also folds in pattern_rotation/pattern_rise -- the search's own outputs,
+    which Manual mode lets the user override by hand -- so a hand edit after
+    Optimize is caught too, not just the inputs that fed the search. The raster
+    pitch is derived from the two floors, so it needs no entry of its own.
+    """
+    try:
+        st = os.stat(bpy.path.abspath(props.pattern_svg))
+        svg_stat = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        svg_stat = None
+    return pattern_fit.fingerprint(
+        svg=props.pattern_svg, svg_stat=svg_stat,
+        repeats_x=props.pattern_repeats_x,
+        min_area=props.pattern_min_area,
+        min_width=props.pattern_min_width,
+        slide_vertically=props.pattern_slide_vertically,
+        strip_angle=props.strip_angle, mode=props.mode,
+        seam_offset=props.seam_offset, start_angle=props.start_angle,
+        crop_z=props.crop_z, smoothing_sigma=props.smoothing_sigma,
+        tolerance=props.tolerance, scale_factor=props.scale_factor,
+        limit_top=props.pattern_limit_top,
+        top_offset=props.pattern_top_offset,
+        top_mode=props.pattern_top_mode,
+        rotation=props.pattern_rotation, rise=props.pattern_rise,
+        obj_name=obj.name if obj is not None and obj.type == "MESH" else "",
+        n_verts=(len(obj.data.vertices)
+                 if obj is not None and obj.type == "MESH" else 0))
 
 
 def _build_preview_surface(result, scale_factor, start_angle, top_inset=0.0):
@@ -308,11 +351,181 @@ class GOREWRAP_OT_apply_scale(bpy.types.Operator):
         return bpy.ops.gorewrap.preview()
 
 
-class GOREWRAP_OT_export(bpy.types.Operator):
+class _ModalJob:
+    """Drives a (fraction, label) progress generator for an operator.
+
+    Subclasses set `self._gen`, then `return self._start(context)` from
+    execute(). They declare which exceptions the job may raise, what to say on
+    Esc, and what to do with the generator's return value. Headless -- the
+    smoke test, background renders, scripts -- there is no event loop, so the
+    generator is drained on the spot instead.
+    """
+
+    _job_exceptions = ()
+    _cancel_message = "Canceled."
+
+    def _start(self, context):
+        self._timer = None
+        if bpy.app.background or context.window is None:
+            try:
+                value = _run_to_completion(self._gen)
+            except self._job_exceptions as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            return self._on_success(value)
+
+        wm = context.window_manager
+        wm.progress_begin(0.0, 1.0)
+        self._timer = wm.event_timer_add(0.05, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            self._gen.close()
+            self._finish(context)
+            self.report({"INFO"}, self._cancel_message)
+            return {"CANCELLED"}
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+        wm = context.window_manager
+        deadline = time.monotonic() + 0.03
+        try:
+            while time.monotonic() < deadline:
+                frac, label = next(self._gen)
+                context.workspace.status_text_set(f"{label}  —  Esc to cancel")
+                wm.progress_update(frac)
+        except StopIteration as stop:
+            self._finish(context)
+            return self._on_success(stop.value)
+        except self._job_exceptions as exc:
+            self._finish(context)
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        except Exception as exc:
+            # Anything else escaping the generator must still tear down the
+            # timer and progress bar -- otherwise the 0.05s timer keeps firing
+            # into a dead handler and the progress bar never clears. Reported
+            # rather than swallowed: this is a bug surfacing, not an expected
+            # cancellation.
+            self._finish(context)
+            self.report({"ERROR"}, f"Unexpected error: {exc}")
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+    def _finish(self, context):
+        wm = context.window_manager
+        if self._timer is not None:
+            wm.event_timer_remove(self._timer)
+            self._timer = None
+        wm.progress_end()
+        context.workspace.status_text_set(None)
+
+    def _on_success(self, value):
+        raise NotImplementedError
+
+
+class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
+    bl_idname = "gorewrap.optimize_placement"
+    bl_label = "Optimize Placement"
+    bl_description = ("Search for a pattern placement that leaves fewer "
+                      "defects: small or disconnected pieces of material "
+                      "along the gore cuts")
+    bl_options = {"REGISTER", "UNDO"}
+
+    _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)
+    _cancel_message = "Placement search canceled."
+
+    def execute(self, context):
+        obj = context.active_object
+        error = _validate(obj, context)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+
+        props = context.scene.gore_wrap
+        if not props.use_pattern or not props.pattern_svg:
+            self.report({"ERROR"},
+                        "Choose a pattern SVG or turn off Fill With Pattern.")
+            return {"CANCELLED"}
+
+        result = _run(obj, context)
+        _store_readouts(props, result)
+
+        if not (MIN_MM <= result.dims.height <= MAX_MM):
+            self.report({"ERROR"},
+                        f"Object height {result.dims.height:.0f} mm is implausible "
+                        f"(expected {MIN_MM:.0f}-{MAX_MM:.0f} mm). Check scene "
+                        f"units or calibrate the scale.")
+            return {"CANCELLED"}
+
+        try:
+            layout = svg_export.layout(result.outlines, props.seam_offset)
+            pattern = pattern_warp.load_pattern(
+                bpy.path.abspath(props.pattern_svg))
+        except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        top_inset = 0.0
+        if props.pattern_limit_top:
+            top_inset = export_job.resolve_top_inset(
+                props.pattern_top_mode, props.pattern_top_offset,
+                result.profile)
+
+        self._props = props
+        self._obj = obj
+        self._circ = result.dims.bottom_circumference
+        self._gen = pattern_fit.search_placement(
+            pattern, layout.placements, result.outlines, self._circ,
+            props.pattern_repeats_x, props.pattern_min_area,
+            props.pattern_min_width,
+            slide_vertically=props.pattern_slide_vertically,
+            top_inset=top_inset)
+        if len(pattern.fill_colors) > 1:
+            self.report({"INFO"},
+                        f"{len(pattern.fill_colors)} fill colors found; all "
+                        f"treated as material.")
+        band = pattern_fit.narrow_apex_band(result.outlines,
+                                            props.pattern_min_width, top_inset)
+        if band > 0.0:
+            self.report({"WARNING"},
+                        f"The top {band:.1f} mm of every strip is narrower "
+                        f"than the {props.pattern_min_width:.2f} mm width "
+                        f"floor; defects there cannot be fixed by placement. "
+                        f"Consider Limit Pattern Height.")
+        return self._start(context)
+
+    def _on_success(self, value):
+        (phi_x, phi_y), best, baseline = value
+        props = self._props
+        props.pattern_rotation = 360.0 * phi_x / self._circ
+        props.pattern_rise = phi_y
+        props.pattern_defects = best.defects
+        props.pattern_defects_base = baseline.defects
+        props.pattern_defects_intrinsic = best.intrinsic
+        props.pattern_fit_stamp = placement_stamp(props, self._obj)
+        props.has_pattern_fit = True
+        extra = (f", {best.intrinsic} unfixable by placement"
+                 if best.intrinsic else "")
+        self.report({"INFO"},
+                    f"{best.defects} pieces below "
+                    f"{props.pattern_min_area:.1f} mm2 / "
+                    f"{props.pattern_min_width:.2f} mm "
+                    f"(was {baseline.defects}){extra} at "
+                    f"{props.pattern_rotation:.1f} deg, "
+                    f"rise {props.pattern_rise:.1f} mm")
+        return {"FINISHED"}
+
+
+class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
     bl_idname = "gorewrap.export_svg"
     bl_label = "Export SVG"
     bl_description = "Lay out the gores on the mat and write an SVG"
     bl_options = {"REGISTER"}
+
+    _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)
+    _cancel_message = "Export canceled."
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
     filename_ext = ".svg"
@@ -347,6 +560,15 @@ class GOREWRAP_OT_export(bpy.types.Operator):
                         "Choose a pattern SVG or turn off Fill With Pattern.")
             return {"CANCELLED"}
 
+        stale = (props.use_pattern
+                and props.pattern_placement_mode == "AUTO"
+                and props.has_pattern_fit
+                and props.pattern_fit_stamp != placement_stamp(props, obj))
+        if stale:
+            self.report({"WARNING"},
+                        "Pattern placement is stale — settings changed since "
+                        "Optimize. Exporting with the stored placement.")
+
         params = {
             "seam_offset": props.seam_offset,
             "labels": props.labels and props.mode == "FITTED",
@@ -361,68 +583,38 @@ class GOREWRAP_OT_export(bpy.types.Operator):
             "pattern_limit_top": props.pattern_limit_top,
             "pattern_top_offset": props.pattern_top_offset,
             "pattern_top_mode": props.pattern_top_mode,
+            "pattern_rotation": props.pattern_rotation,
+            "pattern_rise": props.pattern_rise,
+            "pattern_min_area": props.pattern_min_area,
+            "pattern_min_width": props.pattern_min_width,
+            "pattern_mark_defects": props.pattern_mark_defects,
+            "pattern_defects": props.pattern_defects,
+            "pattern_defects_intrinsic": props.pattern_defects_intrinsic,
+            "pattern_counts_current": props.has_pattern_fit and not stale,
         }
         self._gen = export_job.export_steps(result, params, self.filepath)
-        self._timer = None
+        return self._start(context)
 
-        # No event loop headlessly (background, scripts, smoke test): drain now.
-        if bpy.app.background or context.window is None:
-            try:
-                summary = _run_to_completion(self._gen)
-            except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
-                self.report({"ERROR"}, str(exc))
-                return {"CANCELLED"}
-            self._report_summary(summary)
-            return {"FINISHED"}
-
-        wm = context.window_manager
-        wm.progress_begin(0.0, 1.0)
-        self._timer = wm.event_timer_add(0.05, window=context.window)
-        wm.modal_handler_add(self)
-        return {"RUNNING_MODAL"}
-
-    def modal(self, context, event):
-        if event.type == "ESC":
-            return self._cancel(context)
-        if event.type != "TIMER":
-            return {"PASS_THROUGH"}
-        wm = context.window_manager
-        deadline = time.monotonic() + 0.03
-        try:
-            while time.monotonic() < deadline:
-                frac, label = next(self._gen)
-                context.workspace.status_text_set(f"{label}  —  Esc to cancel")
-                wm.progress_update(frac)
-        except StopIteration as stop:
-            self._finish(context)
-            self._report_summary(stop.value)
-            return {"FINISHED"}
-        except (svg_export.LayoutError, pattern_warp.PatternError) as exc:
-            self._finish(context)
-            self.report({"ERROR"}, str(exc))
-            return {"CANCELLED"}
-        return {"RUNNING_MODAL"}
-
-    def _cancel(self, context):
-        self._gen.close()
-        self._finish(context)
-        self.report({"INFO"}, "Export canceled.")
-        return {"CANCELLED"}
-
-    def _finish(self, context):
-        wm = context.window_manager
-        if self._timer is not None:
-            wm.event_timer_remove(self._timer)
-            self._timer = None
-        wm.progress_end()
-        context.workspace.status_text_set(None)
+    def _on_success(self, summary):
+        self._report_summary(summary)
+        return {"FINISHED"}
 
     def _report_summary(self, summary):
         if summary is not None and summary.pattern_empty:
             self.report({"WARNING"},
                         "Pattern produced no geometry; exported outlines only.")
+        # Keyed off what the export actually wrote, not off the Mark Defects
+        # setting. The layer is skipped when region scoring cannot run and when
+        # there is nothing to flag, so warning from the setting would send the
+        # user hunting for cuttable rectangles that are not in the file.
+        if summary is not None and summary.defects_marked:
+            self.report({"WARNING"},
+                        "Exported with a 'defects' layer — those rectangles "
+                        "are cuttable. Hide or delete that layer before "
+                        "cutting.")
         n = summary.n_strips if summary is not None else 0
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
 
 
-classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale, GOREWRAP_OT_export)
+classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
+           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_export)

@@ -101,14 +101,56 @@ class PatternError(Exception):
 
 
 @dataclass
-class Pattern:
+class PatternElement:
+    """One source SVG shape: its subpaths, its fill, and its fill rule.
+
+    Grouping is the point. SVG's fill rule applies WITHIN one element, so an
+    inner subpath here is a hole, while two overlapping shapes in DIFFERENT
+    elements are one welded piece. Flattening everything into a single list --
+    what load_pattern used to do -- makes those two cases indistinguishable.
+    """
     subpaths: list      # svgelements Subpath objects, transforms reified to px
+    fill: str | None    # resolved fill as '#rrggbb', or None when unfilled
+    even_odd: bool      # the element's fill-rule
+
+
+@dataclass
+class Pattern:
+    elements: list      # [PatternElement], in document order
     px_width: float     # reified viewBox width  (content in [0, px_width])
     px_height: float    # reified viewBox height (content in [0, px_height])
 
+    @property
+    def subpaths(self):
+        """Flat view in document order, for the polarity-agnostic exporter.
+
+        A cutter cuts every contour regardless of which side is weeded, so
+        iter_warp_gores has no business knowing about fill or grouping.
+        """
+        return [sp for el in self.elements for sp in el.subpaths]
+
+    @property
+    def fill_colors(self):
+        """Sorted distinct fills, for the operator's multi-color note."""
+        return sorted({el.fill for el in self.elements if el.fill})
+
+
+def _element_fill(element):
+    """Resolved fill as '#rrggbb', or None when the element is not filled.
+
+    Goes through svgelements' resolved `.fill` rather than the source text:
+    both real-world sample patterns deliver fill through a CSS class with zero
+    `fill=` attributes, and svgelements resolves that correctly. A shape with
+    no fill attribute at all resolves to black, which is SVG's initial value
+    and the behavior we want -- such a shape is material.
+    """
+    color = getattr(element, "fill", None)
+    hexval = getattr(color, "hex", None)
+    return str(hexval).lower() if hexval else None
+
 
 def load_pattern(path):
-    """Parse a pattern SVG into transform-reified subpaths plus its box size.
+    """Parse a pattern SVG into per-element subpaths plus its box size.
 
     Coordinates are the SVG's reified pixels; iter_warp_gores rescales them
     to the target tile size, so only their aspect ratio matters here.
@@ -116,7 +158,7 @@ def load_pattern(path):
     doc = SVG.parse(path)
     if doc.viewbox is None or not doc.viewbox.width or not doc.viewbox.height:
         raise PatternError(f"{path} has no usable viewBox.")
-    subpaths = []
+    elements = []
     dropped = []
     shape_index = 0
     for element in doc.elements():
@@ -128,14 +170,21 @@ def load_pattern(path):
         except Exception:
             dropped.append(_shape_locator(element, shape_index))
             continue
-        subpaths.extend(geom.as_subpaths())
+        subpaths = list(geom.as_subpaths())
+        if not subpaths:
+            continue
+        rule = element.values.get("fill-rule") or element.values.get("fill_rule")
+        elements.append(PatternElement(
+            subpaths=subpaths,
+            fill=_element_fill(element),
+            even_odd=str(rule).strip().lower() == "evenodd"))
     if dropped:
         raise PatternError(
             f"{len(dropped)} shape(s) in {path} could not be parsed and were "
             f"left out: {', '.join(dropped)}. Fix or remove them and re-export.")
-    if not subpaths:
+    if not elements:
         raise PatternError(f"No drawable shapes found in {path}.")
-    return Pattern(subpaths=subpaths,
+    return Pattern(elements=elements,
                    px_width=float(doc.width), px_height=float(doc.height))
 
 
@@ -150,6 +199,15 @@ def _shape_locator(element, shape_index):
 
 _CORNER_COS = np.cos(np.radians(5.0))   # tangent break beyond ~5deg is a corner
 _SAMPLE_TOL_CAP = 0.02   # mm; keep the sampled reference finer than the fit target
+
+# A clipped fragment can collapse to a numerically-degenerate sliver (a
+# gore-edge intersection landing on top of another vertex, for instance),
+# producing a "shape" a few nanometers across -- a stab mark in the cut file,
+# not a real feature. 1 micron is deliberately far below anything a cutter or
+# a real design could produce; it is NOT the user's Min Feature size (which
+# governs the pattern-placement search) and must not be conflated with it --
+# this threshold only screens out clipping garbage before fitting even sees it.
+_MIN_FRAGMENT_MM = 1e-3
 
 
 def _sample_tol(resolution):
@@ -277,8 +335,280 @@ def top_edge_line(poly, outline, top_inset):
                      [tx + float(right_x(y)), base_y - y]])
 
 
+def _tile_metrics(pattern, circumference, repeats_x):
+    """Return (W, k, tile_h): tile width in mm, pattern px -> mm, tile height.
+
+    Named because three callers need it independently -- `_iter_gore_frames`
+    (frame construction), `pattern_fit.prepare` (which samples the pattern
+    once at this scale), and `pattern_fit.search_placement` (which needs W to
+    know its own period).
+    """
+    W = circumference / repeats_x
+    k = W / pattern.px_width
+    return W, k, pattern.px_height * k
+
+
+@dataclass
+class GoreFrame:
+    """Everything needed to place pattern tiles into one gore.
+
+    Bundled rather than passed as loose arguments: these values always travel
+    together, and threading seven of them through every caller is how the
+    exporter and the scorer would drift apart.
+    """
+    warp: object        # (mx, my) -> (fx, fy); scalars or numpy arrays
+    x_lo: float         # master-space gore rect
+    x_hi: float
+    pattern_top: float
+    tiles: list         # [(dx, dy), ...] tile origins overlapping the rect
+    k: float
+    tile_h: float
+
+
+def _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset=(0.0, 0.0)):
+    """Origins of every tile overlapping the gore rect, in master mm.
+
+    A tile at (dx, dy) covers x in [dx, dx + W] and y in [dy, dy + tile_h].
+    `offset` shifts the whole grid: a positive phi_y lifts it off the baseline,
+    so the row range is derived from the offset instead of starting at 0 --
+    otherwise the bottom of the gore would be left uncovered. At offset (0, 0)
+    this reproduces the pre-offset tile list exactly, order included.
+    """
+    phi_x, phi_y = offset
+    c_lo = int(np.floor((x_lo - phi_x) / W)) - 1
+    c_hi = int(np.floor((x_hi - phi_x) / W)) + 1
+    r_lo = int(np.floor(-phi_y / tile_h))
+    r_hi = int(np.ceil((pattern_top - phi_y) / tile_h))
+    return [(c * W + phi_x, r * tile_h + phi_y)
+            for c in range(c_lo, c_hi + 1)
+            for r in range(r_lo, r_hi + 1)]
+
+
+@dataclass
+class GoreGeometry:
+    """One gore's frame, with no reference to the pattern or the tiling.
+
+    Split out from GoreFrame because the raster scorer needs the warp and the
+    gore rect but never the tile list: an offset is a lookup shift inside the
+    tile mask, not a different set of tile origins. Sharing GoreFrame would
+    mean building a tile list on every one of a search's hundreds of
+    evaluations and discarding it.
+    """
+    warp: object        # (mx, my) -> (fx, fy); scalars or numpy arrays
+    tx: float
+    base_y: float
+    xc: float           # master-space center of the gore
+    hw0: float          # half-width at the base
+    right_x: object     # y -> half-width at that height
+    pattern_top: float
+
+
+def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
+    """Yield (index, GoreGeometry) per gore; None when the gore is degenerate.
+
+    Degenerate means no width at the base, or a pattern ceiling pushed to or
+    below the baseline -- such a gore gets no pattern at all.
+    """
+    n = len(placements)
+    for (i, poly), outline in zip(placements, outlines):
+        tx = poly[0, 0] - outline[0, 0]
+        base_y = poly[0, 1] + outline[0, 1]
+        top, _left_x, right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
+        hw0 = float(right_x(0.0))
+        if hw0 <= 1e-9 or pattern_top <= 0.0:
+            yield i, None
+            continue
+        xc = (i + 0.5) * circumference / n
+
+        # Defaults bind the loop variables at definition time; a caller that
+        # collects geometries before using them would otherwise see every warp
+        # use the last gore's values.
+        def warp(mx, my, tx=tx, xc=xc, hw0=hw0, right_x=right_x, base_y=base_y):
+            # Works for scalars (adaptive sampler) and numpy arrays (final
+            # pass) -- np.interp inside right_x handles both. One definition,
+            # so the sampler and the final warp can never drift apart.
+            return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
+
+        yield i, GoreGeometry(warp=warp, tx=tx, base_y=base_y, xc=xc, hw0=hw0,
+                              right_x=right_x, pattern_top=pattern_top)
+
+
+def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
+                      top_inset=0.0, offset=(0.0, 0.0)):
+    """Yield (index, GoreFrame) per gore; the frame is None if degenerate.
+
+    GoreGeometry plus the tile grid that covers it. The exporter needs both;
+    the scorer needs only the geometry.
+    """
+    W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
+    for i, geom in _gore_geometry(placements, outlines, circumference,
+                                  top_inset):
+        if geom is None:
+            yield i, None
+            continue
+        x_lo, x_hi = geom.xc - geom.hw0, geom.xc + geom.hw0
+        tiles = _tile_origins(x_lo, x_hi, geom.pattern_top, W, tile_h, offset)
+        yield i, GoreFrame(warp=geom.warp, x_lo=x_lo, x_hi=x_hi,
+                           pattern_top=geom.pattern_top, tiles=tiles, k=k,
+                           tile_h=tile_h)
+
+
+def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
+    """Split a clipped polygon into open runs, dropping edges that another
+    layer already cuts.
+
+    clip_to_rect_flagged bakes the clip-rectangle edge it cut against into
+    the returned polygon's outline. All four rect edges are always dropped
+    here, because every one of them is always drawn by another layer: the
+    gore sides (x_lo/x_hi) and base (y=0) by the `cuts` layer outline, and
+    the pattern-limit ceiling (y=y_hi, i.e. frame.pattern_top) either by the
+    `pattern-edge` layer when a height limit is on, or -- when it is off, so
+    y_hi is the gore apex itself -- by the `cuts` layer's own apex. (An
+    earlier version suppressed the ceiling only when a height limit was on,
+    reasoning that nothing else draws it otherwise; that was wrong -- with no
+    limit, y_hi coincides with the apex the outline already closes on, and
+    `close_apex` only zeroes the *radius*, not the width, so a positive seam
+    offset leaves a flat, non-zero-width apex edge that duplicated the cut if
+    left alone.)
+
+    The design here also rests on `right_x` (used by the warp) interpolating
+    the very same simplified outline the `cuts` layer emits, and on
+    `unwrap_gore`/`unwrap_gore_uniform` producing an exactly symmetric
+    outline -- i.e. that x_lo and x_hi really are, point for point, the lines
+    the `cuts` layer draws. If gores ever become asymmetric this reasoning
+    breaks silently: left-hand suppression would delete an edge nothing else
+    draws, leaving a hole in the artwork instead of a duplicate line.
+
+    An edge (a pair of consecutive points, index i to i+1) counts as
+    boundary-coincident only when BOTH endpoints lie on the SAME rect edge,
+    tested here in master space against the actual clip bounds -- a single
+    point flagged by the clip (`cmask`) is not enough, since a corner point
+    can touch a rect edge without either adjoining edge running along it.
+
+    `tol = 1e-6` mm is fine for clip-generated points, which land exactly on
+    the bound by construction. It is not robust for artwork that is only
+    *nominally* on a tile boundary (e.g. an edge at 39.9999 in a 40-unit
+    viewBox) -- such an edge silently falls back to the old duplicated-cut
+    behavior instead of being detected and dropped. Do not change this
+    tolerance without evidence; it is a real limitation, not an oversight.
+
+    Returns a list of (idx, run_closed): `idx` indexes into `cpts` (and any
+    same-length array derived from it, e.g. the warped points or the corner
+    mask) for that run, in the order to emit; a run with < 2 points is
+    still returned and left for the caller to skip. When nothing was
+    dropped, returns a single run covering the whole polygon in its
+    original order with `run_closed = closed`, exactly reproducing
+    pre-existing behavior. Otherwise every returned run has
+    `run_closed = False`: a fragment missing one of its cut edges is no
+    longer a closed shape.
+
+    The polygon is closed (its last point implicitly connects back to its
+    first), so the dropped edges can wrap past the end of the array; runs
+    are built by walking forward from just after each dropped edge to the
+    next one, which handles the wraparound without an explicit rotation.
+    """
+    n = len(cpts)
+    x, y = cpts[:, 0], cpts[:, 1]
+    on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
+    on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
+    on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
+    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
+    nxt = np.roll(np.arange(n), -1)
+    drop = ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
+           | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
+    breaks = np.nonzero(drop)[0]
+    if len(breaks) == 0:
+        return [(np.arange(n), closed)]
+    m = len(breaks)
+    runs = []
+    for k in range(m):
+        start = (int(breaks[k]) + 1) % n
+        end = int(breaks[(k + 1) % m])
+        idx = (np.arange(start, end + 1) if start <= end else
+              np.concatenate([np.arange(start, n), np.arange(0, end + 1)]))
+        runs.append((idx, False))
+    return runs
+
+
+def _iter_clipped_fragments(pattern, placements, outlines, circumference,
+                            repeats_x, resolution, corner_cos, top_inset,
+                            offset):
+    """Yield (gore_index, [(cpts, wpts, cmask, closed, frame), ...]) per gore.
+
+    The shared first half of the export path: adaptively sample each
+    positioned subpath in warp-space, clip it to the gore rect (carrying
+    corners), warp it, and drop numerically-degenerate results (see
+    _MIN_FRAGMENT_MM) -- everything iter_warp_gores and
+    iter_clipped_fragments both need before they diverge on what to do with
+    the survivors (fit beziers and suppress seam edges, vs. hand back the
+    whole clipped polygon as-is).
+
+    `cpts` is the fragment's clipped polygon in MASTER mm (the space x_lo/
+    x_hi/pattern_top are measured in); `wpts` is the same polygon warped to
+    final SVG mm, still including whatever clip-rectangle edges it was cut
+    against -- exactly the shape clip_to_rect_flagged produced, before any
+    seam-edge suppression. `cmask` is its per-point corner mask, `closed`
+    its subpath's original closed flag, and `frame` the GoreFrame it was
+    clipped against (callers that need to test edges against x_lo/x_hi/
+    pattern_top read them off this).
+    """
+    geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
+    for i, frame in _iter_gore_frames(pattern, placements, outlines,
+                                      circumference, repeats_x, top_inset,
+                                      offset):
+        fragments = []
+        if frame is not None:
+            for dx, dy in frame.tiles:
+                for segs, corners, closed in geoms:
+                    if not segs:
+                        continue
+                    mpts, mmask = _sample_subpath_master(
+                        segs, corners, frame.k, dx, dy, frame.tile_h,
+                        frame.warp, _sample_tol(resolution))
+                    cpts, cmask = clip_to_rect_flagged(
+                        mpts, mmask, frame.x_lo, frame.x_hi, 0.0,
+                        frame.pattern_top)
+                    if cpts is None:
+                        continue
+                    fx, fy = frame.warp(cpts[:, 0], cpts[:, 1])
+                    wpts = np.column_stack([fx, fy])
+                    diag = float(np.hypot(*(wpts.max(axis=0)
+                                            - wpts.min(axis=0))))
+                    if diag < _MIN_FRAGMENT_MM:
+                        # Numerical garbage from clipping -- a fragment that
+                        # has collapsed to essentially a point -- not a real
+                        # feature. See _MIN_FRAGMENT_MM: this is not the
+                        # user's Min Feature size.
+                        continue
+                    fragments.append((cpts, wpts, cmask, closed, frame))
+        yield i, fragments
+
+
+def iter_clipped_fragments(pattern, placements, outlines, circumference,
+                           repeats_x, resolution, corner_cos=_CORNER_COS,
+                           top_inset=0.0, offset=(0.0, 0.0)):
+    """Yield (gore_index, [warped_polygon, ...]) per gore.
+
+    Each polygon is a fragment's whole clipped outline in warped (final SVG)
+    mm, exactly as clip_to_rect_flagged produced it -- before iter_warp_gores
+    (per the seam-edge fix) may drop the clip-boundary edges, split it into
+    open runs, and fit each run to beziers. Exists for callers that need to
+    reason about "the shape a gore edge cut off" independent of how
+    iter_warp_gores goes on to render it -- e.g. checking that the search's
+    scorer and the exporter agree about where a fragment landed and how big
+    it is, which should hold regardless of whether a seam edge happened to
+    get suppressed.
+    """
+    for i, fragments in _iter_clipped_fragments(
+            pattern, placements, outlines, circumference, repeats_x,
+            resolution, corner_cos, top_inset, offset):
+        yield i, [wpts for _cpts, wpts, _cmask, _closed, _frame in fragments]
+
+
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
-                    resolution, corner_cos=_CORNER_COS, top_inset=0.0):
+                    resolution, corner_cos=_CORNER_COS, top_inset=0.0,
+                    offset=(0.0, 0.0)):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
@@ -287,62 +617,62 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
     `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
     rect, so the pattern stops short of the top; 0 fills the whole gore.
+
+    `offset` is (phi_x, phi_y) in mm of master space: phi_x spins the pattern
+    around the object (period W = circumference/repeats_x), phi_y slides it up
+    the strip (period tile_h). Both are periodic, so any value is as valid as
+    any other -- the tiling stays seamless.
     """
-    n = len(placements)
-    W = circumference / repeats_x
-    k = W / pattern.px_width
-    tile_h = pattern.px_height * k
-    geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
-    for (i, poly), outline in zip(placements, outlines):
-        tx = poly[0, 0] - outline[0, 0]
-        base_y = poly[0, 1] + outline[0, 1]
-        top, _left_x, right_x = _edge_profiles(outline)
-        pattern_top = top - top_inset if top_inset > 0.0 else top
-        hw0 = float(right_x(0.0))
+    for i, fragments in _iter_clipped_fragments(
+            pattern, placements, outlines, circumference, repeats_x,
+            resolution, corner_cos, top_inset, offset):
         subpaths = []
-        if hw0 > 1e-9 and pattern_top > 0.0:
-            xc = (i + 0.5) * circumference / n
-            x_lo, x_hi = xc - hw0, xc + hw0
-
-            def warp(mx, my):
-                # Works for scalars (adaptive sampler) and numpy arrays (final
-                # pass) — np.interp inside right_x handles both. One definition,
-                # so the sampler and the final warp can never drift apart.
-                return (tx + (mx - xc) * (right_x(my) / hw0), base_y - my)
-
-            c_lo = int(np.floor(x_lo / W)) - 1
-            c_hi = int(np.floor(x_hi / W)) + 1
-            n_rows = int(np.ceil(pattern_top / tile_h)) + 1
-            for c in range(c_lo, c_hi + 1):
-                dx = c * W
-                for r in range(n_rows):
-                    dy = r * tile_h
-                    for segs, corners, closed in geoms:
-                        if not segs:
-                            continue
-                        mpts, mmask = _sample_subpath_master(
-                            segs, corners, k, dx, dy, tile_h, warp,
-                            _sample_tol(resolution))
-                        cpts, cmask = clip_to_rect_flagged(
-                            mpts, mmask, x_lo, x_hi, 0.0, pattern_top)
-                        if cpts is None:
-                            continue
-                        fx, fy = warp(cpts[:, 0], cpts[:, 1])
-                        wpts = np.column_stack([fx, fy])
-                        corner_idx = np.nonzero(cmask)[0]
-                        # fit_beziers is always called with closed=False: a
-                        # closed subpath's implicit Close edge is already
-                        # sampled (see _subpath_geometry, which appends it as a
-                        # real Line), so the point run returns to ~the start on
-                        # its own and open-run fitting covers the whole loop.
-                        # The subpath's real `closed` flag rides in the tuple
-                        # below so the renderer still emits a (now ~zero-length)
-                        # `Z`. Passing closed=True instead would mishandle the
-                        # duplicated start point where the run rejoins itself.
-                        cubics = bezier_fit.fit_beziers(
-                            wpts, corner_idx, False, resolution)
-                        if cubics:
-                            subpaths.append((cubics, closed))
+        for cpts, wpts, cmask, closed, frame in fragments:
+            # clip_to_rect_flagged bakes the clip-rectangle edge it cut
+            # against into the fragment's outline. Where another layer
+            # already supplies that cut, drop it and emit the fragment as
+            # one or more open runs instead, so the pattern layer does not
+            # duplicate the cuts/pattern-edge layers along every seam.
+            # Detection compares the MASTER-space points (cpts) against the
+            # clip bounds -- the same space x_lo/x_hi/pattern_top are in --
+            # and the resulting point indices are then used to slice the
+            # warped points (wpts) for fitting.
+            for idx, run_closed in _boundary_runs(
+                    cpts, frame.x_lo, frame.x_hi, frame.pattern_top, closed):
+                if len(idx) < 2:
+                    continue
+                run_wpts = wpts[idx]
+                # The fragment-level _MIN_FRAGMENT_MM screen in
+                # _iter_clipped_fragments checks the whole clipped polygon,
+                # before _boundary_runs splits it -- it does not protect an
+                # individual run. A run can collapse even when its parent
+                # fragment did not: isolating the apex edge into its own run
+                # (now that the ceiling is always dropped, see _boundary_runs)
+                # produces exactly this, warping to a single point because
+                # right_x(pattern_top) == 0 at the apex after close_apex. Re-
+                # screen here, per run, so that survives.
+                diag = float(np.hypot(*(run_wpts.max(axis=0)
+                                        - run_wpts.min(axis=0))))
+                if diag < _MIN_FRAGMENT_MM:
+                    continue
+                corner_idx = np.nonzero(cmask[idx])[0]
+                # fit_beziers is always called with closed=False: a closed
+                # subpath's implicit Close edge is already sampled (see
+                # _subpath_geometry, which appends it as a real Line), so
+                # an unsplit run returns to ~the start on its own and
+                # open-run fitting covers the whole loop. The run's own
+                # `run_closed` flag rides in the tuple below: an unsplit
+                # closed subpath still gets a (now ~zero-length) `Z`, while a
+                # run opened by a dropped edge is emitted as an open bezier
+                # path ending at the cut (no closing `Z`) -- fit_beziers
+                # always emits cubic `C` commands regardless of `closed`,
+                # which only controls that trailing `Z`. Passing closed=True
+                # to fit_beziers instead would mishandle the duplicated start
+                # point where a full, unsplit run rejoins itself.
+                cubics = bezier_fit.fit_beziers(
+                    run_wpts, corner_idx, False, resolution)
+                if cubics:
+                    subpaths.append((cubics, run_closed))
         yield i, subpaths
 
 
