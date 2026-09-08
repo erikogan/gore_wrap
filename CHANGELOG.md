@@ -6,7 +6,16 @@ manifest.
 
 Every version bump gets an entry here, in the same commit as the bump.
 
+An entry opens with a plain paragraph summarizing the release. That paragraph
+is what the Blender Extensions Platform shows when the full entry is past the
+1024 characters its release notes allow — see `tools/release_notes.py`.
+
 ## 0.9.0 — 2026-09-07
+
+Pattern **Placement**: search the gores for a spot where the cuts leave the
+fewest small orphaned scraps of material, mark the pieces still at risk in the
+export so they can be inspected before cutting, and place the pattern by hand
+when the search is not what you want.
 
 ### Added
 

@@ -70,3 +70,53 @@ jobs:
             --repo '${{ github.repository }}' \
             --title '${{ github.ref_name }}' \
             --generate-notes
+
+  # extensions.blender.org gets the same artifact the GitHub release did.
+  #
+  # Last, and behind an environment gate. A GitHub release can be deleted and
+  # cut again; a version published to the platform cannot be withdrawn without
+  # a moderator, so this waits for a human even though the tag is already out.
+  # The environment is also what scopes the token: it is an environment
+  # secret, so no other job in this repository can read it.
+  extensions:
+    name: Publish to the Blender Extensions Platform
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: blender-extensions
+    steps:
+      # For CHANGELOG.md, blender_manifest.toml and tools/release_notes.py.
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: extension-zip
+          path: dist
+
+      - name: Upload the new version
+        env:
+          TOKEN: ${{ secrets.BLENDER_EXTENSIONS_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=${TAG#v}
+          # Same check the publish job makes: the Makefile names the zip
+          # <id>-<version>.zip, so anything else means the artifact and the
+          # tag came from different sources.
+          zip=$(ls dist/*-"$version".zip)
+          # From the manifest rather than a literal, so the id the platform is
+          # told about cannot drift from the id inside the zip.
+          id=$(python3 -c \
+            'import tomllib; print(tomllib.load(open("blender_manifest.toml","rb"))["id"])')
+          # Its own assignment, not inlined below: a failure here must stop the
+          # job, and a command substitution inside curl's arguments would not.
+          notes=$(python3 tools/release_notes.py "$TAG")
+
+          # --fail-with-body: a 4xx exits non-zero and still prints what the
+          # platform objected to. Uploading a version it already has is one of
+          # those, so re-running a job that already succeeded fails loudly
+          # rather than publishing anything twice.
+          curl -sS --fail-with-body -X POST \
+            "https://extensions.blender.org/api/v1/extensions/$id/versions/upload/" \
+            -H "Authorization: bearer $TOKEN" \
+            -F "version_file=@$zip" \
+            -F "release_notes=$notes"

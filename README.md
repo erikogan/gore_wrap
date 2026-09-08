@@ -495,13 +495,31 @@ needs no edit.
 ### Releasing
 
 1. Bump `version` in `blender_manifest.toml`, add the matching entry at the top
-   of `CHANGELOG.md`, and commit the two together.
+   of `CHANGELOG.md` — opening with a plain summary paragraph, see below — and
+   commit the two together.
 2. Tag it and push: `git tag v0.7.2 && git push origin v0.7.2`.
 
 `.github/workflows/release.yml` then checks the tag against the manifest
 version, runs the full CI suite, and publishes a GitHub release with
 auto-generated notes and the zip CI built attached. A tag that disagrees with
 the manifest fails before anything is published.
+
+A final `extensions` job uploads that same zip to the
+[Blender Extensions Platform](https://extensions.blender.org/add-ons/gore-wrap/).
+It runs in the `blender-extensions` GitHub environment, which requires a
+reviewer, so every release pauses for an explicit approval before anything
+reaches the platform — a GitHub release can be deleted and cut again, but a
+published version cannot be withdrawn without a moderator. The environment
+also holds `BLENDER_EXTENSIONS_TOKEN`, generated at
+[extensions.blender.org/settings/tokens](https://extensions.blender.org/settings/tokens/),
+as an environment secret so no other job can read it.
+
+The platform allows 1024 characters of release notes, and entries here run
+well past that, so `tools/release_notes.py` sends the whole entry when it fits
+and the entry's opening summary paragraph plus a link to the full text when it
+does not. That paragraph is why entries start with one. Uploading a version
+the platform already has is an error, so re-running a job that already
+succeeded fails rather than publishing twice.
 
 ## Credits
 
