@@ -10,6 +10,51 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 0.9.3 — 2026-09-08
+
+**Optimize Placement now minimizes the number it reports.** The search ranked
+placements by a severity sum that treated a piece just under a floor as almost
+free, so it would happily trade one small piece for many marginal ones — on a
+fine pattern it returned 173 defects where doing nothing gave 168. It now
+minimizes the defect count directly, using the remaining margin only to choose
+between placements that tie. Sliding vertically no longer costs rotation
+resolution either, so turning it on can no longer make the answer worse.
+Existing placements are marked stale, because the search would now find a
+different one.
+
+### Fixed
+
+- **The placement search could return a worse placement than no search at
+  all.** It minimized a sum of `(1 - q)²` over pieces below a floor, which is
+  0.0001 for a piece at 99% of a floor and 0.9 for a piece at 5% — a ratio of
+  9000:1, so retiring one small piece justified creating a great many marginal
+  ones. Measured on a real 20-strip pattern the search moved 168 defects to
+  173; it now reaches 157. Other settings improved too (94 → 61 at 8 strips,
+  where the old objective reached 67).
+  - The objective is now the pair `(defects, margin)`, compared in that order.
+    The count is what the panel reports, so the count is what gets minimized.
+  - The margin term is retained as the tiebreak, and now measures every cut
+    piece rather than only the defective ones. That gives the search a gradient
+    where a defect count alone is flat — including across placements that all
+    reach zero defects, where the old score was identically zero and could not
+    tell a piece sitting 0.6% above a floor from one with full clearance.
+  - Severity deliberately lives in the floors rather than the objective: a
+    floor is the mechanism for saying which pieces are risky, so if calibration
+    shows near-floor pieces survive, the answer is to lower the floor.
+- **Slide Vertically could return a worse placement than leaving it off.** The
+  two-dimensional grid spent its budget as 20 × 20, dropping rotation from 96
+  samples to 20 — and rotation is the axis that matters most, so the coarser
+  grid lost more than the vertical axis won back. The grid is now 96 × 8, which
+  contains the one-dimensional grid as its zero-rise row, making "sliding is
+  never worse than spinning" structural rather than incidental.
+
+### Changed
+
+- Stored placements from earlier versions are reported as stale. Staleness was
+  computed from inputs alone, so a change to the objective would otherwise
+  leave a placement looking current while no longer being the one the search
+  would find. Re-run **Optimize Placement** to refresh.
+
 ## 0.9.2 — 2026-09-08
 
 **Include All Cuts Under Threshold**: mark every piece under the two floors,

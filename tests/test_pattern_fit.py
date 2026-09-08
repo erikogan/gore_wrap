@@ -482,7 +482,7 @@ def test_search_returns_an_offset_inside_one_period(tmp_path):
         top_inset=20.0))
     assert 0.0 <= phi_x < circ / 4
     assert phi_y == 0.0
-    assert best.score <= base.score
+    assert best.key <= base.key
 
 
 def test_search_never_returns_worse_than_the_baseline(tmp_path):
@@ -491,7 +491,9 @@ def test_search_never_returns_worse_than_the_baseline(tmp_path):
     _off, best, base = _drain(pattern_fit.search_placement(
         pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
         top_inset=20.0))
-    assert best.score <= base.score
+    # The key, not the margin: trading a worse margin for fewer defects is the
+    # whole point of the objective, so only the count and the key are promised.
+    assert best.key <= base.key
     assert best.defects <= base.defects
 
 
@@ -543,8 +545,9 @@ def test_sliding_vertically_finds_what_spinning_alone_cannot(tmp_path):
         top_inset=kw["top_inset"]))
 
     assert phi_y_1d == 0.0
-    assert best_1d.defects == base.defects        # spinning alone gains nothing
-    assert best_2d.defects < best_1d.defects      # sliding does
+    assert 0 < best_1d.defects < base.defects     # spinning helps, but partly
+    assert best_2d.defects == 0                   # sliding clears them
+    assert best_2d.defects < best_1d.defects
     assert phi_y_2d > 0.0
 
 
@@ -761,3 +764,123 @@ def test_defect_boxes_are_returned_in_final_millimeters(tmp_path):
         assert box.shape == (2, 2)
         assert box[1, 0] > box[0, 0] and box[1, 1] > box[0, 1]
         assert 0.0 <= box[0, 0] and box[1, 0] <= svg_export.MAT_MM
+
+
+# --- the search objective ---------------------------------------------------
+#
+# q = min(area / area_floor, width / width_floor), and width comes off the
+# erosion ladder as px * (2 * survived + 1) with survived <= steps and px =
+# width_floor / (2 * steps). So q can never exceed (2 * steps + 1) / (2 * steps)
+# -- 1.25 at the default floors. That ceiling is the scale the margin term
+# measures against, which is why it is derived rather than written down.
+
+
+@pytest.mark.parametrize("steps,expect", [(1, 1.5), (2, 1.25), (4, 1.125),
+                                          (10, 1.05)])
+def test_q_ceiling_follows_the_erosion_ladder(steps, expect):
+    assert pattern_fit.q_ceiling(steps) == pytest.approx(expect)
+
+
+def test_a_comfortable_piece_reports_q_at_the_ceiling(tmp_path):
+    # The bar clears both floors with room to spare, so the width term
+    # saturates: no piece can report more margin than this.
+    fs = _flat_scored(tmp_path, BAR_SVG, "bar.svg", (0.0, 0.0))
+    assert fs.worst == pytest.approx(pattern_fit.q_ceiling(2))
+
+
+def test_margin_penalty_is_zero_only_at_the_ceiling():
+    ceiling = pattern_fit.q_ceiling(2)
+    assert pattern_fit.margin_penalty(np.array([ceiling, ceiling]), 2) == 0.0
+    assert pattern_fit.margin_penalty(np.array([ceiling * 0.99]), 2) > 0.0
+
+
+def test_margin_penalty_grows_as_pieces_approach_the_floor():
+    roomy = pattern_fit.margin_penalty(np.array([1.2]), 2)
+    tight = pattern_fit.margin_penalty(np.array([1.01]), 2)
+    under = pattern_fit.margin_penalty(np.array([0.4]), 2)
+    assert roomy < tight < under
+
+
+def test_the_objective_ranks_fewer_defects_ahead_of_a_better_margin():
+    # The shipped objective minimized the margin sum alone, so a placement with
+    # MORE defects could win: many near-floor pieces cost less than one tiny
+    # one. Measured on the owner's pattern it moved 168 defects to 173. Count
+    # is what the panel reports, so count leads.
+    fewer = pattern_fit.FitScore(score=9.0, defects=3, intrinsic=0, worst=0.1)
+    more = pattern_fit.FitScore(score=0.1, defects=5, intrinsic=0, worst=0.9)
+    assert fewer.key < more.key
+
+
+def test_the_objective_breaks_a_defect_tie_on_margin():
+    # Both leave two defects; the one whose pieces sit further from the floors
+    # is the safer bet if calibration later moves them. Neither the old score
+    # nor a bare count can tell these apart when both are defect-free.
+    tight = pattern_fit.FitScore(score=9.0, defects=2, intrinsic=0, worst=0.1)
+    roomy = pattern_fit.FitScore(score=0.1, defects=2, intrinsic=0, worst=0.9)
+    assert roomy.key < tight.key
+
+
+def test_the_search_takes_fewer_defects_over_a_better_margin(
+        tmp_path, monkeypatch):
+    # The landscape shape measured on the owner's real pattern, synthesised
+    # because the small fixtures never produce it naturally: the offset with
+    # the best margin carries the most defects.
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    calls = []
+
+    def fake(*_args, offset=(0.0, 0.0), **_kwargs):
+        calls.append(offset)
+        n = len(calls)
+        if n == 1:                                   # baseline, at the origin
+            return pattern_fit.FitScore(5.0, 4, 0, 0.5)
+        if n == 5:                                   # best margin, worst count
+            return pattern_fit.FitScore(0.01, 9, 0, 0.9)
+        if n == 9:                                   # the one that should win
+            return pattern_fit.FitScore(3.0, 2, 0, 0.4)
+        return pattern_fit.FitScore(4.0, 6, 0, 0.3)
+
+    monkeypatch.setattr(pattern_fit, "score_placement", fake)
+    _off, best, base = _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        top_inset=20.0))
+
+    assert base.defects == 4
+    assert best.defects == 2
+
+
+def test_the_vertical_grid_keeps_the_full_rotation_resolution(
+        tmp_path, monkeypatch):
+    # Turning on Slide Vertically used to drop rotation from 96 samples to 20,
+    # which cost more than the vertical axis won back -- the 2-D search could
+    # return a worse placement than the 1-D one. Containing the 1-D grid as the
+    # rise = 0 row makes "2-D is never worse" structural.
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    W = circ / 4
+    seen = []
+    real_score = pattern_fit.score_placement
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("offset", (0.0, 0.0)))
+        return real_score(*args, **kwargs)
+
+    monkeypatch.setattr(pattern_fit, "score_placement", spy)
+    _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines, circ, 4, 10.0, 0.6,
+        slide_vertically=True, top_inset=20.0))
+
+    at_zero = [x for x, y in seen if y == 0.0]
+    for want in np.linspace(0.0, W, pattern_fit.COARSE_1D, endpoint=False):
+        assert any(abs(x - want) < 1e-9 for x in at_zero), \
+            f"rotation sample {want} is missing from the 2-D grid"
+
+
+def test_fingerprint_changes_when_the_metric_changes(monkeypatch):
+    # Changing the objective changes the optimal placement without changing any
+    # input, so a stored placement has to go stale on its own -- otherwise the
+    # panel keeps reporting a number the current search would not produce.
+    before = pattern_fit.fingerprint(alpha=1, beta="two")
+    monkeypatch.setattr(pattern_fit, "METRIC_VERSION",
+                        pattern_fit.METRIC_VERSION + 1)
+    assert pattern_fit.fingerprint(alpha=1, beta="two") != before

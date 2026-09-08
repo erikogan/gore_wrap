@@ -210,12 +210,58 @@ def gore_mask(prep, tile, offset):
 MIN_PIXELS = 6       # below this a component is not evidence of anything
 
 
+def q_ceiling(steps):
+    """The largest q any piece can report, given the erosion ladder.
+
+    Width comes off the ladder as `px * (2 * survived + 1)` with
+    `survived <= steps`, and `raster_pitch` snaps `px` to
+    `width_floor / (2 * steps)`, so `width / width_floor` cannot exceed
+    `(2 * steps + 1) / (2 * steps)` -- 1.25 at the default floors. Since
+    `q = min(area / area_floor, width / width_floor)`, that bounds q too.
+
+    Every comfortably-safe piece therefore reports exactly this value, which is
+    what makes it the right scale for `margin_penalty` to measure against.
+    """
+    return (2.0 * steps + 1.0) / (2.0 * steps)
+
+
+def margin_penalty(q, steps):
+    """How close a set of pieces sits to the floors, as a continuous cost.
+
+    Zero only when every piece has saturated the ladder, rising to 1 per piece
+    at q = 0. Unlike a defect count this is never flat, so it can rank
+    placements that tie -- including the ones that tie at zero defects, where
+    both the count and a below-floor-only penalty are identically zero and
+    neither can say which placement has more room to spare.
+    """
+    ceiling = q_ceiling(steps)
+    short = np.maximum(0.0, ceiling - np.asarray(q, dtype=float))
+    return float((short * short).sum() / (ceiling * ceiling))
+
+
 @dataclass
 class FitScore:
-    score: float             # continuous penalty; drives the search
+    score: float             # margin penalty; continuous, breaks count ties
     defects: int             # cut-made pieces below a floor; placement can fix
     intrinsic: int           # pieces below a floor that no placement can fix
     worst: float | None      # smallest q seen among cut pieces, for diagnostics
+
+    @property
+    def key(self):
+        """What the search minimizes: defect count first, margin to break ties.
+
+        Ranking on the margin sum alone lets a placement with MORE defects win,
+        because many pieces just under a floor cost less than one tiny piece --
+        on the owner's pattern the search moved 168 defects to 173 that way.
+        The panel reports a count, so a count is what gets minimized, and the
+        margin only chooses among placements that tie on it.
+
+        Severity belongs in the floors, not here: a floor is precisely the
+        mechanism for saying "pieces this size are risky". If calibration shows
+        near-floor pieces survive, the answer is to lower the floor rather than
+        to weight the objective.
+        """
+        return (self.defects, self.score)
 
 
 @dataclass
@@ -262,10 +308,12 @@ def score_gore(prep, tile, offset, area_floor, width_floor, steps):
 
     q = np.minimum(a / float(area_floor), w / float(width_floor))
     bad = (q < 1.0) & resolved
-    penal = (1.0 - np.minimum(q, 1.0)) ** 2
     cut_bad = bad & cut
     seen = q[cut & resolved]
-    return FitScore(score=float(penal[cut_bad].sum()),
+    # Every cut piece contributes, not only the ones below a floor: a placement
+    # with no defects still has more or less room before it acquires one, and
+    # that difference is the only thing separating placements that tie.
+    return FitScore(score=margin_penalty(seen, steps),
                     defects=int(cut_bad.sum()),
                     intrinsic=int((bad & ~cut).sum()),
                     worst=float(seen.min()) if seen.size else None)
@@ -347,8 +395,8 @@ def score_placement(pattern, placements, outlines, circumference, repeats_x,
                     intrinsic=intrinsic * m, worst=worst)
 
 
-COARSE_1D = 96      # samples across one tile width when only spinning
-COARSE_2D = 20      # samples per axis when sliding vertically too
+COARSE_1D = 96      # samples across one tile width, always
+COARSE_2D_Y = 8     # samples up the tile when sliding vertically too
 REFINE_TOP_1D = 5   # coarse minima worth a closer look
 REFINE_TOP_2D = 3
 REFINE_STEPS_1D = 8
@@ -378,8 +426,14 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
                                offset=offset, top_inset=top_inset,
                                prepared=prep)
 
-    n_x = COARSE_2D if slide_vertically else COARSE_1D
-    n_y = COARSE_2D if slide_vertically else 1
+    # Rotation keeps its full resolution whether or not the vertical axis is
+    # searched, so the 2-D grid CONTAINS the 1-D grid as its phi_y = 0 row and
+    # sliding vertically can never return a worse placement than spinning
+    # alone. Sharing the rotation budget between the axes did exactly that:
+    # at 20 rotation samples the coarser grid lost more than the vertical axis
+    # won back.
+    n_x = COARSE_1D
+    n_y = COARSE_2D_Y if slide_vertically else 1
     top_k = REFINE_TOP_2D if slide_vertically else REFINE_TOP_1D
     r_steps = REFINE_STEPS_2D if slide_vertically else REFINE_STEPS_1D
 
@@ -403,12 +457,12 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
             offset = (float(px_off), float(py_off))
             fs = score_at(offset)
             coarse.append((fs, offset))
-            if fs.score < best.score:
+            if fs.key < best.key:
                 best, best_offset = fs, offset
             done += 1
             yield done / total, f"Searching placement {done}/{coarse_total}"
 
-    coarse.sort(key=lambda item: item[0].score)
+    coarse.sort(key=lambda item: item[0].key)
     step_x = W / n_x
     step_y = (tile_h / n_y) if slide_vertically else 0.0
     for _fs, (cx, cy) in coarse[:top_k]:
@@ -421,7 +475,7 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
                 offset = (float(px_off % W),
                           float(py_off % tile_h) if slide_vertically else 0.0)
                 fs = score_at(offset)
-                if fs.score < best.score:
+                if fs.key < best.key:
                     best, best_offset = fs, offset
                 done += 1
                 yield (done / total,
@@ -514,6 +568,15 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
     return boxes, intrinsic
 
 
+METRIC_VERSION = 2
+"""Bumped whenever the scorer or the search objective changes what it picks.
+
+Staleness is otherwise computed purely from inputs, so a change in here would
+leave every stored placement looking current while no longer being the one the
+search would find. Version 2 is the lexicographic (defects, margin) objective.
+"""
+
+
 def fingerprint(**values):
     """Digest of the inputs a placement depends on, for staleness checks.
 
@@ -522,4 +585,5 @@ def fingerprint(**values):
     value goes in as repr() so 1, "1" and True stay distinguishable.
     """
     payload = "\n".join(f"{k}={v!r}" for k, v in sorted(values.items()))
+    payload = f"metric={METRIC_VERSION}\n{payload}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
