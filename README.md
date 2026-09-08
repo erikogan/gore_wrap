@@ -10,11 +10,11 @@ An optional SVG pattern can be included and a separate pattern object will be ma
 
 Originally built for transferring complex patterns onto glass stuff-cups.
 
-## Install
+# Install
 
 Requires Blender 4.2 or newer (tested on 4.5 LTS and 5.0).
 
-### From Blender Extensions
+## From Blender Extensions
 
 Gore Wrap is listed on
 [Blender Extensions](https://extensions.blender.org/add-ons/gore-wrap/), so
@@ -32,7 +32,7 @@ Access** — then search again.
 
 Updates come through **Get Extensions → ▾ → Check for Updates**.
 
-### From a GitHub Release
+## From a GitHub Release
 
 Every tagged release attaches a prebuilt `gore_wrap-<version>.zip`, so you can
 install the exact bytes CI built without a toolchain:
@@ -45,7 +45,7 @@ install the exact bytes CI built without a toolchain:
 Installed this way the add-on will not update itself; repeat for a new version,
 or use [Blender Extensions](#from-blender-extensions) instead.
 
-### From Source
+## From Source
 1. Build the extension zip into the `dist/` directory (pick one):
    - If you have make and Python installed:
       ```
@@ -70,14 +70,14 @@ or use [Blender Extensions](#from-blender-extensions) instead.
 2. In Blender: **Edit → Preferences → Get Extensions → ▾ → Install from Disk…**
    and pick the zip.
 
-## Use
+# Use
 
 Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`). The sidebar has
 four panels — **Strips**, **Quality**, **Scale** and **Pattern** — with
 **Preview** and **Export SVG** beneath them. Each is documented below in that
 order.
 
-### Quick start
+## Quick start
 
 Header order is panel order, not the order you work in. For a first cut:
 
@@ -97,32 +97,32 @@ Header order is panel order, not the order you work in. For a first cut:
 8. Click [**Export SVG**](#export-svg) and open the file in your editor or
    cutter controller of choice.
 
-### Strips
+## Strips
 
 The geometry of the individual gore strips.
 
-#### Strip Angle
+### Strip Angle
 
 The target angular width of one gore (24° → 15 strips, 18° → 20 strips, etc.).
 The **Strip count** shown below it is what that angle snapped to, since only a
 whole number of strips fits around the object.
 
-#### Seam Offset (mm)
+### Seam Offset (mm)
 
 Edge allowance in millimeters: positive overlaps the neighboring strip,
 negative leaves a gap, zero is a butt joint.
 
-#### Mode
+### Mode
 
 Whether every strip shares one averaged shape or each is fitted to its own
 sector of the scan.
 
-##### Averaged
+#### Averaged
 
 One averaged gore shape is repeated for every strip. The strips are
 interchangeable, so they can go on in any order, anywhere.
 
-##### Fitted
+#### Fitted
 
 Each gore is fitted to its own angular sector of the scan, so it tracks local
 bumps and dents. The strips all differ, so they have to be applied in order at
@@ -139,19 +139,19 @@ direction matter.
 
 Averaged gores are identical, so none of this applies to them — start anywhere.
 
-#### Start Angle
+### Start Angle
 
 Fitted mode only. Which sector becomes gore 1, in degrees counter-clockwise
 from +X seen from above, so you can line gore 1 up with a landmark on the
 object.
 
-### Quality
+## Quality
 
 How closely the reconstructed surface and the flattened outlines track the
 scan. The defaults suit a clean scan; reach for these when the mesh is noisy,
 or when the cut file carries more nodes than the cutter needs.
 
-#### Smoothing
+### Smoothing
 
 Gaussian smoothing of the radius profile, in bands (default 2, range 0–20). The
 profile is the object's radius sampled up its height, and smoothing averages
@@ -162,7 +162,7 @@ real object. Lower it toward 0 when the object has genuine steps or ridges that
 the default is rounding away. Too high, and a flared or waisted profile
 flattens out toward a plain cone.
 
-#### Outline Tolerance (mm)
+### Outline Tolerance (mm)
 
 Ramer–Douglas–Peucker simplification of each gore outline (default 0.3 mm,
 range 0.01–5). A point is dropped when dropping it moves the outline by less
@@ -173,7 +173,7 @@ the outline carries far more nodes than the cutter needs. This governs the gore
 *outline* only — the pattern has its own control in
 [**Simplify Mode**](#simplify-mode).
 
-#### Fit error and Interpolated
+### Fit error and Interpolated
 
 Read-only, filled in by [**Preview**](#preview).
 
@@ -187,18 +187,18 @@ Read-only, filled in by [**Preview**](#preview).
   missed base, a shiny patch the scanner dropped — and the gores through those
   bands are guesses.
 
-### Scale
+## Scale
 
 Cropping the model and getting it to real-world size. The exported SVG is
 real-scale, so the numbers here are what make a cut strip actually fit the
 object.
 
-#### Bottom Crop
+### Bottom Crop
 
 Discard everything below this height, to cut off the base junk a scan usually
 carries.
 
-#### Calibrate By
+### Calibrate By
 
 Which dimension you measured, for when the scan is not already at true scale.
 Pick it here, enter the measurement in [**Measured (mm)**](#measured-mm), then
@@ -208,32 +208,32 @@ The height, max diameter and bottom circumference readouts above it are filled
 in by [**Preview**](#preview); until you run one, the panel says so rather than
 showing stale numbers.
 
-#### Measured (mm)
+### Measured (mm)
 
 The real dimension you measured on the object, matching the choice in
 [**Calibrate By**](#calibrate-by). **Apply Measured Scale** rescales the model
 so the two agree.
 
-### Pattern
+## Pattern
 
 An optional repeating design. The pattern is warped to each gore — squeezed
 horizontally so it fills the taper without distorting vertically — and written
 as a separate `pattern` layer.
 
-#### Fill With Pattern
+### Fill With Pattern
 
 Turns the pattern pipeline on and reveals everything below.
 
-#### Pattern SVG
+### Pattern SVG
 
 A seamless (tileable) SVG. Export EPS to SVG from your vector editor first.
 
-#### Repeats Around
+### Repeats Around
 
 How many times the pattern tiles around the object. The panel shows the
 resulting repeats per gore beneath it.
 
-#### Limit Pattern Height
+### Limit Pattern Height
 
 Stop the pattern short of the top instead of filling the whole gore, closing it
 off with a straight cut parallel to the bottom. The cuts go in their own
@@ -250,11 +250,11 @@ With the limit on, the next [**Preview**](#preview) shades the part of the
 object the pattern will not reach in a dim grey, split at the cut itself, so
 you can check the height against the real shape before exporting.
 
-##### Distance From Top (mm)
+#### Distance From Top (mm)
 
 How far down from the top the pattern ends.
 
-##### Measured
+#### Measured
 
 How that distance is read.
 
@@ -264,30 +264,30 @@ How that distance is read.
   profile. A domed or flared top covers far more surface than height, so a
   small drop there can be a much larger distance on the pattern.
 
-#### Smooth to Curves
+### Smooth to Curves
 
 Fit the warped pattern to smooth bezier curves, so the cutter does not stutter
 through many tiny line segments.
 
-#### Simplify Mode
+### Simplify Mode
 
 With [**Smooth to Curves**](#smooth-to-curves) on, how aggressively to fit.
 
-##### Visual
+#### Visual
 
 Default. Fewest nodes and the smoothest cut, while keeping genuine corners
 crisp.
 
-##### Cutter Resolution
+#### Cutter Resolution
 
 Hugs the true warped shape to cutter precision. More nodes; use it when exact
 fidelity matters.
 
-##### Custom
+#### Custom
 
 Reveals **Simplify Tol (mm)** and **Corner Angle (deg)**, below.
 
-##### Simplify Tol (mm)
+#### Simplify Tol (mm)
 
 Custom only. The maximum deviation of the fitted curves from the true shape.
 
@@ -299,7 +299,7 @@ amounts on different artwork. **Simplify Tol** is an absolute limit in
 millimeters, so it stays predictable at cut scale regardless of the pattern's
 size.
 
-##### Corner Angle (deg)
+#### Corner Angle (deg)
 
 Custom only. The *turn* angle: how far the path bends at a join. A join is kept
 as a sharp corner only when it turns by more than this, and gentler bends are
@@ -309,7 +309,7 @@ Note this is the opposite sense from some vector editors, whose "corner angle
 threshold" measures the *interior* angle (180° − turn). Their 150° default
 corresponds to about 30° here.
 
-### Placement
+## Placement
 
 Where the pattern sits on the gores. A gore cut can slice through the pattern
 and leave a **defect** behind: a piece of material too small to survive
@@ -326,21 +326,21 @@ overlapping shapes in *different* elements weld into one piece.
 If you plan to use [**Limit Pattern Height**](#limit-pattern-height), set it
 first.
 
-#### Automatic
+### Automatic
 
 The default. Two floors, and a piece fails if it trips either one.
 
-##### Min Fragment Area (mm²)
+#### Min Fragment Area (mm²)
 
 Default 10. The main dial. Set it to the smallest area of material your vinyl
 and your patience will actually survive.
 
-##### Min Fragment Width (mm)
+#### Min Fragment Width (mm)
 
 Default 0.6, floored at 0.10. A guard against hair-thin slivers rather than the
 main test. Keep it low.
 
-##### Optimize Placement
+#### Optimize Placement
 
 Searches where the pattern can sit and reports two counts: defects a gore cut
 created, against how many there were before — the ones moving the pattern can
@@ -356,7 +356,7 @@ The search runs behind a progress bar you can cancel with `Esc`. It writes its
 result into the [**Manual**](#manual) **Rotation** and **Rise (mm)** fields, so
 you can optimize first and then nudge by hand.
 
-##### Slide Vertically
+#### Slide Vertically
 
 Also search up and down the strip, not just around the object. Slower, and it
 changes what the base and top cuts pass through as well as the seams. Turning
@@ -364,20 +364,20 @@ it on searches a second axis, which costs substantially more time than the
 spin-only search. A dense pattern that fills its whole tile is slower still to
 search than an open one, since there is more of it for cuts to graze.
 
-#### Manual
+### Manual
 
 Place the pattern by hand instead.
 
-##### Rotation
+#### Rotation
 
 Spins the pattern around the object, in degrees. It repeats every
 360 ÷ [**Repeats Around**](#repeats-around).
 
-##### Rise (mm)
+#### Rise (mm)
 
 Slides the pattern up the strip, in millimeters.
 
-#### Mark Defects in Export
+### Mark Defects in Export
 
 Default off. Adds a `defects` layer of magenta rectangles, one per flagged
 piece, so you can see what is at risk in the cutting software before cutting,
@@ -388,7 +388,7 @@ pieces no placement can fix are reported but not boxed.
 **Those rectangles are cuttable geometry**: hide or delete the `defects` layer
 before you cut.
 
-#### Reading the status line
+### Reading the status line
 
 - **The counts are estimates**, read off a raster, and they drift a few percent
   with its resolution. A reported zero is trustworthy; a reported non-zero may
@@ -404,9 +404,9 @@ before you cut.
   [**Limit Pattern Height**](#limit-pattern-height) already stops short of it.
   No placement can rescue material up there; only a lower ceiling can.
 
-### Preview and Export
+## Preview and Export
 
-#### Preview
+### Preview
 
 Draws a semi-transparent reconstructed surface over the scan and fills in the
 [**Scale**](#scale) readouts — height, max diameter, bottom circumference —
@@ -418,7 +418,7 @@ In Fitted mode it also colors **gore 1 green and gore 2 orange**; see
 [Fitted](#fitted). With [**Limit Pattern Height**](#limit-pattern-height) on,
 it shades the part of the object the pattern will not reach in a dim grey.
 
-#### Number Strips
+### Number Strips
 
 On by default. Writes a separate red `labels` layer numbering the strips in
 wrap order; exclude that layer from cutting. Uncheck it for an outline-only
@@ -427,14 +427,14 @@ file.
 The checkbox is always shown, but numbering is only written in
 [Fitted](#fitted) mode — Averaged strips are identical and need no numbering.
 
-#### Export SVG
+### Export SVG
 
 Writes the file. Strips are laid out on a common baseline in wrap order.
 
 The exported SVG records the placement, both floors, and both counts it was
 written with, in an XML comment at the top of the file.
 
-## Development
+# Development
 
 Geometry, layout, pattern warping, and SVG writing are pure
 numpy/svgelements/stdlib and tested without Blender. Requires Python 3.11+
@@ -482,7 +482,7 @@ root, so the repo root is the package. Adding a module means adding it to
 `[build].paths` in `blender_manifest.toml` — `tests/test_manifest.py` fails
 if you forget.
 
-### CI
+## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request: the `pytest`
 suite once per supported Blender, on the Python and numpy that Blender bundles
@@ -492,7 +492,7 @@ on those same three; and a build of the extension zip. Each Blender series
 resolves to its newest patch release at run time and is cached, so a new 4.5.x
 needs no edit.
 
-### Releasing
+## Releasing
 
 1. Bump `version` in `blender_manifest.toml`, add the matching entry at the top
    of `CHANGELOG.md` — opening with a plain summary paragraph, see below — and
@@ -521,7 +521,7 @@ does not. That paragraph is why entries start with one. Uploading a version
 the platform already has is an error, so re-running a job that already
 succeeded fails rather than publishing twice.
 
-## Credits
+# Credits
 
 The floral pattern shown above is
 [Background pattern seamless texture illustration leaf black print vector floral](https://www.vecteezy.com/vector-art/7892500-background-pattern-seamless-texture-illustration-leaf-black-print-vector-floral)
