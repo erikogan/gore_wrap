@@ -10,6 +10,70 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 0.9.4 — 2026-09-09
+
+**Stray points from the scanned surroundings no longer deform a gore or the
+measurements.** A scan usually includes whatever the object was standing on. A
+crop clears nearly all of it, but a surface that is not perfectly level in the
+scan's frame can leave a handful of vertices just above the crop plane — far
+from the axis and all in one direction. Averaged into a band, they multiplied
+that band's radius several times over, which narrowed the single Fitted gore
+that owned them and inflated the reported diameter, fit error, and bottom
+circumference for every gore. Preview now drops points lying far outside the
+object's own radial envelope, and says how many it dropped. Gores and derived
+dimensions change for any scan that had such points, which is the whole point;
+this is the last correctness fix planned before 1.0.0.
+
+### Fixed
+
+- **A single Fitted gore could come out sharply narrower than its neighbors.**
+  On the reference scan, 18 vertices out of 50,058 above the crop plane — a
+  sliver of the counter, sitting below z = 0.52 mm and spanning about a fifth
+  of a strip in angle — landed in one band/sector cell alongside only 12 real
+  ones. The cell's mean radius came out 167.6 mm against a true 61 mm.
+  - Fitted mode normalizes each strip by its base radius, so that one poisoned
+    cell rescaled the *entire* gore to 62% of its neighbors while its base
+    stayed pinned to full width by construction — the flare-then-pinch that
+    made the strip look wrong near the base. Gore 13 of the reference scan
+    measured 11.75 mm across a tenth of the way up, against 19.60 mm for its
+    neighbors; it now measures 18.93 mm, inside their 18.86–19.23 mm range.
+  - `pipeline.build_gores` now calls `geometry.reject_radial_outliers` on the
+    centered cloud, before anything reads it, so the profile, the fit error and
+    the derived dimensions all see the same cleaned points.
+  - The gate keeps points within twice a robust envelope radius — the largest
+    per-band *median* radius. Per band, not overall, so a shape whose radius
+    varies up its height is measured against its own widest slice: a
+    candlestick's broad foot is not judged against its thin shaft. Median, so
+    a minority of strays cannot move the estimate, and bands too sparse to
+    judge are skipped so one holding nothing but debris cannot raise the
+    envelope to cover it.
+  - Twice the envelope is deliberately loose. Nothing on a roughly
+    axisymmetric object reaches twice its own widest radius, so the gate only
+    ever meets debris; it discards nothing from a clean cylinder, a taper, an
+    unevenly sampled scan, or a wide-footed column.
+- **Derived dimensions and fit error were wrong whenever such points were
+  present.** On the reference scan max diameter read 202.05 mm against a true
+  125.35 mm, fit error 2.79 mm against 0.59 mm, and bottom circumference
+  395.73 mm against 383.14 mm. The inflated fit error argues for Fitted mode
+  when Averaged would do; the inflated circumference scales the pattern wrap,
+  so it was skewing every gore's artwork, not just the affected strip.
+
+### Changed
+
+- Preview reports how many stray points it ignored, and the Quality panel
+  shows the count while it is non-zero. It is worth a warning rather than a
+  note: the points are almost always the object's surroundings, and a Bottom
+  Crop that clears them outright is better than leaving them to the gate.
+
+### Upgrading
+
+Re-run Preview on any scan whose Quality panel now reports stray points. Its
+gores and its derived dimensions have changed, so a scale factor calibrated
+against the old max diameter needs redoing, and a saved pattern placement
+should be re-optimized — the placement stamp covers settings and the mesh, not
+the version of the code that produced the outlines, so it will not flag itself
+stale on its own.
+
 ## 0.9.3 — 2026-09-08
 
 **Optimize Placement now minimizes the number it reports.** The search ranked

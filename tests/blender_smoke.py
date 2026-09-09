@@ -121,9 +121,12 @@ def main():
     assert props.has_preview
     assert props.computed_n_strips == 15
     assert 130.0 < props.derived_height < 150.0, props.derived_height
+    # A clean generated mesh has nothing outside its own envelope to drop.
+    assert props.discarded_points == 0, props.discarded_points
     print(f"[smoke] preview ok: {props.computed_n_strips} strips, "
           f"height {props.derived_height:.1f} mm, "
-          f"fit {props.fit_error_mm:.2f} mm")
+          f"fit {props.fit_error_mm:.2f} mm, "
+          f"{props.discarded_points} strays")
 
     out = os.path.join(tempfile.gettempdir(), "gorewrap_smoke.svg")
     with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):

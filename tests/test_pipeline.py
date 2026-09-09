@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 
 from gore_wrap import pipeline
-from tests.synthetic import cylinder_with_hemisphere, elliptical_column
+from tests.synthetic import (cylinder_with_hemisphere, cylinder_with_table_scrap,
+                             elliptical_column)
 
 
 def build(pts, **kw):
@@ -92,6 +93,56 @@ def test_build_gores_fitted_uniform_base_width(fitted_elliptical):
 def test_build_gores_fitted_uniform_height(fitted_elliptical):
     heights = [o[:, 1].max() for o in fitted_elliptical.outlines]
     assert max(heights) - min(heights) < 0.05
+
+
+# --- stray points from the scanned surface ----------------------------------
+
+@pytest.fixture(scope="module")
+def scrap_cloud():
+    # 18 vertices of the scanned table, just above the base and all in one
+    # wedge -- the artifact that narrowed a single fitted gore.
+    return cylinder_with_table_scrap(radius=40.0, scrap_radius=160.0,
+                                     n_scrap=18)
+
+
+def test_build_gores_reports_the_points_it_discarded(scrap_cloud):
+    assert build(scrap_cloud, mode="FITTED").discarded_points == 18
+
+
+def test_build_gores_discards_nothing_from_a_clean_scan(cyl_cloud):
+    assert build(cyl_cloud, mode="FITTED").discarded_points == 0
+
+
+def _width_a_tenth_up(outline):
+    """Width of a gore a tenth of the way up its meridian.
+
+    Measured above the base on purpose: the base width is pinned to the
+    averaged profile by construction, so it hides exactly the deformation
+    a poisoned base band causes.
+    """
+    apex = int(np.argmax(outline[:, 1]))
+    right, left = outline[:apex + 1], outline[apex:][::-1]
+    y = 0.1 * outline[:, 1].max()
+    return float(np.interp(y, right[:, 1], right[:, 0])
+                 - np.interp(y, left[:, 1], left[:, 0]))
+
+
+def test_build_gores_strays_do_not_narrow_their_own_gore(scrap_cloud):
+    # Before the outlier gate the wedge's own gore came out a fraction of its
+    # neighbors' width everywhere above the base.
+    widths = [_width_a_tenth_up(o)
+              for o in build(scrap_cloud, mode="FITTED").outlines]
+    assert max(widths) - min(widths) < 0.05
+
+
+def test_build_gores_strays_do_not_inflate_max_diameter(scrap_cloud):
+    # The scrap sits at r=160; the object is 40mm in radius.
+    assert abs(build(scrap_cloud, mode="FITTED").dims.max_diameter - 80.0) < 1.0
+
+
+def test_build_gores_strays_do_not_inflate_fit_error(cyl_cloud, scrap_cloud):
+    clean = build(cyl_cloud, mode="FITTED").fit_error
+    assert abs(build(scrap_cloud, mode="FITTED").fit_error - clean) < 0.05
 
 
 # --- crop and scale ---------------------------------------------------------

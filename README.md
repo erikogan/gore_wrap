@@ -173,7 +173,7 @@ the outline carries far more nodes than the cutter needs. This governs the gore
 *outline* only — the pattern has its own control in
 [**Simplify Mode**](#simplify-mode).
 
-### Fit error and Interpolated
+### Fit error, Interpolated and Stray points
 
 Read-only, filled in by [**Preview**](#preview).
 
@@ -186,6 +186,17 @@ Read-only, filled in by [**Preview**](#preview).
   something to report. A high number means the scan has holes — an undercut, a
   missed base, a shiny patch the scanner dropped — and the gores through those
   bands are guesses.
+- **Stray points ignored** — how many vertices sat so far from the axis that
+  they cannot be part of the object, and were dropped before the profile was
+  built. It appears only when there is something to report. These are nearly
+  always the surroundings the object was scanned on: a crop clears most of a
+  table, but a table that is not perfectly level in the scan's frame leaves a
+  few vertices just above [**Bottom Crop**](#bottom-crop), all in one
+  direction. Left in, a mere handful of them will narrow the one Fitted gore
+  that owns them and inflate every reading in [**Scale**](#scale). Seeing a
+  count here is not a problem — the points are already gone — but it does mean
+  **Bottom Crop** is set slightly too low, and raising it until the count
+  reaches zero is tidier than relying on the fallback.
 
 ## Scale
 
@@ -451,7 +462,7 @@ you cut.
 
 Draws a semi-transparent reconstructed surface over the scan and fills in the
 [**Scale**](#scale) readouts — height, max diameter, bottom circumference —
-along with [**Fit error and Interpolated**](#fit-error-and-interpolated).
+along with [**Fit error, Interpolated and Stray points**](#fit-error-interpolated-and-stray-points).
 Optional, but the fastest way to catch a bad crop or a noisy profile, and quite
 helpful for Fitted mode cuts.
 

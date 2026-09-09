@@ -78,6 +78,60 @@ def center_axis(points, n_bands=150, min_band_points=16):
     return float(np.median(centers[:, 0])), float(np.median(centers[:, 1]))
 
 
+def reject_radial_outliers(points, center, max_ratio=2.0, n_bands=150,
+                           min_band_points=16):
+    """Discard points lying far outside the object's own radial envelope.
+
+    Scans routinely include a scrap of whatever the object stood on. A crop
+    clears most of it, but a surface that is not perfectly level in the scan's
+    frame can leave a handful of vertices just above the crop plane, far from
+    the axis and all in one angular wedge. Averaged into a band/sector cell
+    they multiply that cell's radius several times over, which deforms the one
+    fitted gore that owns the wedge and inflates the reported diameter and fit
+    error for everybody.
+
+    The envelope is the largest per-band *median* radius: a robust stand-in for
+    the object's widest true radius, since a minority of strays cannot move a
+    median, and it is taken per band so a shape whose radius varies up its
+    height — a candlestick's broad foot under a thin shaft — is measured
+    against its own widest slice rather than its overall average. Bands with
+    fewer than `min_band_points` points are ignored, so a sparse band holding
+    nothing but debris cannot raise the envelope to cover it.
+
+    Points beyond `max_ratio` times the envelope are dropped. The default of 2
+    is deliberately loose: nothing on a roughly axisymmetric object reaches
+    twice its own widest radius, so the gate only ever meets debris, while the
+    margin leaves genuinely lopsided sections alone.
+
+    Returns (kept_points, n_rejected).
+    """
+    points = np.asarray(points, dtype=float)
+    if len(points) == 0:
+        return points, 0
+
+    cx, cy = center
+    r = np.hypot(points[:, 0] - cx, points[:, 1] - cy)
+    z = points[:, 2]
+    z_min, z_max = z.min(), z.max()
+
+    if z_max <= z_min:
+        envelope = float(np.median(r))
+    else:
+        edges = np.linspace(z_min, z_max, n_bands + 1)
+        band = np.clip(np.digitize(z, edges) - 1, 0, n_bands - 1)
+        counts = np.bincount(band, minlength=n_bands)
+        medians = [np.median(r[band == b])
+                   for b in np.flatnonzero(counts >= min_band_points)]
+        if not medians:
+            return points, 0
+        envelope = float(np.max(medians))
+
+    if not envelope > 0.0:
+        return points, 0
+    keep = r <= max_ratio * envelope
+    return points[keep], int(np.count_nonzero(~keep))
+
+
 def _interpolate_nan_columns(radii):
     """Fill NaN cells (empty band/sector) by linear interpolation up each column.
 
@@ -258,6 +312,12 @@ def unwrap_gore_uniform(z, r_sector, r_avg, n_strips, seam_offset=0.0):
     strips suitable as a template. A pure per-sector radius scale — which is
     what an off-center axis or an elliptical section produces — normalizes away,
     leaving averaged-like gores.
+
+    Pinning the base sample is what makes the base width uniform, so the scale
+    is read there rather than from the profile as a whole. That does leave the
+    whole strip resting on one band, which is only safe because the caller has
+    already dropped radial outliers and smoothed the profile across its
+    neighbors; see `reject_radial_outliers`.
     """
     z = np.asarray(z, dtype=float)
     r_sector = np.asarray(r_sector, dtype=float)

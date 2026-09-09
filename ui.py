@@ -65,6 +65,9 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             if props.interp_fraction > 0.2:
                 box.label(text=f"Interpolated: {props.interp_fraction*100:.0f}%",
                           icon="ERROR")
+            if props.discarded_points:
+                box.label(text=f"Stray points ignored: {props.discarded_points}",
+                          icon="ERROR")
 
         box = layout.box()
         box.label(text="Scale", icon="DRIVER_DISTANCE")

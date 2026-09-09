@@ -216,6 +216,7 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
     derived_circumference: bpy.props.FloatProperty(default=0.0)
     fit_error_mm: bpy.props.FloatProperty(default=0.0)
     interp_fraction: bpy.props.FloatProperty(default=0.0)
+    discarded_points: bpy.props.IntProperty(default=0)
 
     # Readouts written by the Optimize Placement operator.
     has_pattern_fit: bpy.props.BoolProperty(default=False)

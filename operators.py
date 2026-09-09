@@ -83,6 +83,7 @@ def _store_readouts(props, result):
     props.derived_circumference = result.dims.bottom_circumference
     props.fit_error_mm = result.fit_error
     props.interp_fraction = result.interp_fraction
+    props.discarded_points = result.discarded_points
     props.computed_n_strips = result.n_strips
 
 
@@ -317,6 +318,15 @@ class GOREWRAP_OT_preview(bpy.types.Operator):
             self.report({"WARNING"},
                         f"{result.interp_fraction * 100:.0f}% of bands were "
                         f"interpolated; scan may be too sparse.")
+        elif result.discarded_points:
+            # Worth a warning, not a note: the points are usually a scrap of
+            # whatever the object was scanned on, and a crop that clears them
+            # is better than leaving them to the gate.
+            self.report({"WARNING"},
+                        f"Ignored {result.discarded_points} stray "
+                        f"{'point' if result.discarded_points == 1 else 'points'} "
+                        f"far outside the object; raise Bottom Crop if the "
+                        f"scan still includes its surroundings.")
         else:
             self.report({"INFO"},
                         f"{result.n_strips} strips, fit error "

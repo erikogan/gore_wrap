@@ -2,8 +2,9 @@ import numpy as np
 import pytest
 
 from gore_wrap import geometry
-from tests.synthetic import (cylinder_with_hemisphere, tapered_cone,
-                             unevenly_sampled_cylinder)
+from tests.synthetic import (cylinder_with_hemisphere, cylinder_with_table_scrap,
+                             tapered_cone, unevenly_sampled_cylinder,
+                             wide_foot_column)
 
 
 # --- shared point clouds and derived objects (computed once per module) ------
@@ -196,6 +197,45 @@ def test_unwrap_gore_cone_base_width_follows_bottom_radius(cone_gore):
 def test_unwrap_gore_cone_meridian_exceeds_height(cone_gore):
     # Slant height of a tapered cone plus the apex is longer than H.
     assert cone_gore[:, 1].max() > 100.0
+
+
+# --- reject_radial_outliers -------------------------------------------------
+
+def test_reject_radial_outliers_drops_scrap_far_outside_the_envelope():
+    cloud = cylinder_with_table_scrap(radius=40.0, scrap_radius=160.0,
+                                      n_scrap=18)
+    kept, _ = geometry.reject_radial_outliers(cloud, center=(0.0, 0.0))
+    r = np.hypot(kept[:, 0], kept[:, 1])
+    assert r.max() < 45.0
+
+
+def test_reject_radial_outliers_counts_what_it_dropped():
+    cloud = cylinder_with_table_scrap(radius=40.0, scrap_radius=160.0,
+                                      n_scrap=18)
+    _, n_rejected = geometry.reject_radial_outliers(cloud, center=(0.0, 0.0))
+    assert n_rejected == 18
+
+
+def test_reject_radial_outliers_leaves_a_clean_cloud_alone(cyl_cloud):
+    kept, n_rejected = geometry.reject_radial_outliers(cyl_cloud,
+                                                      center=(0.0, 0.0))
+    assert n_rejected == 0
+    assert len(kept) == len(cyl_cloud)
+
+
+def test_reject_radial_outliers_spares_a_wide_foot():
+    # The foot is 12x the shaft radius and holds a fifth of the points; a rule
+    # keyed to the cloud's overall radius would cut it off. Nothing may go.
+    cloud = wide_foot_column()
+    _, n_rejected = geometry.reject_radial_outliers(cloud, center=(0.0, 0.0))
+    assert n_rejected == 0
+
+
+def test_reject_radial_outliers_spares_a_taper(cone_cloud):
+    # A cone's radius varies 40 -> 30 up its height; none of that is an outlier.
+    _, n_rejected = geometry.reject_radial_outliers(cone_cloud,
+                                                   center=(0.0, 0.0))
+    assert n_rejected == 0
 
 
 # --- unwrap_gore_uniform (fitted mode, uniform envelope) ---------------------

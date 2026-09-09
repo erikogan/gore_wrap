@@ -18,6 +18,7 @@ class GoreResult:
     fit_error: float          # RMS radial deviation, mm
     n_strips: int
     interp_fraction: float    # scan-quality signal for the >20% warning
+    discarded_points: int     # stray points dropped as radial outliers
     scale_factor: float
     center: tuple             # (x, y) of the axis in scaled mm coords
     profile: geometry.Profile  # apex-closed profile, for the preview surface
@@ -29,9 +30,16 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
     """Turn a scan point cloud into flat gore outlines and derived dimensions.
 
     Steps: crop below `crop_z` (in the mesh's own units), scale to mm, center
-    the axis, build the radius profile (one column in AVERAGED mode, one per
-    strip in FITTED mode), smooth, measure fit error, close the apex, then
-    unwrap and simplify each gore. `seam_offset` and `tolerance` are in mm.
+    the axis, discard stray points far outside the object's radial envelope,
+    build the radius profile (one column in AVERAGED mode, one per strip in
+    FITTED mode), smooth, measure fit error, close the apex, then unwrap and
+    simplify each gore. `seam_offset` and `tolerance` are in mm.
+
+    The outlier gate runs on the centered cloud and before everything that
+    reads it, so the profile, the fit error and the derived dimensions all see
+    the same cleaned points. It is keyed to the axis rather than the other way
+    around because `center_axis` is already robust to the debris — it takes the
+    median of per-band circle fits, which a few bad bands cannot move.
     """
     points = np.asarray(points, dtype=float)
     if crop_z is not None:
@@ -39,6 +47,7 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
     points = points * scale_factor
 
     center = geometry.center_axis(points)
+    points, discarded_points = geometry.reject_radial_outliers(points, center)
     n_strips = geometry.strip_count(strip_angle)
     n_sectors = n_strips if mode == "FITTED" else 1
 
@@ -69,4 +78,5 @@ def build_gores(points, *, strip_angle, mode, seam_offset, crop_z,
 
     return GoreResult(outlines=outlines, dims=dims, fit_error=err,
                       n_strips=n_strips, interp_fraction=closed.interp_fraction,
+                      discarded_points=discarded_points,
                       scale_factor=scale_factor, center=center, profile=closed)

@@ -109,3 +109,43 @@ def tapered_cone(r_bottom=40.0, r_top=30.0, height=100.0, center=(0.0, 0.0),
     theta = rng.uniform(0, 2 * np.pi, n)
     return np.column_stack([cx + r * np.cos(theta),
                             cy + r * np.sin(theta), z])
+
+
+def cylinder_with_table_scrap(radius=40.0, height=100.0, scrap_radius=160.0,
+                              n_scrap=18, sector_center=0.0, n=40000, seed=7):
+    """A clean cylinder plus a scrap of the surface the object was scanned on.
+
+    Reproduces the scan artifact that mangled one fitted gore: the scanned
+    table extends far past the object, a crop leaves a handful of its vertices
+    just above the base plane, and they all sit in one narrow angular wedge.
+    `scrap_radius` is well outside the object, `n_scrap` points land within a
+    couple of band heights of z=0, and `sector_center` (radians) aims the wedge.
+    """
+    rng = np.random.default_rng(seed)
+    body = cylinder_with_hemisphere(radius=radius, height=height, n=n, seed=seed)
+    theta = sector_center + rng.uniform(-0.05, 0.05, n_scrap)
+    r = scrap_radius * rng.uniform(0.98, 1.02, n_scrap)
+    scrap = np.column_stack([r * np.cos(theta), r * np.sin(theta),
+                             rng.uniform(0.0, 0.5, n_scrap)])
+    return np.vstack([body, scrap])
+
+
+def wide_foot_column(foot_radius=60.0, shaft_radius=5.0, foot_height=3.0,
+                     height=150.0, n=20000, seed=8):
+    """A candlestick: a broad flat foot under a long thin shaft.
+
+    Most points lie on the narrow shaft, so the cloud's *overall* median radius
+    is far below the foot's. Any outlier rule keyed to a single global radius
+    would eat the foot; this is the shape that forces the rule to be per-band.
+    """
+    rng = np.random.default_rng(seed)
+    n_foot = n // 5
+    r = foot_radius * np.sqrt(rng.uniform(0, 1, n_foot))
+    theta = rng.uniform(0, 2 * np.pi, n_foot)
+    foot = np.column_stack([r * np.cos(theta), r * np.sin(theta),
+                            rng.uniform(0.0, foot_height, n_foot)])
+    theta_s = rng.uniform(0, 2 * np.pi, n - n_foot)
+    shaft = np.column_stack([shaft_radius * np.cos(theta_s),
+                             shaft_radius * np.sin(theta_s),
+                             rng.uniform(foot_height, height, n - n_foot)])
+    return np.vstack([foot, shaft])
