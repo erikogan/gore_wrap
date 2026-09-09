@@ -4,7 +4,8 @@ import bpy
 
 from . import operators, properties, ui
 
-_classes = (properties.GoreWrapProperties,) + operators.classes + ui.classes
+_classes = ((properties.GOREWRAP_advice_row, properties.GoreWrapProperties)
+            + operators.classes + ui.classes)
 
 
 def register():

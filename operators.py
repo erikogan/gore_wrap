@@ -153,6 +153,37 @@ def placement_stamp(props, obj):
                  if obj is not None and obj.type == "MESH" else 0))
 
 
+def advice_stamp(props, obj):
+    """Digest of what the advice table depends on -- and deliberately not the
+    levers it sweeps.
+
+    `strip_angle`, `pattern_repeats_x` and the three height-limit properties
+    are exactly what applying a row writes, so including them would invalidate
+    the table the moment the user picked a row from it. The advice is a map of
+    the settings space; moving within that space does not invalidate the map,
+    which is what lets the user apply a row, run Optimize, and come back to try
+    another. Slide Vertically is out for a different reason: screening is
+    one-dimensional regardless of it.
+    """
+    try:
+        st = os.stat(bpy.path.abspath(props.pattern_svg))
+        svg_stat = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        svg_stat = None
+    return pattern_fit.fingerprint(
+        svg=props.pattern_svg, svg_stat=svg_stat,
+        min_area=props.pattern_min_area,
+        min_width=props.pattern_min_width,
+        invert=props.pattern_invert,
+        mode=props.mode, seam_offset=props.seam_offset,
+        start_angle=props.start_angle, crop_z=props.crop_z,
+        smoothing_sigma=props.smoothing_sigma, tolerance=props.tolerance,
+        scale_factor=props.scale_factor,
+        obj_name=obj.name if obj is not None and obj.type == "MESH" else "",
+        n_verts=(len(obj.data.vertices)
+                 if obj is not None and obj.type == "MESH" else 0))
+
+
 def _build_preview_surface(result, scale_factor, start_angle, top_inset=0.0):
     """(verts, faces, face_sectors, face_above_cut, seam_edges) in mesh units.
 

@@ -13,6 +13,31 @@ def _update_strip_count(self, context):
     self.computed_n_strips = geometry.strip_count(self.strip_angle)
 
 
+class GOREWRAP_advice_row(bpy.types.PropertyGroup):
+    """One row of the placement advisor's trade-off table.
+
+    Mirrors pattern_advise.AdviceRow; the operator copies field by field,
+    because a PropertyGroup cannot hold a dataclass.
+    """
+    lever: bpy.props.StringProperty(default="")
+    label: bpy.props.StringProperty(default="")
+    n_strips: bpy.props.IntProperty(default=0)
+    repeats: bpy.props.IntProperty(default=0)
+    limit_top: bpy.props.BoolProperty(default=False)
+    top_offset: bpy.props.FloatProperty(default=0.0)
+    current: bpy.props.BoolProperty(default=False)
+    feasible: bpy.props.BoolProperty(default=True)
+    note: bpy.props.StringProperty(default="")
+    defects_base: bpy.props.IntProperty(default=0)
+    defects_screened: bpy.props.IntProperty(default=0)
+    zero_offsets: bpy.props.IntProperty(default=0)
+    fit_error: bpy.props.FloatProperty(default=0.0)
+    strip_width: bpy.props.FloatProperty(default=0.0)
+    coverage: bpy.props.FloatProperty(default=1.0)
+    flag_aesthetic: bpy.props.BoolProperty(default=False)
+    flag_coverage: bpy.props.BoolProperty(default=False)
+
+
 class GoreWrapProperties(bpy.types.PropertyGroup):
     strip_angle: bpy.props.FloatProperty(
         name="Strip Angle",
@@ -224,3 +249,9 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
     pattern_defects_base: bpy.props.IntProperty(default=0)
     pattern_defects_intrinsic: bpy.props.IntProperty(default=0)
     pattern_fit_stamp: bpy.props.StringProperty(default="")
+
+    # Readouts written by the Placement Advisor operator.
+    advice: bpy.props.CollectionProperty(type=GOREWRAP_advice_row)
+    advice_index: bpy.props.IntProperty(default=0)
+    has_advice: bpy.props.BoolProperty(default=False)
+    advice_stamp: bpy.props.StringProperty(default="")

@@ -232,6 +232,8 @@ def main():
     check_non_finite_rejected(obj)
     check_optimize_placement(obj)
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
+    test_advice_stamp_ignores_the_swept_levers(obj)
+    test_advice_properties_exist(bpy.context.scene.gore_wrap)
 
 
 def test_placement_properties_exist(props):
@@ -243,6 +245,48 @@ def test_placement_properties_exist(props):
     assert "pattern_min_feature" not in props.bl_rna.properties
     assert "pattern_orphans" not in props.bl_rna.properties
     print("[smoke] placement properties ok")
+
+
+def test_advice_stamp_ignores_the_swept_levers(obj):
+    """The advice is a map of the settings space; moving within it must not
+    invalidate the map, or applying a row would blank the table it came from."""
+    import bpy
+    from gore_wrap import operators
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()
+    props.pattern_repeats_x = 6
+    props.strip_angle = 24.0
+    props.pattern_limit_top = False
+
+    base = operators.advice_stamp(props, obj)
+
+    # The three swept levers must NOT change the stamp.
+    props.strip_angle = 36.0
+    assert operators.advice_stamp(props, obj) == base, "strip count"
+    props.pattern_repeats_x = 3
+    assert operators.advice_stamp(props, obj) == base, "repeats"
+    props.pattern_limit_top = True
+    props.pattern_top_offset = 20.0
+    assert operators.advice_stamp(props, obj) == base, "height limit"
+
+    # Anything the sweep does not vary MUST change it.
+    props.pattern_min_area = 25.0
+    assert operators.advice_stamp(props, obj) != base, "area floor"
+    props.pattern_min_area = 10.0
+    props.pattern_invert = True
+    assert operators.advice_stamp(props, obj) != base, "invert"
+    props.pattern_invert = False
+    props.tolerance = 0.45
+    assert operators.advice_stamp(props, obj) != base, "tolerance"
+    props.tolerance = 0.3
+    print("[smoke] advice stamp ok")
+
+
+def test_advice_properties_exist(props):
+    for name in ("advice", "advice_index", "has_advice", "advice_stamp"):
+        assert name in props.bl_rna.properties, name
+    print("[smoke] advice properties ok")
 
 
 def check_optimize_placement(obj):
