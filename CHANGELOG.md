@@ -10,6 +10,43 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 1.0.0 — 2026-09-09
+
+**The Placement Advisor.** When Optimize Placement finishes and defects remain,
+the advisor sweeps the settings that change the gores — strip count, Repeats
+Around, and the height limit — and reports what each change would buy and what
+it would cost. It never changes anything itself: you pick a row from a ranked
+trade-off table, apply it, and run Optimize again. This release also raises the
+minimum Blender version to 4.5.
+
+### Added
+
+- **Placement Advisor**, a new sub-panel and a button on the Pattern box that
+  appears whenever an optimized placement still leaves defects.
+  - Sweeps every strip count from 8 up to your current one, Repeats Around from
+    1 to one past your current, and the height limit off plus three insets,
+    then crosses the best strip and repeat counts to check whether the gains
+    stack. On real artwork they do, and by more than multiplying predicts.
+  - Each row reports defects before and after searching, fit error, strip
+    width, coverage, and how many screened rotations were defect-free. Rows are
+    ranked by defect count, with anything that will not fit the mat listed last
+    rather than hidden.
+  - A row's number is a floor, not a promise: screening stops at the coarse
+    rotation grid while Optimize also refines between grid points.
+  - Reducing Repeats Around makes the artwork larger — it is the same knob —
+    and every row that changes it is flagged as changing how the design reads.
+    Repeats Around of 1 is always offered and always flagged, never filtered.
+  - Height-limit rows are flagged when their improvement is mostly just the
+    pattern they removed, which measurement says is nearly always.
+  - Minutes rather than seconds, with a progress bar and Esc to cancel.
+
+### Changed
+
+- **Minimum Blender version is now 4.5.0.** 4.2 reached end of life in July
+  2026. This is why the release is 1.0.0 rather than 0.10.0.
+- Applying an advisor row clears the recorded placement, since it was optimized
+  for the settings you just changed. The advice table itself stays valid, so
+  you can try another row against it.
 ## 0.9.4 — 2026-09-09
 
 **Stray points from the scanned surroundings no longer deform a gore or the

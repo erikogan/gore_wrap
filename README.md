@@ -413,6 +413,61 @@ Spins the pattern around the object, in degrees. It repeats every
 
 Slides the pattern up the strip, in millimeters.
 
+### Placement Advisor
+
+[**Optimize Placement**](#optimize-placement) searches one thing: where the
+pattern sits. That is often not the thing that matters. On artwork finer than
+your floors, sweeping the entire rotation is worth a few percent while changing
+the strip count is worth sixty.
+
+The advisor answers the other question. It holds your artwork fixed and sweeps
+the settings that change the gores instead, reporting what each change would
+buy and what it would cost. It is offered on the Placement panel whenever an
+optimized placement still leaves defects.
+
+It sweeps three things:
+
+- **Strip count**, from 8 up to your current count. Usually the biggest lever.
+  Fewer, wider strips mean fewer seams for a cut to graze, and they cost fit
+  error: a wide strip conforms to a curved surface less willingly than a narrow
+  one. The trend is not smooth, so every count is tried rather than guessed at.
+- **Repeats Around**, from 1 to one past your current. This is the same knob as
+  artwork size — the tile is the circumference divided by the repeat count — so
+  fewer repeats means larger artwork, coarser detail, and wider gaps between
+  shapes. It is frequently the single largest improvement available and it
+  always changes how the design reads, so every row that moves it is marked.
+- **The height limit**, off plus three depths. Be skeptical of these rows.
+  Running the pattern less far up the object always lowers the defect count,
+  because there is less pattern to have defects in. Rows marked *"gain is
+  mostly the coverage it removes"* are buying their improvement that way, and
+  in practice nearly all of them are.
+
+It then crosses the best strip and repeat counts to check whether the gains
+stack, which they generally do.
+
+**This takes minutes, not seconds** — every candidate re-runs the whole
+pipeline from the scan and then searches placements on top of that. There is a
+progress bar, and Esc cancels without changing anything.
+
+Each row reports the defect count it reached, the count before searching, the
+fit error, the strip width, how much of the object the pattern covers, and how
+many of the screened rotations came out completely clean — a useful measure of
+how fussy a setting is to place. Rows are ranked by defect count. A setting
+whose strips will not fit your mat is still listed, with the reason, rather
+than quietly dropped.
+
+Select a row for the full breakdown, or use **Full Advice Table** to see every
+column for every candidate at once. **Apply These Settings** adopts a row.
+
+Two things to know about applying one. The placement is cleared, because it was
+optimized for the settings you just changed — run **Optimize Placement** again.
+The advice table is *not* cleared, so you can go back and try another row
+against it.
+
+A row's number is a floor rather than a promise. The advisor screens on a
+coarse grid of rotations while Optimize also refines between them, so the real
+result should match what the table said or beat it.
+
 ### Mark Defects in Export
 
 Default off. Adds a `defects` layer of magenta rectangles, one per flagged
