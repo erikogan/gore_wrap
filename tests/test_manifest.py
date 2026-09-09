@@ -74,3 +74,13 @@ def test_version_constant_matches_the_manifest():
         (Path(__file__).resolve().parent.parent
          / "blender_manifest.toml").read_text())
     assert gore_wrap.__version__ == manifest["version"]
+
+
+def test_blender_floor_supports_the_dialog_api():
+    # title / confirm_text on invoke_props_dialog and separator(type=...) are
+    # both used unconditionally, and neither exists in 4.2. The floor is what
+    # makes dropping the runtime probes safe.
+    with open(ROOT / "blender_manifest.toml", "rb") as fh:
+        manifest = tomllib.load(fh)
+    floor = tuple(int(p) for p in manifest["blender_version_min"].split("."))
+    assert floor >= (4, 5, 0), manifest["blender_version_min"]

@@ -5,18 +5,9 @@ import bpy
 from . import operators
 
 
-# `separator(type=...)` post-dates 4.2, the version floor in the manifest, so
-# ask the RNA rather than guessing from a version number.
-_HAS_LINE_SEPARATOR = "type" in (
-    bpy.types.UILayout.bl_rna.functions["separator"].parameters)
-
-
 def _divider(layout):
-    """A horizontal rule between groups of settings (a plain gap pre-4.3)."""
-    if _HAS_LINE_SEPARATOR:
-        layout.separator(type="LINE")
-    else:
-        layout.separator()
+    """A horizontal rule between groups of settings."""
+    layout.separator(type="LINE")
 
 
 def _labeled(layout, props, name):
