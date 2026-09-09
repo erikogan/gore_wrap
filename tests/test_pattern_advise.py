@@ -186,6 +186,31 @@ def test_infeasible_rows_sort_last(tmp_path, monkeypatch):
             pytest.fail("a feasible row sorted after an infeasible one")
 
 
+def test_rank_orders_feasible_ascending_with_infeasible_last():
+    # Deliberately out of order, with an infeasible row placed before the
+    # feasible ones -- the sweep fixture never produces an infeasible row, so
+    # this pins the contract directly rather than relying on it to appear.
+    def row(label, feasible, defects_screened=0):
+        return pattern_advise.AdviceRow(
+            lever="strips", label=label, n_strips=10, repeats=4,
+            limit_top=False, top_offset=0.0, feasible=feasible,
+            defects_screened=defects_screened)
+
+    rows = [
+        row("mid", True, defects_screened=5),
+        row("bad-1", False),
+        row("low", True, defects_screened=1),
+        row("high", True, defects_screened=9),
+        row("bad-2", False),
+    ]
+    ranked = pattern_advise._rank(rows)
+    assert [r.label for r in ranked] == ["low", "mid", "high", "bad-1", "bad-2"]
+    feasible = ranked[:3]
+    assert all(r.feasible for r in feasible)
+    assert [r.defects_screened for r in feasible] == [1, 5, 9]
+    assert all(not r.feasible for r in ranked[3:])
+
+
 def test_the_sweep_reports_monotonic_progress_ending_at_one(
         tmp_path, monkeypatch):
     gen = _advise(tmp_path, monkeypatch)

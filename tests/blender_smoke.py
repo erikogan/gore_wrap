@@ -360,7 +360,7 @@ def check_optimize_placement(obj):
 def check_advisor(obj):
     """The sweep runs, writes rows, and applying one changes the settings."""
     import bpy
-    from gore_wrap import operators, pattern_fit
+    from gore_wrap import pattern_fit
     props = bpy.context.scene.gore_wrap
     props.use_pattern = True
     props.pattern_svg = _write_temp_pattern()
@@ -385,7 +385,10 @@ def check_advisor(obj):
     assert counts == sorted(counts), "rows are not ranked"
 
     # Applying a row writes its settings and invalidates only the placement.
-    target = next(r for r in props.advice if not r.current and r.feasible)
+    target = next((r for r in props.advice if not r.current and r.feasible),
+                  None)
+    assert target is not None, \
+        "no feasible non-current row in the advice table to apply"
     want_strips, want_repeats = target.n_strips, target.repeats
     stamp_before = props.advice_stamp
     props.has_pattern_fit = True
