@@ -42,6 +42,7 @@ paths = [
   "export_job.py",
   "geometry.py",
   "operators.py",
+  "pattern_advise.py",
   "pattern_fit.py",
   "pattern_warp.py",
   "pipeline.py",
