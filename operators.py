@@ -163,7 +163,10 @@ def advice_stamp(props, obj):
     the settings space; moving within that space does not invalidate the map,
     which is what lets the user apply a row, run Optimize, and come back to try
     another. Slide Vertically is out for a different reason: screening is
-    one-dimensional regardless of it.
+    one-dimensional regardless of it. Unlike `placement_stamp`, this also
+    leaves out `pattern_rotation`/`pattern_rise`: the sweep screens rotation
+    itself on its own coarse grid and holds nothing about the user's current
+    placement, so those two have no bearing on whether the table is stale.
     """
     try:
         st = os.stat(bpy.path.abspath(props.pattern_svg))
@@ -723,6 +726,14 @@ class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
             self.report({"INFO"},
                         f"Best: {best.label} at {best.defects_screened} "
                         f"defects, against {current.defects_screened} now")
+        elif best is not None:
+            # The current settings themselves failed to lay out, but other
+            # candidates did -- report the best of those rather than telling
+            # the user nothing was found when a full table of workable rows
+            # is sitting right below.
+            self.report({"INFO"},
+                        f"Best: {best.label} at {best.defects_screened} "
+                        f"defects. Current settings did not fit the mat.")
         else:
             self.report({"WARNING"}, "No workable settings found.")
         return {"FINISHED"}
@@ -753,8 +764,12 @@ class GOREWRAP_OT_apply_advice(bpy.types.Operator):
         props.pattern_repeats_x = row.repeats
         props.pattern_limit_top = row.limit_top
         if row.limit_top:
-            # The sweep works in resolved surface distance, so the mode is
-            # normalized rather than reinterpreting a HEIGHT-mode offset.
+            # row.top_offset arrives pre-resolved: pattern_advise.advise()
+            # resolves the user's live top_mode exactly once, so every row's
+            # top_offset -- height rows and this one alike -- is already a
+            # meridian (surface) inset in millimeters, never a mode-dependent
+            # value. Writing SURFACE here is therefore correct by
+            # construction, not a reinterpretation of a HEIGHT-mode offset.
             props.pattern_top_mode = "SURFACE"
             props.pattern_top_offset = row.top_offset
 
@@ -794,14 +809,14 @@ class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
             sub.scale_x = width
             sub.label(text=cell)
         col.separator(type="LINE")
-        for line, item in zip(body, props.advice):
+        for i, (line, item) in enumerate(zip(body, props.advice)):
             row_ui = col.row(align=True)
             for cell, width in zip(line, widths):
                 sub = row_ui.row()
                 sub.scale_x = width
                 sub.label(text=cell)
             op = row_ui.operator("gorewrap.apply_advice", text="Use")
-            op.index = list(props.advice).index(item)
+            op.index = i
 
 
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,

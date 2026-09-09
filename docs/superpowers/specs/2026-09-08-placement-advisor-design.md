@@ -245,7 +245,9 @@ carry a staleness stamp:
   shipped range stops one past the current count.
 - **Height limit** — off, plus insets at 15%, 30% and 45% of the pattern
   meridian. Each row flagged when its coverage-normalized count fails to
-  improve.
+  improve by more than 10% (`COVERAGE_GAIN`) over the current setting — the
+  calibration's 7.6% case is the reason the margin is there: a literal "any
+  improvement counts" reading would leave it unflagged.
 
 At the reference settings that is 13 + 3 + 4 = 20 raw candidates, less two
 duplicates where the current settings recur across levers, so **18 screening

@@ -530,8 +530,6 @@ def check_advisor_panel():
                                          "advice_index", 0)
         assert layout.calls, "draw_item on an infeasible row emitted nothing"
 
-    for area in bpy.context.screen.areas if bpy.context.screen else []:
-        area.tag_redraw()
     print("[smoke] advisor panel ok")
 
 

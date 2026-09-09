@@ -84,7 +84,7 @@ def _screen(row, tmp_path, monkeypatch, coarse=8):
     monkeypatch.setattr(pattern_advise.pattern_fit, "COARSE_1D", coarse)
     return _drain(pattern_advise.screen(
         row, _points(), BASE_PARAMS, _pattern(tmp_path), 10.0, 0.6,
-        False, "SURFACE", {}))
+        False, {}))
 
 
 def test_screening_records_the_costs_of_a_candidate(tmp_path, monkeypatch):
@@ -118,7 +118,7 @@ def test_an_unlayoutable_candidate_becomes_a_row_not_an_exception(
                                    top_offset=0.0)
     huge = cylinder_with_hemisphere(radius=250.0, height=600.0)
     _drain(pattern_advise.screen(row, huge, BASE_PARAMS, _pattern(tmp_path),
-                                 10.0, 0.6, False, "SURFACE", {}))
+                                 10.0, 0.6, False, {}))
     assert not row.feasible
     assert row.note
     assert row.defects_screened == 0
@@ -132,7 +132,7 @@ def test_screening_reports_progress_between_zero_and_one(
                                    top_offset=0.0)
     seen = list(pattern_advise.screen(
         row, _points(), BASE_PARAMS, _pattern(tmp_path), 10.0, 0.6,
-        False, "SURFACE", {}))
+        False, {}))
     assert seen == sorted(seen)
     assert all(0.0 < f <= 1.0 for f in seen)
 
@@ -154,10 +154,80 @@ def test_the_gore_cache_is_reused_across_candidates(tmp_path, monkeypatch):
                                        n_strips=10, repeats=repeats,
                                        limit_top=False, top_offset=0.0)
         _drain(pattern_advise.screen(row, points, BASE_PARAMS, pattern,
-                                     10.0, 0.6, False, "SURFACE", cache))
+                                     10.0, 0.6, False, cache))
     # The repeats sweep never changes the strip count, so the gores are built
     # once and reused -- this is most of what keeps the sweep to minutes.
     assert len(calls) == 1
+
+
+def test_top_offset_is_resolved_once_regardless_of_top_mode(tmp_path, monkeypatch):
+    """AdviceRow.top_offset is always a resolved meridian inset.
+
+    Height-lever rows are meridian fractions no matter which top_mode the
+    user has live (candidates() never sees the mode at all) -- but the
+    "current" row is exactly where the old bug showed: it used to carry the
+    user's raw, mode-dependent offset straight through, so a HEIGHT-mode user
+    got a "current" row stamped in vertical millimeters while every other
+    row was already in meridian millimeters. advise() must resolve that
+    offset exactly once, up front, so the "current" row's top_offset matches
+    what export_job.resolve_top_inset would compute directly.
+    """
+    from gore_wrap import export_job
+    monkeypatch.setattr(pattern_advise.pattern_fit, "COARSE_1D", 8)
+    points, pattern = _points(), _pattern(tmp_path)
+    params = dict(BASE_PARAMS, strip_angle=360.0 / 10)
+
+    first = pattern_advise.build_result(points, params, 10, {})
+    resolved = export_job.resolve_top_inset("HEIGHT", 20.0, first.profile)
+    # Sanity: the hemisphere cap makes HEIGHT and SURFACE genuinely different,
+    # so a bug that mixes them up is actually observable below.
+    assert resolved != pytest.approx(20.0)
+
+    rows = _drain(pattern_advise.advise(
+        points, params, pattern, repeats=4, area_floor=10.0, width_floor=0.6,
+        invert=False, limit_top=True, top_offset=20.0, top_mode="HEIGHT"))
+
+    current = next(r for r in rows if r.current)
+    assert current.top_offset == pytest.approx(resolved)
+
+    meridian = max(float(o[:, 1].max()) for o in first.outlines)
+    height_offsets = {round(r.top_offset, 3) for r in rows
+                      if r.lever == "height" and r.limit_top}
+    expected = {round(f * meridian, 3) for f in pattern_advise.HEIGHT_FRACTIONS
+                if f > 0.0}
+    assert height_offsets == expected
+
+
+def test_a_height_rows_coverage_does_not_depend_on_the_live_top_mode(
+        tmp_path, monkeypatch):
+    """Screening the same height-lever row gives the same coverage whether
+    the user currently has SURFACE or HEIGHT mode selected.
+
+    Height rows are always meridian fractions (see the test above), so if
+    screen() applied the user's live top_mode to them -- as it used to -- a
+    HEIGHT-mode user's rows would get double-resolved against a domed
+    profile and land at a different cut than a SURFACE-mode user's identical
+    rows. Same settings, same pattern, same points; only top_mode differs.
+    """
+    monkeypatch.setattr(pattern_advise.pattern_fit, "COARSE_1D", 8)
+    points, pattern = _points(), _pattern(tmp_path)
+    params = dict(BASE_PARAMS, strip_angle=360.0 / 10)
+
+    def height_rows(top_mode):
+        rows = _drain(pattern_advise.advise(
+            points, params, pattern, repeats=4, area_floor=10.0,
+            width_floor=0.6, invert=False, limit_top=False, top_offset=0.0,
+            top_mode=top_mode))
+        got = sorted((r for r in rows if r.lever == "height"),
+                     key=lambda r: r.top_offset)
+        assert len(got) == 3   # 15%, 30%, 45% -- "limit off" dedupes with current
+        return got
+
+    from_surface = height_rows("SURFACE")
+    from_height = height_rows("HEIGHT")
+    for s, h in zip(from_surface, from_height):
+        assert s.top_offset == pytest.approx(h.top_offset)
+        assert s.coverage == pytest.approx(h.coverage)
 
 
 def _advise(tmp_path, monkeypatch, coarse=8, n_strips=10, repeats=4):
@@ -174,16 +244,6 @@ def test_the_sweep_returns_rows_ranked_by_defect_count(tmp_path, monkeypatch):
     feasible = [r for r in rows if r.feasible]
     counts = [r.defects_screened for r in feasible]
     assert counts == sorted(counts)
-
-
-def test_infeasible_rows_sort_last(tmp_path, monkeypatch):
-    rows = _drain(_advise(tmp_path, monkeypatch))
-    seen_infeasible = False
-    for row in rows:
-        if not row.feasible:
-            seen_infeasible = True
-        elif seen_infeasible:
-            pytest.fail("a feasible row sorted after an infeasible one")
 
 
 def test_rank_orders_feasible_ascending_with_infeasible_last():
@@ -236,6 +296,57 @@ def test_the_combine_pass_crosses_the_best_of_each_lever(tmp_path, monkeypatch):
     for combo in combos:
         assert combo.n_strips in strips
         assert combo.repeats in repeats
+
+
+def test_combine_crosses_exactly_the_two_lowest_defect_rows_per_lever():
+    # Hand-built rows with distinct defects_screened, unlike the sweep
+    # fixture above where most rows tie at zero and "top two" is arbitrary
+    # tie-order -- this pins best-two membership directly, not just that
+    # combos come from some subset of the strip/repeat counts on offer.
+    def strip_row(n, defects, feasible=True):
+        return pattern_advise.AdviceRow(
+            lever="strips", label=f"{n} strips", n_strips=n, repeats=4,
+            limit_top=True, top_offset=999.0, feasible=feasible,
+            defects_screened=defects)
+
+    def repeat_row(r, defects, flag_aesthetic, feasible=True):
+        return pattern_advise.AdviceRow(
+            lever="repeats", label=f"repeats {r}", n_strips=20, repeats=r,
+            limit_top=True, top_offset=999.0, feasible=feasible,
+            defects_screened=defects, flag_aesthetic=flag_aesthetic)
+
+    rows = [
+        strip_row(8, defects=50),
+        strip_row(9, defects=10),                      # lowest
+        strip_row(10, defects=20),                     # second-lowest
+        strip_row(11, defects=5, feasible=False),       # would win, but infeasible
+        repeat_row(1, defects=40, flag_aesthetic=True),
+        repeat_row(2, defects=30, flag_aesthetic=False),  # second-lowest
+        repeat_row(3, defects=15, flag_aesthetic=True),   # lowest
+        repeat_row(4, defects=1, flag_aesthetic=True, feasible=False),  # would win, infeasible
+    ]
+
+    combos = pattern_advise.combine(rows, limit_top=False, top_offset=0.0)
+
+    # Exactly the two lowest-defect feasible strip rows crossed with the two
+    # lowest-defect feasible repeat rows -- the infeasible rows (11, repeats
+    # 4), despite having the lowest defect counts of all, are excluded.
+    got_pairs = {(c.n_strips, c.repeats) for c in combos}
+    assert got_pairs == {(9, 3), (9, 2), (10, 3), (10, 2)}
+    assert all(c.n_strips != 11 for c in combos)
+    assert all(c.repeats != 4 for c in combos)
+
+    # limit_top/top_offset come from combine()'s own arguments, not from
+    # whichever strip/repeat row got crossed (every row above was built with
+    # limit_top=True, top_offset=999.0, deliberately different).
+    assert all(c.limit_top is False for c in combos)
+    assert all(c.top_offset == pytest.approx(0.0) for c in combos)
+
+    # flag_aesthetic is inherited from the repeat row it crossed, not from
+    # the strip row and not a fixed value.
+    by_repeats = {2: False, 3: True}
+    for c in combos:
+        assert c.flag_aesthetic == by_repeats[c.repeats]
 
 
 def test_combinations_never_change_the_height_limit(tmp_path, monkeypatch):
@@ -293,6 +404,26 @@ def test_only_height_rows_get_the_coverage_flag():
                                  n_strips=10, repeats=2, limit_top=False,
                                  top_offset=0.0, coverage=1.0,
                                  defects_screened=199),
+    ]
+    pattern_advise.flag_coverage_rows(rows)
+    assert not rows[1].flag_coverage
+
+
+def test_a_limit_off_row_is_not_flagged_when_the_current_setting_has_a_limit():
+    # When the user currently has a height limit on, the fraction == 0.0
+    # candidate ("limit off") is a genuine height row that ADDS coverage back
+    # -- its normalized count will usually exceed the reference, but flagging
+    # it as "gain is mostly the coverage it removes" is nonsense for a row
+    # that removes no coverage at all.
+    rows = [
+        pattern_advise.AdviceRow(lever="current", label="limit 50 mm",
+                                 n_strips=20, repeats=2, limit_top=True,
+                                 top_offset=50.0, current=True, coverage=0.6,
+                                 defects_screened=80),
+        pattern_advise.AdviceRow(lever="height", label="limit off",
+                                 n_strips=20, repeats=2, limit_top=False,
+                                 top_offset=0.0, coverage=1.0,
+                                 defects_screened=160),
     ]
     pattern_advise.flag_coverage_rows(rows)
     assert not rows[1].flag_coverage

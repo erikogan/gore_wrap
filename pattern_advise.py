@@ -19,6 +19,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import export_job, geometry, pattern_fit, pipeline, svg_export
+# Reaches past pattern_warp's own module boundary on purpose: _tile_metrics is
+# already shared with pattern_fit.prepare and pattern_fit.search_placement (see
+# its docstring), and screen() needs the same tile width `W` those two use, so
+# adding a public wrapper for a fourth caller of an otherwise-internal helper
+# would not buy anything the existing three callers do not already accept.
 from .pattern_warp import _tile_metrics
 
 MIN_STRIPS = 8
@@ -33,13 +38,19 @@ COMBINE_TOP = 2
 
 @dataclass
 class AdviceRow:
-    """One candidate setting, and what it would cost to adopt it."""
+    """One candidate setting, and what it would cost to adopt it.
+
+    `top_offset` is always a resolved meridian (surface) inset, never a
+    mode-dependent offset -- `advise` resolves the user's live `top_mode`
+    exactly once, before any row is built, so every lever's rows share one
+    unit and `screen` never has to guess which mode a given row came from.
+    """
     lever: str                  # "current" | "strips" | "repeats" | "height" | "combo"
     label: str
     n_strips: int
     repeats: int
     limit_top: bool
-    top_offset: float
+    top_offset: float           # resolved meridian inset, mm -- see class docstring
     current: bool = False
     feasible: bool = True
     note: str = ""              # LayoutError message when infeasible
@@ -60,6 +71,11 @@ def candidates(n_strips, repeats, limit_top, top_offset, meridian):
     the same table, which is what lets the result carry a staleness stamp. The
     current settings lead the list so the panel has a reference row to report
     "from" without screening it twice.
+
+    `top_offset` must already be a resolved meridian inset (see
+    `AdviceRow.top_offset`) -- the caller resolves the user's live `top_mode`
+    once, before calling this, so the "current" row and the height-fraction
+    rows built here share the same unit.
     """
     rows = []
     seen = set()
@@ -105,6 +121,13 @@ def build_result(points, params, n_strips, cache):
     The repeats and height sweeps never change the strip count, so without this
     the pipeline would re-run from the scan for candidates whose gores are
     identical.
+
+    Deliberately unbounded -- up to 13 GoreResults live at once for the
+    shipped strip range on an 84k-vertex scan, and that memory cost is what
+    makes the combine pass free (its crossed candidates reuse gores the base
+    sweep already built). Do not replace this with a bounded LRU: evicting
+    even one strip count would re-trigger a full rebuild for it during
+    combine, which is the expensive case this cache exists to avoid.
     """
     n_strips = int(n_strips)
     if n_strips not in cache:
@@ -115,13 +138,23 @@ def build_result(points, params, n_strips, cache):
 
 
 def screen(row, points, params, pattern, area_floor, width_floor, invert,
-           top_mode, cache):
+           cache):
     """Measure one candidate on the coarse rotation grid.
 
     A generator: yields its own progress as a fraction and returns the mutated
     `row`. Screening uses rotation alone even when the user has Slide
     Vertically on -- the vertical axis was measured not to change the ranking,
     and a row's number is a floor the full search matches or beats anyway.
+
+    `row.top_offset` is always a resolved meridian inset (see
+    `AdviceRow.top_offset`), never a mode-dependent one -- there is no
+    `top_mode` parameter here on purpose, because mixing a per-row mode back
+    in would reopen the double-resolution bug this shape was built to avoid.
+    Resolving through `export_job.resolve_top_inset("SURFACE", ...)` below
+    reads more honestly than using `row.top_offset` bare: it keeps the single
+    "meridian inset in, meridian inset out" contract explicit at the one place
+    that turns it into a cut, rather than trusting every caller to already
+    know the value needs no conversion.
     """
     result = build_result(points, params, row.n_strips, cache)
     circ = result.dims.bottom_circumference
@@ -138,7 +171,7 @@ def screen(row, points, params, pattern, area_floor, width_floor, invert,
         return row
 
     top_inset = export_job.resolve_top_inset(
-        top_mode, row.top_offset if row.limit_top else 0.0, result.profile)
+        "SURFACE", row.top_offset if row.limit_top else 0.0, result.profile)
     meridian = max(float(o[:, 1].max()) for o in result.outlines)
     pattern_top = meridian - top_inset if top_inset > 0.0 else meridian
     row.coverage = (pattern_top / meridian) if meridian > 0.0 else 1.0
@@ -190,6 +223,13 @@ def flag_coverage_rows(rows):
     for row in rows:
         if row.lever != "height" or not row.feasible or row.coverage <= 0.0:
             continue
+        if row.coverage >= current.coverage:
+            # A row that removes no coverage relative to the current setting
+            # -- the "limit off" candidate when a limit is currently on -- is
+            # adding pattern back, not trading it away, so the note this flag
+            # would attach ("gain is mostly the coverage it removes") would be
+            # nonsense for it.
+            continue
         normalized = row.defects_screened / row.coverage
         row.flag_coverage = normalized >= reference * (1.0 - COVERAGE_GAIN)
 
@@ -238,19 +278,29 @@ def advise(points, params, pattern, *, repeats, area_floor, width_floor,
     A generator yielding (fraction, label) and returning its result, matching
     export_job.export_steps and pattern_fit.search_placement, so the existing
     modal progress and Esc-to-cancel machinery drives it unchanged.
+
+    `top_mode` is resolved exactly once, here, against the user's current
+    `top_offset` -- every `AdviceRow` this function builds (height rows and
+    all the others alike) then carries a resolved meridian inset in
+    `top_offset`, per the invariant documented on `AdviceRow`. `screen` no
+    longer takes a mode at all, so there is nowhere left for a second,
+    double-resolving conversion to happen.
     """
     cache = {}
     n_strips = geometry.strip_count(params["strip_angle"])
     first = build_result(points, params, n_strips, cache)
     meridian = max(float(o[:, 1].max()) for o in first.outlines)
 
-    rows = candidates(n_strips, repeats, limit_top, top_offset, meridian)
-    total = len(rows) + COMBINE_TOP * COMBINE_TOP
+    resolved_top = export_job.resolve_top_inset(
+        top_mode, top_offset if limit_top else 0.0, first.profile)
+
+    rows = candidates(n_strips, repeats, limit_top, resolved_top, meridian)
+    total = len(rows) + COMBINE_TOP * COMBINE_TOP  # upper bound until combine runs
     done = 0
 
     def run(row):
         gen = screen(row, points, params, pattern, area_floor, width_floor,
-                     invert, top_mode, cache)
+                     invert, cache)
         while True:
             try:
                 own = next(gen)
@@ -263,7 +313,13 @@ def advise(points, params, pattern, *, repeats, area_floor, width_floor,
             yield (done + own) / total, f"Trying {row.label}"
         done += 1
 
-    for row in combine(rows, limit_top, top_offset):
+    # combine() needs the defects_screened the loop above just measured, so it
+    # cannot run any earlier -- but once it has, the exact count replaces the
+    # upper-bound estimate, which is what keeps progress from stalling well
+    # short of 1.0 when a lever has fewer than two feasible rows to cross.
+    combos = combine(rows, limit_top, resolved_top)
+    total = len(rows) + len(combos)
+    for row in combos:
         rows.append(row)
         for own in run(row):
             yield (done + own) / total, f"Trying {row.label}"
