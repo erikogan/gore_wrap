@@ -408,6 +408,22 @@ def check_advisor(obj):
     print(f"[smoke] advisor ok: {len(props.advice)} rows, "
           f"best {counts[0]} defects")
 
+    check_advisor_panel()
+
+
+def check_advisor_panel():
+    """Both advisor views must be registered and drawable."""
+    import bpy
+    from gore_wrap import ui
+    assert hasattr(ui, "GOREWRAP_PT_advisor")
+    assert hasattr(ui, "GOREWRAP_UL_advice")
+    assert ui.GOREWRAP_PT_advisor in ui.classes
+    assert ui.GOREWRAP_UL_advice in ui.classes
+    assert ui.GOREWRAP_PT_advisor.bl_parent_id == "GOREWRAP_PT_panel"
+    for area in bpy.context.screen.areas if bpy.context.screen else []:
+        area.tag_redraw()
+    print("[smoke] advisor panel ok")
+
 
 def _write_temp_pattern():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
