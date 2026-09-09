@@ -231,6 +231,7 @@ def main():
 
     check_non_finite_rejected(obj)
     check_optimize_placement(obj)
+    check_advisor(obj)
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
     test_advice_stamp_ignores_the_swept_levers(obj)
     test_advice_properties_exist(bpy.context.scene.gore_wrap)
@@ -354,6 +355,55 @@ def check_optimize_placement(obj):
     props.pattern_mark_intrinsic = False
     props.pattern_mark_defects = False
     print(f"[smoke] mark defects export ok: {out_defects}, {out_all}")
+
+
+def check_advisor(obj):
+    """The sweep runs, writes rows, and applying one changes the settings."""
+    import bpy
+    from gore_wrap import operators, pattern_fit
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()
+    props.pattern_repeats_x = 4
+    props.strip_angle = 36.0          # 10 strips, so the sweep is short
+
+    # Keep the smoke test to seconds: the shipped grid is 96.
+    original = pattern_fit.COARSE_1D
+    pattern_fit.COARSE_1D = 8
+    try:
+        with bpy.context.temp_override(active_object=obj,
+                                       selected_objects=[obj]):
+            res = bpy.ops.gorewrap.advise_settings()
+    finally:
+        pattern_fit.COARSE_1D = original
+    assert res == {"FINISHED"}, res
+    assert props.has_advice, "advise did not record any rows"
+    assert len(props.advice) > 1, len(props.advice)
+    assert props.advice_stamp
+
+    counts = [r.defects_screened for r in props.advice if r.feasible]
+    assert counts == sorted(counts), "rows are not ranked"
+
+    # Applying a row writes its settings and invalidates only the placement.
+    target = next(r for r in props.advice if not r.current and r.feasible)
+    want_strips, want_repeats = target.n_strips, target.repeats
+    stamp_before = props.advice_stamp
+    props.has_pattern_fit = True
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.apply_advice(
+            index=list(props.advice).index(target))
+    assert res == {"FINISHED"}, res
+    assert props.computed_n_strips == want_strips, props.computed_n_strips
+    assert props.pattern_repeats_x == want_repeats
+    assert not props.has_pattern_fit, "applying a row must stale the placement"
+    assert props.advice_stamp == stamp_before, \
+        "applying a row must NOT invalidate the advice table"
+    assert len(props.advice) > 1, "applying a row must not clear the table"
+
+    assert "advise_settings" in dir(bpy.ops.gorewrap)
+    assert "show_advice_table" in dir(bpy.ops.gorewrap)
+    print(f"[smoke] advisor ok: {len(props.advice)} rows, "
+          f"best {counts[0]} defects")
 
 
 def _write_temp_pattern():

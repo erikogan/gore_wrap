@@ -12,7 +12,7 @@ import numpy as np
 import bpy
 
 from . import (geometry, pipeline, svg_export, pattern_warp, pattern_fit,
-               export_job)
+               export_job, pattern_advise)
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -658,5 +658,153 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
 
 
+class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
+    bl_idname = "gorewrap.advise_settings"
+    bl_label = "Placement Advisor"
+    bl_description = ("Sweep strip count, Repeats Around and the height limit "
+                      "to find which setting would leave fewer defects")
+    bl_options = {"REGISTER", "UNDO"}
+
+    _job_exceptions = (svg_export.LayoutError, pattern_warp.PatternError)
+    _cancel_message = "Advisor canceled."
+
+    def execute(self, context):
+        obj = context.active_object
+        error = _validate(obj, context)
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+
+        props = context.scene.gore_wrap
+        if not props.use_pattern or not props.pattern_svg:
+            self.report({"ERROR"},
+                        "Choose a pattern SVG or turn off Fill With Pattern.")
+            return {"CANCELLED"}
+
+        try:
+            pattern = pattern_warp.load_pattern(
+                bpy.path.abspath(props.pattern_svg))
+        except pattern_warp.PatternError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        self._props = props
+        self._obj = obj
+        depsgraph = context.evaluated_depsgraph_get()
+        self._gen = pattern_advise.advise(
+            _world_points(obj, depsgraph), _params(props), pattern,
+            repeats=props.pattern_repeats_x,
+            area_floor=props.pattern_min_area,
+            width_floor=props.pattern_min_width,
+            invert=props.pattern_invert,
+            limit_top=props.pattern_limit_top,
+            top_offset=props.pattern_top_offset,
+            top_mode=props.pattern_top_mode)
+        return self._start(context)
+
+    def _on_success(self, rows):
+        props = self._props
+        props.advice.clear()
+        for row in rows:
+            item = props.advice.add()
+            for field_name in ("lever", "label", "n_strips", "repeats",
+                               "limit_top", "top_offset", "current",
+                               "feasible", "note", "defects_base",
+                               "defects_screened", "zero_offsets",
+                               "fit_error", "strip_width", "coverage",
+                               "flag_aesthetic", "flag_coverage"):
+                setattr(item, field_name, getattr(row, field_name))
+        props.advice_index = 0
+        props.advice_stamp = advice_stamp(props, self._obj)
+        props.has_advice = True
+        best = next((r for r in rows if r.feasible), None)
+        current = next((r for r in rows if r.current and r.feasible), None)
+        if best is not None and current is not None:
+            self.report({"INFO"},
+                        f"Best: {best.label} at {best.defects_screened} "
+                        f"defects, against {current.defects_screened} now")
+        else:
+            self.report({"WARNING"}, "No workable settings found.")
+        return {"FINISHED"}
+
+
+class GOREWRAP_OT_apply_advice(bpy.types.Operator):
+    bl_idname = "gorewrap.apply_advice"
+    bl_label = "Apply These Settings"
+    bl_description = ("Adopt this row's settings. The placement is cleared, so "
+                      "run Optimize Placement again afterward")
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        props = context.scene.gore_wrap
+        index = self.index if self.index >= 0 else props.advice_index
+        if not (0 <= index < len(props.advice)):
+            self.report({"ERROR"}, "No advice row selected.")
+            return {"CANCELLED"}
+        row = props.advice[index]
+        if not row.feasible:
+            self.report({"ERROR"},
+                        f"{row.label} cannot be laid out: {row.note}")
+            return {"CANCELLED"}
+
+        props.strip_angle = 360.0 / row.n_strips
+        props.pattern_repeats_x = row.repeats
+        props.pattern_limit_top = row.limit_top
+        if row.limit_top:
+            # The sweep works in resolved surface distance, so the mode is
+            # normalized rather than reinterpreting a HEIGHT-mode offset.
+            props.pattern_top_mode = "SURFACE"
+            props.pattern_top_offset = row.top_offset
+
+        # The placement was optimized for the old settings; the advice table
+        # was not, and stays valid so another row can be tried.
+        props.has_pattern_fit = False
+        props.pattern_fit_stamp = ""
+        self.report({"INFO"},
+                    f"Applied {row.label}. Run Optimize Placement to place "
+                    f"the pattern for these settings.")
+        return {"FINISHED"}
+
+
+class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
+    bl_idname = "gorewrap.show_advice_table"
+    bl_label = "Full Advice Table"
+    bl_description = "Show every column of the advisor's results"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        return {"FINISHED"}      # the dialog is the whole point; OK just closes
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(
+            self, width=760, title="Placement Advisor",
+            confirm_text="Close")
+
+    def draw(self, context):
+        props = context.scene.gore_wrap
+        table = pattern_advise.format_table(list(props.advice))
+        col = self.layout.column(align=True)
+        header, *body = table
+        widths = (2.6, 1.0, 1.0, 1.1, 1.2, 1.3, 1.1, 5.0)
+        row_ui = col.row(align=True)
+        for cell, width in zip(header, widths):
+            sub = row_ui.row()
+            sub.scale_x = width
+            sub.label(text=cell)
+        col.separator(type="LINE")
+        for line, item in zip(body, props.advice):
+            row_ui = col.row(align=True)
+            for cell, width in zip(line, widths):
+                sub = row_ui.row()
+                sub.scale_x = width
+                sub.label(text=cell)
+            op = row_ui.operator("gorewrap.apply_advice", text="Use")
+            op.index = list(props.advice).index(item)
+
+
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
-           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_export)
+           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_advise_settings,
+           GOREWRAP_OT_apply_advice, GOREWRAP_OT_show_advice_table,
+           GOREWRAP_OT_export)
