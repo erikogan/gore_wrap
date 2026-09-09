@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import export_job, pattern_fit, pipeline, svg_export
+from . import export_job, geometry, pattern_fit, pipeline, svg_export
 from .pattern_warp import _tile_metrics
 
 MIN_STRIPS = 8
@@ -168,3 +168,107 @@ def screen(row, points, params, pattern, area_floor, width_floor, invert,
     row.defects_screened = best.defects
     row.zero_offsets = zeros
     return row
+
+
+COVERAGE_GAIN = 0.10
+"""How much a height row must beat the current setting, per unit of coverage,
+before its improvement counts as something other than the pattern it deleted."""
+
+
+def flag_coverage_rows(rows):
+    """Mark height rows whose gain is only the coverage they removed.
+
+    Lowering the height limit always lowers the defect count, because there is
+    less pattern left to have defects in. Normalizing by covered fraction is
+    what separates a real improvement from an arithmetic one, and doing it here
+    means the reader does not have to.
+    """
+    current = next((r for r in rows if r.current and r.feasible), None)
+    if current is None or current.coverage <= 0.0:
+        return
+    reference = current.defects_screened / current.coverage
+    for row in rows:
+        if row.lever != "height" or not row.feasible or row.coverage <= 0.0:
+            continue
+        normalized = row.defects_screened / row.coverage
+        row.flag_coverage = normalized >= reference * (1.0 - COVERAGE_GAIN)
+
+
+def combine(rows, limit_top, top_offset):
+    """Cross the best strip counts with the best repeat counts.
+
+    Measured rather than extrapolated: on real artwork the combinations came in
+    at or better than the multiplicative prediction, so assuming the gains
+    simply multiply would understate them.
+
+    Height is excluded because it is not a lever -- crossing it would spend
+    candidates on a dimension that only removes pattern.
+    """
+    def best(lever):
+        got = sorted((r for r in rows if r.lever == lever and r.feasible),
+                     key=lambda r: r.defects_screened)
+        return got[:COMBINE_TOP]
+
+    seen = {(r.n_strips, r.repeats) for r in rows}
+    out = []
+    for strip_row in best("strips"):
+        for repeat_row in best("repeats"):
+            key = (strip_row.n_strips, repeat_row.repeats)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(AdviceRow(
+                lever="combo",
+                label=f"{strip_row.n_strips} strips, repeats {repeat_row.repeats}",
+                n_strips=strip_row.n_strips, repeats=repeat_row.repeats,
+                limit_top=bool(limit_top), top_offset=float(top_offset),
+                flag_aesthetic=repeat_row.flag_aesthetic))
+    return out
+
+
+def _rank(rows):
+    """Fewest defects first, with anything that will not fit the mat last."""
+    return sorted(rows, key=lambda r: (not r.feasible, r.defects_screened))
+
+
+def advise(points, params, pattern, *, repeats, area_floor, width_floor,
+           invert, limit_top, top_offset, top_mode):
+    """Sweep the levers and return ranked AdviceRows.
+
+    A generator yielding (fraction, label) and returning its result, matching
+    export_job.export_steps and pattern_fit.search_placement, so the existing
+    modal progress and Esc-to-cancel machinery drives it unchanged.
+    """
+    cache = {}
+    n_strips = geometry.strip_count(params["strip_angle"])
+    first = build_result(points, params, n_strips, cache)
+    meridian = max(float(o[:, 1].max()) for o in first.outlines)
+
+    rows = candidates(n_strips, repeats, limit_top, top_offset, meridian)
+    total = len(rows) + COMBINE_TOP * COMBINE_TOP
+    done = 0
+
+    def run(row):
+        gen = screen(row, points, params, pattern, area_floor, width_floor,
+                     invert, top_mode, cache)
+        while True:
+            try:
+                own = next(gen)
+            except StopIteration:
+                return
+            yield own
+
+    for row in rows:
+        for own in run(row):
+            yield (done + own) / total, f"Trying {row.label}"
+        done += 1
+
+    for row in combine(rows, limit_top, top_offset):
+        rows.append(row)
+        for own in run(row):
+            yield (done + own) / total, f"Trying {row.label}"
+        done += 1
+
+    flag_coverage_rows(rows)
+    yield 1.0, "Ranking results"
+    return _rank(rows)

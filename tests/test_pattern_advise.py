@@ -158,3 +158,116 @@ def test_the_gore_cache_is_reused_across_candidates(tmp_path, monkeypatch):
     # The repeats sweep never changes the strip count, so the gores are built
     # once and reused -- this is most of what keeps the sweep to minutes.
     assert len(calls) == 1
+
+
+def _advise(tmp_path, monkeypatch, coarse=8, n_strips=10, repeats=4):
+    monkeypatch.setattr(pattern_advise.pattern_fit, "COARSE_1D", coarse)
+    params = dict(BASE_PARAMS, strip_angle=360.0 / n_strips)
+    return pattern_advise.advise(
+        _points(), params, _pattern(tmp_path), repeats=repeats,
+        area_floor=10.0, width_floor=0.6, invert=False, limit_top=False,
+        top_offset=0.0, top_mode="SURFACE")
+
+
+def test_the_sweep_returns_rows_ranked_by_defect_count(tmp_path, monkeypatch):
+    rows = _drain(_advise(tmp_path, monkeypatch))
+    feasible = [r for r in rows if r.feasible]
+    counts = [r.defects_screened for r in feasible]
+    assert counts == sorted(counts)
+
+
+def test_infeasible_rows_sort_last(tmp_path, monkeypatch):
+    rows = _drain(_advise(tmp_path, monkeypatch))
+    seen_infeasible = False
+    for row in rows:
+        if not row.feasible:
+            seen_infeasible = True
+        elif seen_infeasible:
+            pytest.fail("a feasible row sorted after an infeasible one")
+
+
+def test_the_sweep_reports_monotonic_progress_ending_at_one(
+        tmp_path, monkeypatch):
+    gen = _advise(tmp_path, monkeypatch)
+    seen = []
+    try:
+        while True:
+            frac, label = next(gen)
+            seen.append(frac)
+            assert isinstance(label, str) and label
+    except StopIteration:
+        pass
+    assert seen == sorted(seen)
+    assert 0.0 < seen[0] <= 1.0
+    assert seen[-1] == pytest.approx(1.0)
+
+
+def test_the_combine_pass_crosses_the_best_of_each_lever(tmp_path, monkeypatch):
+    rows = _drain(_advise(tmp_path, monkeypatch))
+    combos = [r for r in rows if r.lever == "combo"]
+    assert combos, "no combination candidates were screened"
+    strips = {r.n_strips for r in rows if r.lever == "strips"}
+    repeats = {r.repeats for r in rows if r.lever == "repeats"}
+    for combo in combos:
+        assert combo.n_strips in strips
+        assert combo.repeats in repeats
+
+
+def test_combinations_never_change_the_height_limit(tmp_path, monkeypatch):
+    # Height is not a lever, so crossing it with the others would spend
+    # candidates on a dimension that only removes pattern.
+    rows = _drain(_advise(tmp_path, monkeypatch))
+    for combo in (r for r in rows if r.lever == "combo"):
+        assert combo.limit_top is False
+        assert combo.top_offset == pytest.approx(0.0)
+
+
+def test_the_sweep_is_deterministic(tmp_path, monkeypatch):
+    a = _drain(_advise(tmp_path, monkeypatch))
+    b = _drain(_advise(tmp_path, monkeypatch))
+    assert [(r.label, r.defects_screened, r.feasible) for r in a] == \
+           [(r.label, r.defects_screened, r.feasible) for r in b]
+
+
+def test_a_height_row_that_only_removes_pattern_is_flagged():
+    # Defects exactly proportional to coverage: the limit bought nothing.
+    rows = [
+        pattern_advise.AdviceRow(lever="current", label="now", n_strips=20,
+                                 repeats=2, limit_top=False, top_offset=0.0,
+                                 current=True, coverage=1.0,
+                                 defects_screened=200),
+        pattern_advise.AdviceRow(lever="height", label="limit", n_strips=20,
+                                 repeats=2, limit_top=True, top_offset=50.0,
+                                 coverage=0.5, defects_screened=100),
+    ]
+    pattern_advise.flag_coverage_rows(rows)
+    assert rows[1].flag_coverage
+
+
+def test_a_height_row_that_genuinely_helps_is_not_flagged():
+    rows = [
+        pattern_advise.AdviceRow(lever="current", label="now", n_strips=20,
+                                 repeats=2, limit_top=False, top_offset=0.0,
+                                 current=True, coverage=1.0,
+                                 defects_screened=200),
+        pattern_advise.AdviceRow(lever="height", label="limit", n_strips=20,
+                                 repeats=2, limit_top=True, top_offset=50.0,
+                                 coverage=0.5, defects_screened=50),
+    ]
+    pattern_advise.flag_coverage_rows(rows)
+    assert not rows[1].flag_coverage
+
+
+def test_only_height_rows_get_the_coverage_flag():
+    rows = [
+        pattern_advise.AdviceRow(lever="current", label="now", n_strips=20,
+                                 repeats=2, limit_top=False, top_offset=0.0,
+                                 current=True, coverage=1.0,
+                                 defects_screened=200),
+        pattern_advise.AdviceRow(lever="strips", label="10 strips",
+                                 n_strips=10, repeats=2, limit_top=False,
+                                 top_offset=0.0, coverage=1.0,
+                                 defects_screened=199),
+    ]
+    pattern_advise.flag_coverage_rows(rows)
+    assert not rows[1].flag_coverage
