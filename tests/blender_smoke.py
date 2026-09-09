@@ -411,8 +411,74 @@ def check_advisor(obj):
     check_advisor_panel()
 
 
+class _StubOperatorProps:
+    """Recording stand-in for what a ``layout.operator(...)`` call returns.
+
+    Real Blender lets you set properties on that return value, e.g.
+    ``op = box.operator(...); op.index = ...`` in GOREWRAP_PT_advisor.draw.
+    A plain instance of this class accepts that assignment the same way.
+    """
+
+
+class _StubLayout:
+    """Minimal recording stand-in for a UILayout.
+
+    Headless Blender never builds a real UILayout, so this gives
+    GOREWRAP_PT_advisor.draw and GOREWRAP_UL_advice.draw_item just enough
+    surface to run to completion without raising: row/column/box return a
+    stub that shares the same call log, label/prop/separator/template_list
+    record what they were called with, and operator returns a
+    _StubOperatorProps.
+    """
+
+    def __init__(self, calls=None):
+        self.calls = calls if calls is not None else []
+
+    def row(self, **kwargs):
+        return self
+
+    def column(self, **kwargs):
+        return self
+
+    def box(self):
+        return _StubLayout(self.calls)
+
+    def label(self, **kwargs):
+        self.calls.append(("label", kwargs))
+
+    def prop(self, data, name, **kwargs):
+        self.calls.append(("prop", name))
+
+    def separator(self, **kwargs):
+        self.calls.append(("separator", kwargs))
+
+    def template_list(self, *args, **kwargs):
+        self.calls.append(("template_list", args))
+
+    def operator(self, idname, **kwargs):
+        self.calls.append(("operator", idname))
+        return _StubOperatorProps()
+
+
+class _StubPanel:
+    """Recording stand-in for a Panel instance: just enough for self.layout."""
+
+    def __init__(self, layout):
+        self.layout = layout
+
+
 def check_advisor_panel():
-    """Both advisor views must be registered and drawable."""
+    """Both advisor views are registered, and their draw methods complete.
+
+    Headless Blender has no real UILayout, so GOREWRAP_PT_advisor.draw and
+    GOREWRAP_UL_advice.draw_item are called directly against a minimal
+    recording _StubLayout (above), in each state the design spec calls out:
+    with advice, without advice, and when the advice is stale -- plus the
+    UIList drawing a feasible row and, if the sweep produced one, an
+    infeasible row. This is what would catch a typo'd property or field
+    name in draw(), which would otherwise only surface when a user opens
+    the panel.
+    """
     import bpy
     from gore_wrap import ui
     assert hasattr(ui, "GOREWRAP_PT_advisor")
@@ -420,6 +486,50 @@ def check_advisor_panel():
     assert ui.GOREWRAP_PT_advisor in ui.classes
     assert ui.GOREWRAP_UL_advice in ui.classes
     assert ui.GOREWRAP_PT_advisor.bl_parent_id == "GOREWRAP_PT_panel"
+
+    context = bpy.context
+    props = context.scene.gore_wrap
+    assert props.has_advice, "check_advisor must leave advice rows in place"
+
+    # With advice.
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert layout.calls, "draw() with advice emitted nothing"
+
+    # Stale: an advice_stamp that cannot match the live one must still draw,
+    # and must draw the staleness warning specifically.
+    saved_stamp = props.advice_stamp
+    props.advice_stamp = "stale"
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert ("label", {"text": "Advice is stale", "icon": "ERROR"}) \
+        in layout.calls, "draw() when stale did not warn of staleness"
+    props.advice_stamp = saved_stamp
+
+    # Without advice: has_advice False must short-circuit cleanly.
+    saved_has_advice = props.has_advice
+    props.has_advice = False
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert layout.calls, "draw() without advice emitted nothing"
+    props.has_advice = saved_has_advice
+
+    # The list: a feasible row, and an infeasible one if the sweep found one.
+    feasible = next((r for r in props.advice if r.feasible), None)
+    assert feasible is not None, "no feasible row to draw"
+    layout = _StubLayout()
+    ui.GOREWRAP_UL_advice.draw_item(None, context, layout, props, feasible,
+                                     0, props, "advice_index", 0)
+    assert layout.calls, "draw_item on a feasible row emitted nothing"
+
+    infeasible = next((r for r in props.advice if not r.feasible), None)
+    if infeasible is not None:
+        layout = _StubLayout()
+        ui.GOREWRAP_UL_advice.draw_item(None, context, layout, props,
+                                         infeasible, 0, props,
+                                         "advice_index", 0)
+        assert layout.calls, "draw_item on an infeasible row emitted nothing"
+
     for area in bpy.context.screen.areas if bpy.context.screen else []:
         area.tag_redraw()
     print("[smoke] advisor panel ok")
