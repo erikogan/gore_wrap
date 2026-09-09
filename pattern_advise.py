@@ -272,3 +272,43 @@ def advise(points, params, pattern, *, repeats, area_floor, width_floor,
     flag_coverage_rows(rows)
     yield 1.0, "Ranking results"
     return _rank(rows)
+
+
+COLUMNS = ("setting", "defects", "was", "clean", "fit error", "strip width",
+           "coverage", "notes")
+
+_EM_DASH = "—"
+
+
+def format_table(rows):
+    """Render the advice as a header plus one row of strings per candidate.
+
+    Pure, so the wide-table layout is covered by pytest rather than only by a
+    Blender smoke test, and so the panel list and the dialog agree on how every
+    number is written.
+    """
+    table = [list(COLUMNS)]
+    for row in rows:
+        if not row.feasible:
+            table.append([row.label, _EM_DASH, _EM_DASH, _EM_DASH,
+                          f"{row.fit_error:.2f} mm",
+                          f"{row.strip_width:.1f} mm", _EM_DASH, row.note])
+            continue
+        notes = []
+        if row.current:
+            notes.append("current settings")
+        if row.flag_aesthetic:
+            notes.append("changes how the design reads")
+        if row.flag_coverage:
+            notes.append("gain is mostly the coverage it removes")
+        table.append([
+            row.label,
+            str(row.defects_screened),
+            str(row.defects_base),
+            f"{row.zero_offsets}/{int(pattern_fit.COARSE_1D)}",
+            f"{row.fit_error:.2f} mm",
+            f"{row.strip_width:.1f} mm",
+            f"{row.coverage * 100:.0f}%",
+            "; ".join(notes),
+        ])
+    return table

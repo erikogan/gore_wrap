@@ -271,3 +271,61 @@ def test_only_height_rows_get_the_coverage_flag():
     ]
     pattern_advise.flag_coverage_rows(rows)
     assert not rows[1].flag_coverage
+
+
+def test_the_table_starts_with_a_header_and_one_row_each():
+    rows = [
+        pattern_advise.AdviceRow(lever="current", label="20 strips, repeats 2",
+                                 n_strips=20, repeats=2, limit_top=False,
+                                 top_offset=0.0, current=True,
+                                 defects_base=168, defects_screened=161,
+                                 fit_error=2.79, strip_width=19.8,
+                                 coverage=1.0),
+        pattern_advise.AdviceRow(lever="strips", label="8 strips", n_strips=8,
+                                 repeats=2, limit_top=False, top_offset=0.0,
+                                 defects_base=94, defects_screened=63,
+                                 fit_error=3.12, strip_width=49.8,
+                                 coverage=1.0),
+    ]
+    table = pattern_advise.format_table(rows)
+    assert table[0] == list(pattern_advise.COLUMNS)
+    assert len(table) == 3
+    assert all(len(line) == len(pattern_advise.COLUMNS) for line in table)
+
+
+def test_the_table_renders_every_cell_as_a_string():
+    rows = [pattern_advise.AdviceRow(lever="strips", label="8 strips",
+                                     n_strips=8, repeats=2, limit_top=False,
+                                     top_offset=0.0, defects_screened=63)]
+    for line in pattern_advise.format_table(rows):
+        assert all(isinstance(cell, str) for cell in line)
+
+
+def test_an_infeasible_row_reports_its_reason_and_no_counts():
+    rows = [pattern_advise.AdviceRow(lever="strips", label="8 strips",
+                                     n_strips=8, repeats=2, limit_top=False,
+                                     top_offset=0.0, feasible=False,
+                                     note="Strips are 700 mm wide; mat is 610 mm")]
+    line = pattern_advise.format_table(rows)[1]
+    assert "610" in line[-1]
+    assert "63" not in "".join(line)
+    # No fabricated numbers where nothing was measured.
+    assert line[1] == "—"
+
+
+def test_flags_are_spelled_out_in_the_notes_column():
+    rows = [pattern_advise.AdviceRow(lever="repeats", label="repeats 1",
+                                     n_strips=20, repeats=1, limit_top=False,
+                                     top_offset=0.0, defects_screened=37,
+                                     flag_aesthetic=True)]
+    note = pattern_advise.format_table(rows)[1][-1]
+    assert "design" in note.lower()
+
+
+def test_a_coverage_flagged_row_says_what_the_gain_actually_was():
+    rows = [pattern_advise.AdviceRow(lever="height", label="limit 75 mm",
+                                     n_strips=20, repeats=2, limit_top=True,
+                                     top_offset=75.0, defects_screened=129,
+                                     coverage=0.58, flag_coverage=True)]
+    note = pattern_advise.format_table(rows)[1][-1]
+    assert "coverage" in note.lower()
