@@ -56,6 +56,22 @@ floor caught what.
 
 ## Evidence: the spike
 
+> **⚠️ Measured on pre-0.9.4 geometry.** Everything in this section was measured
+> before `build_gores` rejected radial outliers, so it describes a scan that
+> still had a scrap of the surface it stood on in it. On this scan that read
+> circumference 395.733 mm against a true 383.137, fit error 2.789 mm against
+> 0.586, and max diameter 202.05 mm against 125.35. Tile width is
+> circumference ÷ repeats, so the whole pattern scaled with it and every count
+> below moved; the per-evaluation timings at the end of the section are upper
+> bounds for the same reason the budgets are. **The three conclusions survive**
+> — see the re-measurement note after the table. The figures are left as they
+> were taken, because they are the record of the investigation that motivated
+> this design.
+>
+> The rasterizer comparisons in this section — the matplotlib nesting bug and
+> the 100.000% numpy/matplotlib agreement — are unaffected: both sides of each
+> comparison were rasterized from the same geometry, so the corruption cancels.
+
 Measured 2026-09-06 against real data — the owner's scan (`DTM`, 83,952 verts,
 circumference 395.733 mm, height 150.587 mm, fit error 2.789 mm) at the owner's
 settings: 20 strips, FITTED, seam offset 0, repeats 2, height limit 50 mm along
@@ -67,6 +83,20 @@ configuration, swept over 96 offsets:
 |---|---|---|---|---|---|---|
 | **monochrome-pattern-final** | 89 | **6** | **0** | 11 | 4.5 | **11 of 96** |
 | First Pattern (filigree) | 636 | 168 | 161 | 212 | 186.8 | 0 of 96 |
+
+**Re-measured 2026-09-10 on 0.9.4 geometry** (same settings, same floors, same
+96 offsets; pattern ceiling is 129.98 mm rather than 130.48):
+
+| | defects at 0° | best | worst | mean | zero-defect offsets |
+|---|---|---|---|---|---|
+| **monochrome-pattern-final** | **6** | **0** | 12 | 4.86 | **8 of 96** |
+| First Pattern (filigree) | 176 | 161 | 229 | 199.8 | 0 of 96 |
+
+Component counts were not re-run. The qualitative split is unchanged: the
+monochrome pattern still reaches zero and the filigree still never does. The
+monochrome pattern lost three of its eleven defect-free offsets, so the
+"roughly 11% of the rotation period" below is nearer 8%; the flat band on the
+filigree sits higher but is no flatter.
 
 Three conclusions, all load-bearing for this design:
 
@@ -334,6 +364,18 @@ against a finer 0.10 mm:
 | monochrome | 6 / 6 | 0 / 0 | 11 / 10 | 4.54 / 4.40 | 11 / 22 |
 | filigree | 168 / 175 | 161 / 161 | 212 / 219 | 186.8 / 191.4 | 0 / 0 |
 
+> **⚠️ Pre-0.9.4 geometry**, like the spike table above; the absolute counts
+> here are stale in the same way and by the same cause.
+>
+> **This table's conclusions are unaffected, and not merely by luck.** Every
+> figure in it is one rasterization compared against another *of the same
+> geometry*, so the outlier band that corrupted the scan is present in both
+> columns of every pair and cancels out of the comparison. What the table
+> measures is the gap between 0.15 mm and 0.10 mm, and that gap is a property
+> of the rasterizer, not of the scan. The three consequences below therefore
+> stand as written. This has not been re-measured on 0.9.4 geometry, and does
+> not need to be unless the rasterizer changes.
+
 Three consequences:
 
 - **Verdicts are stable; exact counts are not.** "A zero-defect placement
@@ -437,6 +479,14 @@ since the scorer works in a gore-local frame with the base at the origin.
 At repeats 4 the saving would be 4×; at repeats 3, `gcd(20, 3) = 1` and there
 is none. The owner runs AVERAGED most of the time; the FITTED figures above are
 from the proof-of-concept scan, which is less uniform than typical models.
+
+> **⚠️ Pre-0.9.4 geometry**, and here the direction of the error is known.
+> Rejecting the radial outliers took the scan's max diameter from 202.05 mm to
+> 125.35, and raster cost scales with the area being labeled, so these timings
+> are **upper bounds** on what the same search costs now. They were also taken
+> on a scan whose one deformed gore made the FITTED case unusually expensive.
+> Treat them as a ceiling that has not been re-measured, rather than as
+> current figures.
 
 Search machinery is otherwise unchanged from 0.9.0 — a generator yielding
 `(fraction, label)`, driven by the `_ModalJob` mixin from `04f0441`, with
