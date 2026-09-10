@@ -32,7 +32,7 @@ is **partially discharged**:
 Optimize Placement searches where the pattern sits, which is one axis of a
 much larger space. On artwork finer than the material tolerance that axis has
 little to give: sweeping the entire rotation period moves the owner's count
-from 168 to 157, a 6.5% gain against the 13 that a different strip count and
+from 176 to 161, an 8.5% gain against the 12 that a different strip count and
 repeat count reach. In the limit the curve is a flat band and the panel says so
 outright — "Best placement is no better than this one" — but the flat band is
 only the extreme case. The general one is that the search finishes, some
@@ -49,25 +49,34 @@ every lever costs something real.
 
 ## Evidence: the calibration run
 
-Measured 2026-09-08 against the owner's real data: scan `DTM` (83,952 verts,
-circumference 395.733 mm, height 150.587 mm, fit error 2.789 mm) at the owner's
+Measured 2026-09-10 against the owner's real data: scan `DTM` (83,952 verts,
+circumference 383.137 mm, height 150.587 mm, fit error 0.586 mm) at the owner's
 recorded settings — 20 strips, FITTED, seam offset 0, repeats 2, height limit
 50 mm along surface, tolerance 0.3, smoothing 2.0, scale 1.0 — with the shipped
 floors (10 mm² / 0.6 mm) and the shipped 96-sample coarse rotation grid.
-Re-measured after the 0.9.3 objective fix; the figures below are the current
-ones.
+
+**Re-measured on 0.9.4 geometry.** The figures this spec first carried were
+taken before `build_gores` rejected radial outliers, so they described a scan
+that still had a scrap of the surface it stood on in it: circumference read
+395.733 mm against a true 383.137, and fit error 2.789 mm against 0.586. Every
+count below moved, because tile width is circumference ÷ repeats and the whole
+pattern scales with it. **The rankings did not move**, which is what the advisor
+actually ships.
 
 Two columns appear throughout. **at 0°** is the unsearched baseline.
 **screened** is the count at the offset the 0.9.3 objective picks on the coarse
 grid. Since that objective minimizes the count first, the screened value is
 also the lowest count anywhere on the grid — a full Optimize run, which refines
-between grid points, matches it or beats it (at the owner's settings it reaches
-157 against the grid's 161).
+between grid points, matches it or beats it (at the owner's settings it matches
+it exactly, 161 against the grid's 161, having reached 157 on the corrupted
+geometry).
 
-The harness reproduces the polarity spike exactly (filigree at 20 strips:
-baseline 168, worst 212, mean 186.9, zero defect-free offsets; monochrome:
-baseline 6, worst 11, mean 4.54, 11 defect-free offsets of 96), so these
-numbers are comparable to that spec's.
+The harness still reproduces the polarity spike (filigree at 20 strips:
+baseline 176, worst 229, mean 199.8, zero defect-free offsets; monochrome:
+baseline 6, worst 12, mean 4.86, 8 defect-free offsets of 96), so these numbers
+are comparable to that spec's. The monochrome control lost three of its eleven
+defect-free offsets to the geometry fix and the filigree still has none, which
+is the same qualitative split that spec reported.
 
 ### Strip count — dominant, and not monotone
 
@@ -75,36 +84,45 @@ Filigree, repeats 2, 50 mm limit:
 
 | strips | at 0° | screened | fit error | strip width |
 |---|---|---|---|---|
-| 8 | 94 | **63** | 3.12 mm | 49.8 mm |
-| 9 | 93 | 81 | 3.16 mm | 43.9 mm |
-| 10 | 91 | 75 | 3.16 mm | 39.4 mm |
-| 11 | 120 | 84 | 3.08 mm | 36.0 mm |
-| 12 | 118 | 92 | 3.11 mm | 32.8 mm |
-| 13 | 135 | 106 | 3.07 mm | 30.3 mm |
-| 14 | 150 | 114 | 3.10 mm | 28.0 mm |
-| 15 | 142 | 132 | 3.10 mm | 26.1 mm |
-| 16 | 150 | 121 | 3.06 mm | 24.5 mm |
-| 17 | 168 | 139 | 3.06 mm | 23.0 mm |
-| 18 | 167 | 146 | 3.06 mm | 21.7 mm |
-| 19 | 161 | 159 | 3.02 mm | 20.6 mm |
-| **20 (current)** | 168 | 161 | 2.79 mm | 19.8 mm |
+| 8 | 88 | **70** | 0.64 mm | 47.9 mm |
+| 9 | 102 | 88 | 0.64 mm | 42.6 mm |
+| 10 | 103 | 81 | 0.62 mm | 38.3 mm |
+| 11 | 129 | 98 | 0.63 mm | 34.8 mm |
+| 12 | 132 | 101 | 0.62 mm | 31.9 mm |
+| 13 | 137 | 122 | 0.61 mm | 29.5 mm |
+| 14 | 159 | 120 | 0.61 mm | 27.4 mm |
+| 15 | 152 | 142 | 0.60 mm | 25.5 mm |
+| 16 | 155 | 128 | 0.59 mm | 23.9 mm |
+| 17 | 174 | 152 | 0.60 mm | 22.5 mm |
+| 18 | 178 | 158 | 0.59 mm | 21.3 mm |
+| 19 | 178 | 171 | 0.59 mm | 20.2 mm |
+| **20 (current)** | 176 | 161 | 0.59 mm | 19.2 mm |
 
-The investigation's direction holds — 161 → 63 is a 61% reduction — but the
-trend is noisy at the fine end: 10 strips beats 9, and 16 beats 15. **The
-advisor must sweep every achievable count rather than assume monotonicity and
-probe the extreme.**
+The investigation's direction holds — 161 → 70 is a 57% reduction — and the
+trend is noisier at the fine end than it looked before: 10 strips beats 9,
+14 beats 13, and 16 beats 15. **The advisor must sweep every achievable count
+rather than assume monotonicity and probe the extreme.**
+
+**Fit error has dropped out of this trade-off.** On the corrupted geometry it
+ran 2.79 mm to 3.16 mm and climbed as strips got wider, which read as a real
+cost of choosing fewer of them. Nearly all of that was the outlier band, not
+the strip width. On clean geometry the spread is 0.59 mm to 0.64 mm — still
+climbing toward wider strips, but by 0.05 mm across the entire range, well
+inside the 0.3 mm tolerance. The column stays, because a scan that genuinely
+does not fit will say so here; it is simply no longer an argument against the
+largest lever the advisor has.
 
 ### Repeats Around — the correction holds, harder than before
 
 | repeats | at 0° | screened | tile width | artwork size |
 |---|---|---|---|---|
-| **1** | 43 | **37** | 395.7 mm | 2× current |
-| 2 (current) | 168 | 161 | 197.9 mm | — |
-| 3 | 431 | 410 | 131.9 mm | 0.67× |
-| 4 | 772 | 648 | 98.9 mm | 0.5× |
+| **1** | 45 | **36** | 383.1 mm | 2× current |
+| 2 (current) | 176 | 161 | 191.6 mm | — |
+| 3 | 442 | 428 | 127.7 mm | 0.67× |
+| 4 | 792 | 665 | 95.8 mm | 0.5× |
 
 Strictly monotone in the wrong direction, and repeats 1 remains the single
-largest lever at a 77% cut. This is the same knob as artwork scale — since
+largest lever at a 78% cut. This is the same knob as artwork scale — since
 `W = circumference / repeats_x` and `k = W / pattern.px_width`, the artwork's
 physical size is fully determined by the repeat count, and any uniform scale
 that stays seamless around the circumference must land on an integer. More
@@ -115,17 +133,27 @@ the intuitive direction is the wrong one.
 
 | limit | coverage | at 0° | screened | normalized (screened ÷ coverage) |
 |---|---|---|---|---|
-| off | 100% | 243 | 239 | 239 |
-| 25 mm | 86% | 204 | 193 | 224 |
-| 50 mm (current) | 72% | 168 | 161 | 223 |
-| 75 mm | 58% | 139 | 129 | 221 |
+| off | 100% | 259 | 244 | 244 |
+| 25 mm | 86% | 218 | 211 | 245 |
+| 50 mm (current) | 72% | 176 | 161 | 223 |
+| 75 mm | 58% | 151 | 140 | 240 |
 
 Normalizing by covered fraction, running the pattern only 58% of the way up
-buys a **7.6%** real improvement — and costs **42%** of the coverage to get it.
+buys a **1.6%** real improvement — and costs **42%** of the coverage to get it.
 **Nearly all of the apparent gain is just the pattern that was deleted.** The
 lever stays in the sweep because "this buys almost nothing" is worth telling
 someone currently running a 50 mm limit, but every such row carries an
 automatic flag so the reader does not have to do the division.
+
+On clean geometry this conclusion gets *stronger*, and the shape of the column
+changes with it. The corrupted run showed the normalized count falling
+monotonically (239 → 224 → 223 → 221), which at least looked like a small
+consistent gain. It does not fall monotonically here: 25 mm is marginally worse
+than no limit at all, and 75 mm is worse than the 50 mm the owner already runs.
+The normalized count is essentially flat noise around the low 240s with the
+current setting sitting below it, so there is no depth at which cutting the
+pattern short is buying anything. That is the same finding the first run
+reported, with less room to argue about it.
 
 This does not contradict the earlier finding that turning the limit *on* helps.
 That measurement compared limit-off against limit-on under the contour metric,
@@ -136,15 +164,22 @@ already cover that case.
 
 | combination | predicted (multiplicative) | measured |
 |---|---|---|
-| 8 strips × repeats 1 | 14.5 | **13** |
-| 10 strips × repeats 1 | 17.2 | **13** |
+| 8 strips × repeats 1 | 15.7 | **12** |
+| 10 strips × repeats 1 | 18.1 | **16** |
 
 Never worse than the multiplicative prediction and sometimes meaningfully
-better, so the combine pass must be **measured rather than extrapolated**. Two
-combinations tie for best at **13 defects against the current 161** — 8 strips
-and 10 strips, both at repeats 1 — which is itself an argument for a table over
-a single recommendation: they cost 49.8 mm and 39.4 mm strips respectively, and
-which of those is preferable is not the tool's call.
+better, so the combine pass must be **measured rather than extrapolated**. The
+best combination reaches **12 defects against the current 161** — 8 strips at
+repeats 1, a 93% cut.
+
+The two candidates no longer tie the way they did on the corrupted geometry,
+where both landed on 13. That tie was the first run's neatest argument for
+showing a table rather than naming a winner, and it is gone: 8 strips beats 10
+outright, 12 against 16. The argument for the table survives on its own terms,
+because the two rows still cost different things — 47.9 mm strips against
+38.3 mm — and a user with a 40 mm mat cannot use the winner. A table is needed
+because the rows are not comparable on one axis, not because they happened to
+tie on this scan.
 
 ### The vertical axis does not change the ranking
 
@@ -154,27 +189,34 @@ result can never be worse:
 
 | candidate | tile height | pattern covers | 1-D | 2-D | gain |
 |---|---|---|---|---|---|
-| 10 strips / rep 1 | 361.1 mm | 0.36 tile | 13 | 13 | 0.0% |
-| 20 strips / rep 1 | 363.1 mm | 0.36 tile | 37 | 24 | 35.1% |
-| 8 strips / rep 2 | 182.9 mm | 0.71 tile | 63 | 58 | 7.9% |
-| 10 strips / rep 2 | 180.5 mm | 0.72 tile | 75 | 71 | 5.3% |
-| 20 strips / rep 2 | 181.5 mm | 0.72 tile | 161 | 151 | 6.2% |
-| 20 strips / rep 4 | 90.8 mm | 1.44 tile | 648 | 608 | 6.2% |
+| 10 strips / rep 1 | 351.6 mm | 0.37 tile | 16 | 12 | 25.0% |
+| 20 strips / rep 1 | 351.5 mm | 0.37 tile | 36 | 30 | 16.7% |
+| 8 strips / rep 2 | 175.9 mm | 0.74 tile | 70 | 61 | 12.9% |
+| 10 strips / rep 2 | 175.8 mm | 0.74 tile | 81 | 76 | 6.2% |
+| 20 strips / rep 2 | 175.8 mm | 0.74 tile | 161 | 159 | 1.2% |
+| 20 strips / rep 4 | 87.9 mm | 1.48 tile | 665 | 660 | 0.8% |
 
 **The ranking is identical under both screens**, which is the load-bearing
 result: the advisor exists to rank settings, and 1-D ranks them correctly at
 a quarter of the cost. Optimize finds the placement afterward, with whatever
 Slide Vertically setting the user chooses.
 
-**The magnitude of the vertical gain is not predictable.** An earlier pass
-appeared to show it tracking `pattern_top / tile_h` cleanly — large where the
-pattern does not complete a vertical tile, zero where it tiles fully. Measured
-against the corrected grid that relationship dissolves: two candidates at the
-same 0.36 tile height gain 35.1% and 0.0%, while the fully-tiled 1.44 case
-gains 6.2% rather than nothing. What survives is only that the gain is
-consistently positive, between 5% and 8% except for one outlier at 35%. So the
-advisor makes no per-row prediction about the vertical axis; see "What a row
-carries".
+**The magnitude of the vertical gain is still not worth predicting per row.**
+An early pass appeared to show it tracking `pattern_top / tile_h` — large where
+the pattern does not complete a vertical tile, zero where it tiles fully. That
+relationship dissolved against the corrected grid, and the 0.9.4 re-measurement
+does not bring it back: the two candidates at 0.37 tile gain 25.0% and 16.7%,
+while the fully-tiled 1.48 case gains 0.8% rather than nothing.
+
+What the clean geometry does show is a different relationship, and a tidy one:
+the gain falls monotonically as the defect count rises — 25.0%, 16.7%, 12.9%,
+6.2%, 1.2%, 0.8% against counts of 16, 36, 70, 81, 161 and 665. That reads
+sensibly — a placement with few defects left has proportionally more to gain
+from one more axis to move on — but it is not a reason to reinstate a per-row
+flag. The quantity it tracks is the defect count the row already displays, so
+a flag would restate a number the reader can see, and one scan is not enough to
+calibrate a prediction on. The advisor therefore still makes no per-row
+statement about the vertical axis; see "What a row carries".
 
 ### Two defects in the shipped search, found here and fixed in 0.9.3
 
@@ -192,6 +234,11 @@ as good as the search it reports on.
    reports, and the margin, now measured across every cut piece rather than
    only the defective ones, chooses between placements that tie. Measured
    after: 168 → **157** at 20 strips, 94 → **61** at 8 strips.
+
+   Those two figures, and the 173 above, are the pre-0.9.4 numbers this fix was
+   diagnosed and verified against; they are left as they were measured rather
+   than restated on clean geometry, because they are the record of that
+   investigation. They will not reconcile with the tables above.
 
 2. **Slide Vertically could return a worse placement than leaving it off.**
    The 2-D grid spent its budget as 20 × 20, dropping rotation from 96 samples
@@ -245,9 +292,13 @@ carry a staleness stamp:
   shipped range stops one past the current count.
 - **Height limit** — off, plus insets at 15%, 30% and 45% of the pattern
   meridian. Each row flagged when its coverage-normalized count fails to
-  improve by more than 10% (`COVERAGE_GAIN`) over the current setting — the
-  calibration's 7.6% case is the reason the margin is there: a literal "any
-  improvement counts" reading would leave it unflagged.
+  improve by more than 10% (`COVERAGE_GAIN`) over the current setting. On the
+  0.9.4 re-measurement every height row is flagged with room to spare — the
+  normalized counts are 240 to 245 against the current setting's 223 — so a
+  literal "any improvement counts" reading would flag them too. The margin is
+  kept because it was load-bearing on the first calibration, where the 75 mm
+  row's 7.6% normalized gain would have gone unflagged without it, and because
+  a rule that only just holds on one scan is not one to tighten.
 
 At the reference settings that is 13 + 3 + 4 = 20 raw candidates, less two
 duplicates where the current settings recur across levers, so **18 screening
@@ -307,18 +358,24 @@ objective picks is the lowest-count offset on the grid, so "what the search
 returns" and "the best on the grid" are the same number.
 
 **A row's number is a conservative promise.** The screen stops at the coarse
-grid while a real Optimize run also refines between grid points, and refinement
-measurably wins — 157 against the grid's 161 at the owner's settings. So
-applying a row and pressing Optimize should match the table or beat it, never
-fall short of it. That is a stronger guarantee than the two-column design it
-replaces, and it only holds because the screen and the search now minimize the
-same thing.
+grid while a real Optimize run also refines between grid points — and because
+that refinement searches *outward from the grid's own best points*, the full
+search can never return worse than the screen. So applying a row and pressing
+Optimize should match the table or beat it, never fall short of it. That is a
+stronger guarantee than the two-column design it replaces, and it only holds
+because the screen and the search now minimize the same thing.
+
+How much refinement actually buys varies, and the guarantee does not depend on
+it buying anything. On the corrupted geometry it won at the owner's settings,
+157 against the grid's 161; re-measured on 0.9.4 it matches exactly, 161 against
+161. The promise is structural rather than empirical, which is why it survived a
+re-measurement that moved the number it was first argued from.
 
 `zero_offsets` is the robustness reading. It distinguishes "reaches zero if you
 nail the placement" from "reaches zero almost anywhere" — on the monochrome
-pattern the current settings give 11 defect-free offsets of 96 while 8 strips
-at repeats 1 gives 56, a difference invisible in a defect count that is zero
-either way.
+pattern the current settings give 8 defect-free offsets of 96 while 8 strips at
+repeats 1 gives 32, a difference invisible in a defect count that is zero either
+way.
 
 **Flags, never filtering.** An infeasible candidate — one whose strips will not
 fit the mat — appears as a row with its `LayoutError` message and no counts,
@@ -436,14 +493,14 @@ user learns they have a problem.
 draft hung the button on the existing "Best placement is no better than this
 one" line, which `ui.py` fires on exact equality between the optimized and
 baseline counts. Before 0.9.3 the owner's settings sat in that band; afterwards
-the search finds 157 against a baseline of 168, so the line no longer appears —
-while 157 defects against an achievable 13 is exactly when the advisor is
+the search finds 161 against a baseline of 176, so the line no longer appears —
+while 161 defects against an achievable 12 is exactly when the advisor is
 wanted. Tying the entry point to a flat band would have hidden the feature
 precisely where it helps most. Any leftover defect means some other setting
 might do better, and that is the whole question the advisor answers.
 
 ```
-  ✓ 157 defects (was 168)
+  ✓ 161 defects (was 176)
   [ Placement Advisor... ]
 ```
 
