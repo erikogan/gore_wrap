@@ -30,12 +30,10 @@ jobs:
       matrix:
         # One row per supported Blender, each running the Python and numpy that
         # Blender actually bundles -- see the table in requirements.txt. numpy
-        # 2.0 was a breaking release, so 4.2 and 5.2 sit on either side of a
-        # major boundary and both have to stay green.
+        # 2.0 was a breaking release, and 4.5 LTS still bundles numpy 1 while
+        # 5.2 bundles numpy 2, so the supported range spans that boundary and
+        # both sides have to stay green.
         include:
-          - blender: "4.2"
-            python: "3.11"
-            numpy: "1.24.3"
           - blender: "4.5 LTS"
             python: "3.11"
             numpy: "1.26.4"
@@ -71,9 +69,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The minimum the manifest claims, the current LTS, and the newest
-        # release -- the three that a breakage would actually be reported on.
-        blender: ["4.2", "4.5", "5.2"]
+        # The minimum the manifest claims -- which is the current LTS, since
+        # blender_version_min is 4.5.0 -- and the newest release.
+        blender: ["4.5", "5.2"]
     steps:
       - uses: actions/checkout@v7
 

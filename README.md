@@ -13,7 +13,7 @@ Originally built for transferring complex patterns onto glass stuff-cups.
 
 # Install
 
-Requires Blender 4.2 or newer (tested on 4.5 LTS and 5.0).
+Requires Blender 4.5 or newer (tested on 4.5 LTS and 5.2).
 
 ## From Blender Extensions
 
@@ -25,11 +25,11 @@ Blender can find, install and update it for you:
 2. Search for **Gore Wrap**.
 3. Click **Install**.
 
-Blender 4.2+ ships with the extensions.blender.org repository already enabled,
-so there is no repository to add first. If the search turns up nothing online,
-Blender's online access is off — allow it from the banner in **Get
-Extensions**, or under **Edit → Preferences → System → Network → Allow Online
-Access** — then search again.
+Every supported Blender ships with the extensions.blender.org repository
+already enabled, so there is no repository to add first. If the search turns
+up nothing online, Blender's online access is off — allow it from the banner
+in **Get Extensions**, or under **Edit → Preferences → System → Network →
+Allow Online Access** — then search again.
 
 Updates come through **Get Extensions → ▾ → Check for Updates**.
 
@@ -639,9 +639,9 @@ if you forget.
 
 `.github/workflows/ci.yml` runs on every push and pull request: the `pytest`
 suite once per supported Blender, on the Python and numpy that Blender bundles
-(4.2 → 3.11 + numpy 1.24, 4.5 LTS → 3.11 + numpy 1.26, 5.2 → 3.13 + numpy 2.3,
-so both sides of the numpy 2.0 break stay covered); the in-Blender smoke test
-on those same three; and a build of the extension zip. Each Blender series
+(4.5 LTS → 3.11 + numpy 1.26, 5.2 → 3.13 + numpy 2.3, so both sides of the
+numpy 2.0 break stay covered); the in-Blender smoke test on those same two; and
+a build of the extension zip. Each Blender series
 resolves to its newest patch release at run time and is cached, so a new 4.5.x
 needs no edit.
 

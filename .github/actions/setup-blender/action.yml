@@ -6,7 +6,7 @@ description: >-
 inputs:
   series:
     description: >-
-      Blender release series, e.g. "4.2" or "5.2". The newest patch release in
+      Blender release series, e.g. "4.5" or "5.2". The newest patch release in
       the series is resolved at run time, so a new 4.5.x needs no edit here.
     required: true
 

@@ -84,3 +84,42 @@ def test_blender_floor_supports_the_dialog_api():
         manifest = tomllib.load(fh)
     floor = tuple(int(p) for p in manifest["blender_version_min"].split("."))
     assert floor >= (4, 5, 0), manifest["blender_version_min"]
+
+
+def test_ci_tests_the_blender_floor_and_nothing_below_it():
+    """CI's Blender versions must start exactly at blender_version_min.
+
+    This is drift with a silent failure mode in both directions. A series below
+    the floor burns minutes proving an unsupported Blender still works, and
+    goes on passing until someone uses an API the floor was raised to allow --
+    which is how a 4.2 row outlived the move to 4.5. A floor nobody tests is
+    the worse half: the minimum the manifest promises is the one users are most
+    likely to be on and the least likely to be developed against.
+
+    Read with a regex rather than a YAML parser because the add-on ships no
+    YAML dependency and the test suite pins itself to what Blender bundles.
+    The count assertion below is what keeps that honest: reshape the workflow
+    so these stop being found and the test fails rather than quietly passing.
+    """
+    import re
+
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    with open(ROOT / "blender_manifest.toml", "rb") as fh:
+        floor_text = tomllib.load(fh)["blender_version_min"]
+    floor = tuple(int(part) for part in floor_text.split("."))[:2]
+
+    # Lines whose key is `blender:` or `series:` -- matrix rows, the smoke
+    # list, and the build job's pinned series. A quoted value may carry a
+    # suffix ("4.5 LTS"), and one interpolated from a matrix contributes
+    # nothing, which is why versions are pulled out separately.
+    keyed = re.findall(r"^\s*-?\s*(?:blender|series):\s*(.+)$", text, re.M)
+    found = {(int(major), int(minor))
+             for value in keyed
+             for major, minor in re.findall(r'"(\d+)\.(\d+)[^"]*"', value)}
+
+    assert len(found) >= 2, f"parsed too few Blender series from ci.yml: {found}"
+    below = sorted(v for v in found if v < floor)
+    assert not below, (
+        f"ci.yml tests Blender {below}, below the {floor_text} floor")
+    assert min(found) == floor, (
+        f"ci.yml's lowest Blender is {min(found)}, not the {floor_text} floor")
