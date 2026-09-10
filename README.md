@@ -615,6 +615,16 @@ behind the script's own exit code.
 PATH first, then the usual install locations, overridable with
 `make smoke BLENDER=/path/to/blender`.
 
+`make lint` style-checks `README.md` and `CHANGELOG.md` with
+[markdownlint](https://github.com/DavidAnson/markdownlint-cli2), through `npx`
+at a pinned version so a new rule cannot fail a commit that did not touch
+prose. The rule choices live in `.markdownlint-cli2.jsonc`, each with its
+reason beside it. Check other files with
+`make lint DOCS='docs/superpowers/specs/*.md'`, or use your own copy of the
+tool with `make lint MARKDOWNLINT=/path/to/markdownlint-cli2`. It is separate
+from `make test` on purpose: it needs Node, and a heading in the wrong place
+should not stand between anyone and the test suite.
+
 Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),
 `svg_export.py` (mat layout + SVG), and the bpy shell
 (`properties/operators/ui/registry/__init__`). See
