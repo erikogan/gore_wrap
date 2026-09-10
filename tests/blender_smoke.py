@@ -450,6 +450,7 @@ def check_advisor(obj):
           f"best {counts[0]} defects")
 
     check_advisor_panel()
+    check_advice_dialog_draws(props)
 
 
 class _StubOperatorProps:
@@ -502,10 +503,57 @@ class _StubLayout:
 
 
 class _StubPanel:
-    """Recording stand-in for a Panel instance: just enough for self.layout."""
+    """Recording stand-in for a Panel or Operator instance.
 
-    def __init__(self, layout):
+    Supplies self.layout, and delegates anything else to the real class when
+    one is given -- GOREWRAP_OT_show_advice_table.draw reads its column widths
+    off self, and those should come from the class under test rather than being
+    restated here, where they could drift out of step with it.
+    """
+
+    def __init__(self, layout, cls=None):
         self.layout = layout
+        self._cls = cls
+
+    def __getattr__(self, name):
+        # Only reached for names not already set in __init__, so self._cls
+        # itself never routes back through here.
+        if self._cls is not None:
+            return getattr(self._cls, name)
+        raise AttributeError(name)
+
+
+def check_advice_dialog_draws(props):
+    """The full-table dialog must emit every column for every row.
+
+    Its draw() is column-major -- one column() per table column, heading and
+    values stacked inside it -- because the row-major shape does not line up:
+    Blender sizes each label from its own text, so a heading and the values
+    under it land in differently sized cells. None of that is visible
+    headlessly, so this asserts the structure the layout should have.
+    """
+    from gore_wrap import operators, pattern_advise
+    layout = _StubLayout()
+    dialog = operators.GOREWRAP_OT_show_advice_table
+    dialog.draw(_StubPanel(layout, dialog), bpy.context)
+
+    labels = [kwargs.get("text") for kind, kwargs in layout.calls
+              if kind == "label"]
+    for heading in pattern_advise.COLUMNS:
+        assert heading in labels, f"missing column heading: {heading}"
+
+    uses = [call for call in layout.calls if call[0] == "operator"]
+    assert len(uses) == len(props.advice), (len(uses), len(props.advice))
+
+    # One heading plus one value per row, for each column, and the blank
+    # heading that sits over the Use buttons.
+    expected = len(pattern_advise.COLUMNS) * (1 + len(props.advice)) + 1
+    assert len(labels) == expected, (len(labels), expected)
+
+    rules = [call for call in layout.calls if call[0] == "separator"]
+    assert len(rules) == len(pattern_advise.COLUMNS) + 1, len(rules)
+    print(f"[smoke] advice dialog ok: {len(pattern_advise.COLUMNS)} columns, "
+          f"{len(uses)} rows")
 
 
 def check_advisor_panel():

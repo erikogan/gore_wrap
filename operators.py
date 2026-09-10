@@ -798,33 +798,39 @@ class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
             self, width=1100, title="Placement Advisor",
             confirm_text="Close")
 
-    # Relative column widths. Every numeric column is wide enough for its own
-    # header, because Blender truncates a label that overflows and offers no
-    # tooltip to recover it -- an abbreviated heading nobody can expand is
-    # worse than a wide column.
-    _WIDTHS = (3.0, 1.5, 1.3, 1.4, 1.7, 1.9, 1.5, 5.0)
+    # Relative column widths, biasing the space each column gets. They are a
+    # bias rather than a size: a column is naturally as wide as its widest
+    # label, header included, so a heading longer than any of its values is
+    # what sets the width rather than being truncated away.
+    _WIDTHS = (3.0, 1.4, 1.2, 1.3, 1.6, 1.8, 1.6, 5.0)
 
     def draw(self, context):
         props = context.scene.gore_wrap
         table = pattern_advise.format_table(list(props.advice))
-        col = self.layout.column(align=True)
         header, *body = table
-        # align=False on each row is what puts space between the columns;
-        # align=True packs them flush and is why this read as a wall of text.
-        row_ui = col.row()
-        for cell, width in zip(header, self._WIDTHS):
-            sub = row_ui.row()
-            sub.scale_x = width
-            sub.label(text=cell)
-        col.separator(type="LINE")
-        for i, (line, item) in enumerate(zip(body, props.advice)):
-            row_ui = col.row()
-            for cell, width in zip(line, self._WIDTHS):
-                sub = row_ui.row()
-                sub.scale_x = width
-                sub.label(text=cell)
-            op = row_ui.operator("gorewrap.apply_advice", text="Use")
-            op.index = i
+
+        # Column-major, one column() per table column with its heading and all
+        # its values stacked inside. The obvious row-major shape -- a row per
+        # table row, a cell per column -- does not line up: Blender sizes each
+        # label from its own text, so a heading and the values under it land in
+        # differently sized cells and the columns drift apart across the table.
+        # Stacking a column's cells in one column() gives them all one width.
+        grid = self.layout.row()
+        for index, width in enumerate(self._WIDTHS):
+            column = grid.column()
+            column.scale_x = width
+            column.label(text=header[index])
+            column.separator(type="LINE")
+            for line in body:
+                column.label(text=line[index])
+
+        # The Use buttons are a column of their own for the same reason, and
+        # its heading is blank so the buttons start level with the values.
+        actions = grid.column()
+        actions.label(text="")
+        actions.separator(type="LINE")
+        for index in range(len(body)):
+            actions.operator("gorewrap.apply_advice", text="Use").index = index
 
 
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
