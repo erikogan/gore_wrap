@@ -27,7 +27,11 @@ from . import export_job, geometry, pattern_fit, pipeline, svg_export
 from .pattern_warp import _tile_metrics
 
 MIN_STRIPS = 8
-"""Fewest strips worth offering: strip_angle maxes at 45 degrees, so 360/45."""
+"""Fewest strips worth offering, matching properties.MIN_STRIPS.
+
+Kept as its own constant rather than imported, because this module must not
+depend on anything that touches bpy.
+"""
 
 HEIGHT_FRACTIONS = (0.0, 0.15, 0.30, 0.45)
 """Height-limit insets to try, as a fraction of the gore meridian."""
@@ -348,7 +352,7 @@ def format_table(rows):
         if not row.feasible:
             table.append([row.label, _EM_DASH, _EM_DASH, _EM_DASH,
                           f"{row.fit_error:.2f} mm",
-                          f"{row.strip_width:.1f} mm", _EM_DASH, row.note])
+                          f"{row.strip_width:.2f} mm", _EM_DASH, row.note])
             continue
         notes = []
         if row.current:
@@ -363,7 +367,7 @@ def format_table(rows):
             str(row.defects_base),
             f"{row.zero_offsets}/{int(pattern_fit.COARSE_1D)}",
             f"{row.fit_error:.2f} mm",
-            f"{row.strip_width:.1f} mm",
+            f"{row.strip_width:.2f} mm",
             f"{row.coverage * 100:.0f}%",
             "; ".join(notes),
         ])

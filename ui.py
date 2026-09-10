@@ -38,8 +38,8 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         box = layout.box()
         box.label(text="Strips", icon="MOD_ARRAY")
         row = box.row(align=True)
-        row.prop(props, "strip_angle")
-        box.label(text=f"Strip count: {props.computed_n_strips}")
+        row.prop(props, "n_strips")
+        box.label(text=f"Strip angle: {props.strip_angle:.2f}°")
         box.prop(props, "seam_offset")
         box.prop(props, "mode")
         if props.mode == "FITTED":

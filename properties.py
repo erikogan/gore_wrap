@@ -9,8 +9,29 @@ import bpy
 from . import geometry
 
 
+MIN_STRIPS = 8
+MAX_STRIPS = 72
+"""Strip counts the pipeline will accept.
+
+These are exactly the counts the old Strip Angle control could reach: it was
+clamped to 5-45 degrees, and 360/45 is 8 while 360/5 is 72. Flipping the UI to
+a count is a change of representation, not of range.
+"""
+
+
 def _update_strip_count(self, context):
     self.computed_n_strips = geometry.strip_count(self.strip_angle)
+
+
+def _update_strip_angle(self, context):
+    """Keep the derived angle in step with the count the user edits.
+
+    `n_strips` is what the panel shows, but `strip_angle` is what the pipeline
+    takes and what a .blend saves, so every count change writes through to it.
+    Assigning it fires `_update_strip_count` in turn, which refreshes the
+    `computed_n_strips` readout -- a one-way cascade, never a loop.
+    """
+    self.strip_angle = 360.0 / self.n_strips
 
 
 class GOREWRAP_advice_row(bpy.types.PropertyGroup):
@@ -39,12 +60,16 @@ class GOREWRAP_advice_row(bpy.types.PropertyGroup):
 
 
 class GoreWrapProperties(bpy.types.PropertyGroup):
+    n_strips: bpy.props.IntProperty(
+        name="Strip Count",
+        description="How many gore strips to cut the object into",
+        default=15, min=MIN_STRIPS, max=MAX_STRIPS,
+        update=_update_strip_angle)
     strip_angle: bpy.props.FloatProperty(
         name="Strip Angle",
-        description="Target angular width of each gore; strip count is snapped "
-                    "to the nearest whole number of strips",
-        default=24.0, min=5.0, max=45.0, subtype="NONE",
-        update=_update_strip_count)
+        description="Angular width of each gore, derived from the strip count",
+        default=24.0, min=360.0 / MAX_STRIPS, max=360.0 / MIN_STRIPS,
+        subtype="NONE", update=_update_strip_count)
     computed_n_strips: bpy.props.IntProperty(
         name="Strips", default=15)
 

@@ -111,7 +111,7 @@ def main():
     gore_wrap.register()
     obj = build_scan_object()
     props = bpy.context.scene.gore_wrap
-    props.strip_angle = 24.0
+    props.n_strips = 15
     props.mode = "AVERAGED"
     props.scale_factor = 1.0
 
@@ -233,6 +233,8 @@ def main():
     check_optimize_placement(obj)
     check_advisor(obj)
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
+    test_strip_count_and_angle_stay_in_step(bpy.context.scene.gore_wrap)
+    test_a_pre_1_0_file_keeps_its_strip_count(bpy.context.scene.gore_wrap)
     test_advice_stamp_ignores_the_swept_levers(obj)
     test_advice_properties_exist(bpy.context.scene.gore_wrap)
 
@@ -257,13 +259,13 @@ def test_advice_stamp_ignores_the_swept_levers(obj):
     props.use_pattern = True
     props.pattern_svg = _write_temp_pattern()
     props.pattern_repeats_x = 6
-    props.strip_angle = 24.0
+    props.n_strips = 15
     props.pattern_limit_top = False
 
     base = operators.advice_stamp(props, obj)
 
     # The three swept levers must NOT change the stamp.
-    props.strip_angle = 36.0
+    props.n_strips = 10
     assert operators.advice_stamp(props, obj) == base, "strip count"
     props.pattern_repeats_x = 3
     assert operators.advice_stamp(props, obj) == base, "repeats"
@@ -282,6 +284,44 @@ def test_advice_stamp_ignores_the_swept_levers(obj):
     assert operators.advice_stamp(props, obj) != base, "tolerance"
     props.tolerance = 0.3
     print("[smoke] advice stamp ok")
+
+
+def test_strip_count_and_angle_stay_in_step(props):
+    """The count is what the user edits; the angle is what the pipeline takes.
+
+    Editing the count must write through to the angle, or a preview would be
+    built at whatever angle happened to be left over from before.
+    """
+    from gore_wrap import geometry, properties as gw_properties
+    for count in (8, 15, 20, 72):
+        props.n_strips = count
+        # FloatProperty is single precision, so compare with a tolerance.
+        assert abs(props.strip_angle - 360.0 / count) < 1e-4, count
+        # The angle's own callback refreshes the readout in the same cascade.
+        assert props.computed_n_strips == count, count
+        assert geometry.strip_count(props.strip_angle) == count, count
+    assert props.bl_rna.properties["n_strips"].hard_min == gw_properties.MIN_STRIPS
+    assert props.bl_rna.properties["n_strips"].hard_max == gw_properties.MAX_STRIPS
+    props.n_strips = 15
+    print("[smoke] strip count/angle cascade ok")
+
+
+def test_a_pre_1_0_file_keeps_its_strip_count(props):
+    """Files saved before 1.0.0 store only the angle, and must still open right.
+
+    Simulated by writing the angle directly, the way loading such a file does,
+    and then running the load handler by hand.
+    """
+    from gore_wrap import registry
+    props.n_strips = 15                 # a stale value, as a fresh load has
+    props.strip_angle = 18.0            # what a pre-1.0.0 .blend carries
+    registry._sync_strip_count(None)
+    assert props.n_strips == 20, props.n_strips
+    # Idempotent: running it again on an already-migrated scene changes nothing.
+    registry._sync_strip_count(None)
+    assert props.n_strips == 20, props.n_strips
+    props.n_strips = 15
+    print("[smoke] pre-1.0 strip count migration ok")
 
 
 def test_advice_properties_exist(props):
@@ -365,7 +405,7 @@ def check_advisor(obj):
     props.use_pattern = True
     props.pattern_svg = _write_temp_pattern()
     props.pattern_repeats_x = 4
-    props.strip_angle = 36.0          # 10 strips, so the sweep is short
+    props.n_strips = 10               # a short sweep
 
     # Keep the smoke test to seconds: the shipped grid is 96.
     original = pattern_fit.COARSE_1D
@@ -396,6 +436,7 @@ def check_advisor(obj):
         res = bpy.ops.gorewrap.apply_advice(
             index=list(props.advice).index(target))
     assert res == {"FINISHED"}, res
+    assert props.n_strips == want_strips, props.n_strips
     assert props.computed_n_strips == want_strips, props.computed_n_strips
     assert props.pattern_repeats_x == want_repeats
     assert not props.has_pattern_fit, "applying a row must stale the placement"

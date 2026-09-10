@@ -84,7 +84,7 @@ Header order is panel order, not the order you work in. For a first cut:
 1. Orient the scan **Z-up**, centered on the **X** and **Y** axes, and delete
    obvious base junk.
 2. Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`).
-3. Set [**Strip Angle**](#strip-angle) and [**Mode**](#mode) in **Strips**.
+3. Set [**Strip Count**](#strip-count) and [**Mode**](#mode) in **Strips**.
 4. Set [**Bottom Crop**](#bottom-crop), then click [**Preview**](#preview) to
    check the fit and read the dimensions.
 5. [**Calibrate**](#calibrate-by) against one measured dimension, if the scan
@@ -101,11 +101,23 @@ Header order is panel order, not the order you work in. For a first cut:
 
 The geometry of the individual gore strips.
 
-### Strip Angle
+### Strip Count
 
-The target angular width of one gore (24° → 15 strips, 18° → 20 strips, etc.).
-The **Strip count** shown below it is what that angle snapped to, since only a
-whole number of strips fits around the object.
+How many gores to cut the object into, from 8 to 72. The **Strip angle** shown
+below it is the angular width each strip works out to — 360° divided by the
+count — and is what the geometry is actually built from.
+
+Fewer, wider strips mean fewer seams, which usually means fewer pattern pieces
+lost to a cut; see the [**Placement Advisor**](#placement-advisor) for what that
+is worth on your artwork. More, narrower strips conform to a curved surface more
+closely, which shows up as a lower [**Fit error**](#quality).
+
+> **Changed in 1.0.0.** This control used to be **Strip Angle**, and you set the
+> angle while the count was shown below it. The two have swapped: the count is
+> now what you set, because a whole number of strips is what you actually cut,
+> and an angle that snapped to one was a step of indirection. Files saved with
+> the old control keep their strip count when you open them — the angle they
+> stored is read and converted.
 
 ### Seam Offset (mm)
 
@@ -454,15 +466,28 @@ stack, which they generally do.
 pipeline from the scan and then searches placements on top of that. There is a
 progress bar, and Esc cancels without changing anything.
 
-Each row reports the defect count it reached, the count before searching, the
-fit error, the strip width, how much of the object the pattern covers, and how
-many of the screened rotations came out completely clean — a useful measure of
-how fussy a setting is to place. Rows are ranked by defect count. A setting
-whose strips will not fit your mat is still listed, with the reason, rather
-than quietly dropped.
+Rows are ranked by defect count. A setting whose strips will not fit your mat is
+still listed, with the reason, rather than quietly dropped.
 
 Select a row for the full breakdown, or use **Full Advice Table** to see every
 column for every candidate at once. **Apply These Settings** adopts a row.
+
+#### What the columns mean
+
+| column | what it is |
+|---|---|
+| **setting** | The change this row would make, as it would appear in the panel — `10 strips`, `repeats 1`, `limit 75 mm`, or a combination of two. |
+| **defects** | Pattern pieces left below your floors after screening this setting at its best rotation. **This is the number rows are ranked on**, and the one to compare against your current row. |
+| **was** | The same count before any rotation search — the setting at 0°. The gap between **was** and **defects** is what searching the rotation buys you *for that setting*; a small gap means the setting matters more than the placement does. |
+| **clean** | How many of the 96 screened rotations came out with no defects at all, as `n/96`. Zero means this setting never reaches clean. A high number means it reaches clean almost wherever you put it, which is a different and more comfortable thing than reaching it at exactly one rotation. |
+| **fit error** | RMS deviation between the flattened gores and the scanned surface, in millimeters — the same figure the **Quality** panel reports. Wider strips conform to a curve less willingly, so this tends to rise as the strip count falls. On a well-behaved scan the whole range is a small fraction of your tolerance; check it rather than assuming. |
+| **strip width** | How wide one gore is at its widest, in millimeters. This is the practical constraint: it has to fit your cutting mat, and it is why the best row is not always the one you can use. |
+| **coverage** | How far up the object the pattern reaches, as a percentage of the gore. Only the height-limit rows move this. Anything below 100% is pattern you have chosen not to apply. |
+| **notes** | Flags. *current settings* marks the row you are on now. *changes how the design reads* marks any row that alters Repeats Around, because that resizes your artwork. *gain is mostly the coverage it removes* marks a height-limit row whose improvement is really just the pattern it deleted. A row that cannot be laid out carries its reason here instead. |
+
+The compact list in the panel shows only **setting**, **defects**, and a flag
+icon, because that is what fits at N-panel width. The full table is the same
+data with nothing elided.
 
 Two things to know about applying one. The placement is cleared, because it was
 optimized for the settings you just changed — run **Optimize Placement** again.

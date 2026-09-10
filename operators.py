@@ -760,7 +760,8 @@ class GOREWRAP_OT_apply_advice(bpy.types.Operator):
                         f"{row.label} cannot be laid out: {row.note}")
             return {"CANCELLED"}
 
-        props.strip_angle = 360.0 / row.n_strips
+        # Writes through to strip_angle via the property's update callback.
+        props.n_strips = row.n_strips
         props.pattern_repeats_x = row.repeats
         props.pattern_limit_top = row.limit_top
         if row.limit_top:
@@ -794,24 +795,31 @@ class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(
-            self, width=760, title="Placement Advisor",
+            self, width=1100, title="Placement Advisor",
             confirm_text="Close")
+
+    # Relative column widths. Every numeric column is wide enough for its own
+    # header, because Blender truncates a label that overflows and offers no
+    # tooltip to recover it -- an abbreviated heading nobody can expand is
+    # worse than a wide column.
+    _WIDTHS = (3.0, 1.5, 1.3, 1.4, 1.7, 1.9, 1.5, 5.0)
 
     def draw(self, context):
         props = context.scene.gore_wrap
         table = pattern_advise.format_table(list(props.advice))
         col = self.layout.column(align=True)
         header, *body = table
-        widths = (2.6, 1.0, 1.0, 1.1, 1.2, 1.3, 1.1, 5.0)
-        row_ui = col.row(align=True)
-        for cell, width in zip(header, widths):
+        # align=False on each row is what puts space between the columns;
+        # align=True packs them flush and is why this read as a wall of text.
+        row_ui = col.row()
+        for cell, width in zip(header, self._WIDTHS):
             sub = row_ui.row()
             sub.scale_x = width
             sub.label(text=cell)
         col.separator(type="LINE")
         for i, (line, item) in enumerate(zip(body, props.advice)):
-            row_ui = col.row(align=True)
-            for cell, width in zip(line, widths):
+            row_ui = col.row()
+            for cell, width in zip(line, self._WIDTHS):
                 sub = row_ui.row()
                 sub.scale_x = width
                 sub.label(text=cell)
