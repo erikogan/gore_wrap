@@ -1,5 +1,30 @@
 # Pattern sliver investigation — findings
 
+> **⚠️ Every figure in this document is pre-0.9.4 and came off corrupted
+> geometry.** This investigation ran before `build_gores` rejected radial
+> outliers, so the scan it measured still contained a scrap of the surface the
+> object stood on: 18 vertices sitting just above the crop plane, far from the
+> axis and all in one direction. They pulled one band/sector cell's mean radius
+> to 167.6 mm against a true 61 mm, which deformed the single FITTED gore that
+> owned that wedge and inflated the derived dimensions for every gore.
+>
+> Concretely, "Data used" below records circumference 395.733 mm against a true
+> 383.137, fit error 2.789 mm against 0.586, and a gore meridian of 180.48 mm
+> against 179.98 — and max diameter, not recorded here, read 202.05 mm against
+> 125.35. Nothing in this document has been re-measured.
+>
+> **This did not invalidate the investigation's conclusion.** It concluded that
+> the polarity work was required; that work shipped, and on the shipped metric
+> the monochrome pattern reaches zero defects while the filigree never does —
+> the same split this document found. What the corruption does mean is that
+> individual counts here are unreliable in an unknown direction, and that the
+> deformed gore was contributing seam slivers of its own that 0.9.4 removed at
+> the source. See `../specs/2026-09-08-placement-advisor-design.md` for figures
+> re-measured on clean geometry.
+>
+> It is kept as written because it is the record of what was known at the time,
+> and because the 0.9.4 fix was found by re-measuring exactly these numbers.
+
 Written 2026-09-06, after the 0.9.0 pattern-placement-search work. The owner
 reported that an exported cut file still left thin orphaned strips along the
 gore seams even after running Optimize Placement. This records what was

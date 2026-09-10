@@ -111,7 +111,7 @@ def main():
     gore_wrap.register()
     obj = build_scan_object()
     props = bpy.context.scene.gore_wrap
-    props.strip_angle = 24.0
+    props.n_strips = 15
     props.mode = "AVERAGED"
     props.scale_factor = 1.0
 
@@ -231,7 +231,12 @@ def main():
 
     check_non_finite_rejected(obj)
     check_optimize_placement(obj)
+    check_advisor(obj)
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
+    test_strip_count_and_angle_stay_in_step(bpy.context.scene.gore_wrap)
+    test_a_pre_1_0_file_keeps_its_strip_count(bpy.context.scene.gore_wrap)
+    test_advice_stamp_ignores_the_swept_levers(obj)
+    test_advice_properties_exist(bpy.context.scene.gore_wrap)
 
 
 def test_placement_properties_exist(props):
@@ -243,6 +248,86 @@ def test_placement_properties_exist(props):
     assert "pattern_min_feature" not in props.bl_rna.properties
     assert "pattern_orphans" not in props.bl_rna.properties
     print("[smoke] placement properties ok")
+
+
+def test_advice_stamp_ignores_the_swept_levers(obj):
+    """The advice is a map of the settings space; moving within it must not
+    invalidate the map, or applying a row would blank the table it came from."""
+    import bpy
+    from gore_wrap import operators
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()
+    props.pattern_repeats_x = 6
+    props.n_strips = 15
+    props.pattern_limit_top = False
+
+    base = operators.advice_stamp(props, obj)
+
+    # The three swept levers must NOT change the stamp.
+    props.n_strips = 10
+    assert operators.advice_stamp(props, obj) == base, "strip count"
+    props.pattern_repeats_x = 3
+    assert operators.advice_stamp(props, obj) == base, "repeats"
+    props.pattern_limit_top = True
+    props.pattern_top_offset = 20.0
+    assert operators.advice_stamp(props, obj) == base, "height limit"
+
+    # Anything the sweep does not vary MUST change it.
+    props.pattern_min_area = 25.0
+    assert operators.advice_stamp(props, obj) != base, "area floor"
+    props.pattern_min_area = 10.0
+    props.pattern_invert = True
+    assert operators.advice_stamp(props, obj) != base, "invert"
+    props.pattern_invert = False
+    props.tolerance = 0.45
+    assert operators.advice_stamp(props, obj) != base, "tolerance"
+    props.tolerance = 0.3
+    print("[smoke] advice stamp ok")
+
+
+def test_strip_count_and_angle_stay_in_step(props):
+    """The count is what the user edits; the angle is what the pipeline takes.
+
+    Editing the count must write through to the angle, or a preview would be
+    built at whatever angle happened to be left over from before.
+    """
+    from gore_wrap import geometry, properties as gw_properties
+    for count in (8, 15, 20, 72):
+        props.n_strips = count
+        # FloatProperty is single precision, so compare with a tolerance.
+        assert abs(props.strip_angle - 360.0 / count) < 1e-4, count
+        # The angle's own callback refreshes the readout in the same cascade.
+        assert props.computed_n_strips == count, count
+        assert geometry.strip_count(props.strip_angle) == count, count
+    assert props.bl_rna.properties["n_strips"].hard_min == gw_properties.MIN_STRIPS
+    assert props.bl_rna.properties["n_strips"].hard_max == gw_properties.MAX_STRIPS
+    props.n_strips = 15
+    print("[smoke] strip count/angle cascade ok")
+
+
+def test_a_pre_1_0_file_keeps_its_strip_count(props):
+    """Files saved before 1.0.0 store only the angle, and must still open right.
+
+    Simulated by writing the angle directly, the way loading such a file does,
+    and then running the load handler by hand.
+    """
+    from gore_wrap import registry
+    props.n_strips = 15                 # a stale value, as a fresh load has
+    props.strip_angle = 18.0            # what a pre-1.0.0 .blend carries
+    registry._sync_strip_count(None)
+    assert props.n_strips == 20, props.n_strips
+    # Idempotent: running it again on an already-migrated scene changes nothing.
+    registry._sync_strip_count(None)
+    assert props.n_strips == 20, props.n_strips
+    props.n_strips = 15
+    print("[smoke] pre-1.0 strip count migration ok")
+
+
+def test_advice_properties_exist(props):
+    for name in ("advice", "advice_index", "has_advice", "advice_stamp"):
+        assert name in props.bl_rna.properties, name
+    print("[smoke] advice properties ok")
 
 
 def check_optimize_placement(obj):
@@ -310,6 +395,231 @@ def check_optimize_placement(obj):
     props.pattern_mark_intrinsic = False
     props.pattern_mark_defects = False
     print(f"[smoke] mark defects export ok: {out_defects}, {out_all}")
+
+
+def check_advisor(obj):
+    """The sweep runs, writes rows, and applying one changes the settings."""
+    import bpy
+    from gore_wrap import pattern_fit
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_svg = _write_temp_pattern()
+    props.pattern_repeats_x = 4
+    props.n_strips = 10               # a short sweep
+
+    # Keep the smoke test to seconds: the shipped grid is 96.
+    original = pattern_fit.COARSE_1D
+    pattern_fit.COARSE_1D = 8
+    try:
+        with bpy.context.temp_override(active_object=obj,
+                                       selected_objects=[obj]):
+            res = bpy.ops.gorewrap.advise_settings()
+    finally:
+        pattern_fit.COARSE_1D = original
+    assert res == {"FINISHED"}, res
+    assert props.has_advice, "advise did not record any rows"
+    assert len(props.advice) > 1, len(props.advice)
+    assert props.advice_stamp
+
+    counts = [r.defects_screened for r in props.advice if r.feasible]
+    assert counts == sorted(counts), "rows are not ranked"
+
+    # Applying a row writes its settings and invalidates only the placement.
+    target = next((r for r in props.advice if not r.current and r.feasible),
+                  None)
+    assert target is not None, \
+        "no feasible non-current row in the advice table to apply"
+    want_strips, want_repeats = target.n_strips, target.repeats
+    stamp_before = props.advice_stamp
+    props.has_pattern_fit = True
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.apply_advice(
+            index=list(props.advice).index(target))
+    assert res == {"FINISHED"}, res
+    assert props.n_strips == want_strips, props.n_strips
+    assert props.computed_n_strips == want_strips, props.computed_n_strips
+    assert props.pattern_repeats_x == want_repeats
+    assert not props.has_pattern_fit, "applying a row must stale the placement"
+    assert props.advice_stamp == stamp_before, \
+        "applying a row must NOT invalidate the advice table"
+    assert len(props.advice) > 1, "applying a row must not clear the table"
+
+    assert "advise_settings" in dir(bpy.ops.gorewrap)
+    assert "show_advice_table" in dir(bpy.ops.gorewrap)
+    print(f"[smoke] advisor ok: {len(props.advice)} rows, "
+          f"best {counts[0]} defects")
+
+    check_advisor_panel()
+    check_advice_dialog_draws(props)
+
+
+class _StubOperatorProps:
+    """Recording stand-in for what a ``layout.operator(...)`` call returns.
+
+    Real Blender lets you set properties on that return value, e.g.
+    ``op = box.operator(...); op.index = ...`` in GOREWRAP_PT_advisor.draw.
+    A plain instance of this class accepts that assignment the same way.
+    """
+
+
+class _StubLayout:
+    """Minimal recording stand-in for a UILayout.
+
+    Headless Blender never builds a real UILayout, so this gives
+    GOREWRAP_PT_advisor.draw and GOREWRAP_UL_advice.draw_item just enough
+    surface to run to completion without raising: row/column/box return a
+    stub that shares the same call log, label/prop/separator/template_list
+    record what they were called with, and operator returns a
+    _StubOperatorProps.
+    """
+
+    def __init__(self, calls=None):
+        self.calls = calls if calls is not None else []
+
+    def row(self, **kwargs):
+        return self
+
+    def column(self, **kwargs):
+        return self
+
+    def box(self):
+        return _StubLayout(self.calls)
+
+    def label(self, **kwargs):
+        self.calls.append(("label", kwargs))
+
+    def prop(self, data, name, **kwargs):
+        self.calls.append(("prop", name))
+
+    def separator(self, **kwargs):
+        self.calls.append(("separator", kwargs))
+
+    def template_list(self, *args, **kwargs):
+        self.calls.append(("template_list", args))
+
+    def operator(self, idname, **kwargs):
+        self.calls.append(("operator", idname))
+        return _StubOperatorProps()
+
+
+class _StubPanel:
+    """Recording stand-in for a Panel or Operator instance.
+
+    Supplies self.layout, and delegates anything else to the real class when
+    one is given -- GOREWRAP_OT_show_advice_table.draw reads its column widths
+    off self, and those should come from the class under test rather than being
+    restated here, where they could drift out of step with it.
+    """
+
+    def __init__(self, layout, cls=None):
+        self.layout = layout
+        self._cls = cls
+
+    def __getattr__(self, name):
+        # Only reached for names not already set in __init__, so self._cls
+        # itself never routes back through here.
+        if self._cls is not None:
+            return getattr(self._cls, name)
+        raise AttributeError(name)
+
+
+def check_advice_dialog_draws(props):
+    """The full-table dialog must emit every column for every row.
+
+    Its draw() is column-major -- one column() per table column, heading and
+    values stacked inside it -- because the row-major shape does not line up:
+    Blender sizes each label from its own text, so a heading and the values
+    under it land in differently sized cells. None of that is visible
+    headlessly, so this asserts the structure the layout should have.
+    """
+    from gore_wrap import operators, pattern_advise
+    layout = _StubLayout()
+    dialog = operators.GOREWRAP_OT_show_advice_table
+    dialog.draw(_StubPanel(layout, dialog), bpy.context)
+
+    labels = [kwargs.get("text") for kind, kwargs in layout.calls
+              if kind == "label"]
+    for heading in pattern_advise.COLUMNS:
+        assert heading in labels, f"missing column heading: {heading}"
+
+    uses = [call for call in layout.calls if call[0] == "operator"]
+    assert len(uses) == len(props.advice), (len(uses), len(props.advice))
+
+    # One heading plus one value per row, for each column, and the blank
+    # heading that sits over the Use buttons.
+    expected = len(pattern_advise.COLUMNS) * (1 + len(props.advice)) + 1
+    assert len(labels) == expected, (len(labels), expected)
+
+    rules = [call for call in layout.calls if call[0] == "separator"]
+    assert len(rules) == len(pattern_advise.COLUMNS) + 1, len(rules)
+    print(f"[smoke] advice dialog ok: {len(pattern_advise.COLUMNS)} columns, "
+          f"{len(uses)} rows")
+
+
+def check_advisor_panel():
+    """Both advisor views are registered, and their draw methods complete.
+
+    Headless Blender has no real UILayout, so GOREWRAP_PT_advisor.draw and
+    GOREWRAP_UL_advice.draw_item are called directly against a minimal
+    recording _StubLayout (above), in each state the design spec calls out:
+    with advice, without advice, and when the advice is stale -- plus the
+    UIList drawing a feasible row and, if the sweep produced one, an
+    infeasible row. This is what would catch a typo'd property or field
+    name in draw(), which would otherwise only surface when a user opens
+    the panel.
+    """
+    import bpy
+    from gore_wrap import ui
+    assert hasattr(ui, "GOREWRAP_PT_advisor")
+    assert hasattr(ui, "GOREWRAP_UL_advice")
+    assert ui.GOREWRAP_PT_advisor in ui.classes
+    assert ui.GOREWRAP_UL_advice in ui.classes
+    assert ui.GOREWRAP_PT_advisor.bl_parent_id == "GOREWRAP_PT_panel"
+
+    context = bpy.context
+    props = context.scene.gore_wrap
+    assert props.has_advice, "check_advisor must leave advice rows in place"
+
+    # With advice.
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert layout.calls, "draw() with advice emitted nothing"
+
+    # Stale: an advice_stamp that cannot match the live one must still draw,
+    # and must draw the staleness warning specifically.
+    saved_stamp = props.advice_stamp
+    props.advice_stamp = "stale"
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert ("label", {"text": "Advice is stale", "icon": "ERROR"}) \
+        in layout.calls, "draw() when stale did not warn of staleness"
+    props.advice_stamp = saved_stamp
+
+    # Without advice: has_advice False must short-circuit cleanly.
+    saved_has_advice = props.has_advice
+    props.has_advice = False
+    layout = _StubLayout()
+    ui.GOREWRAP_PT_advisor.draw(_StubPanel(layout), context)
+    assert layout.calls, "draw() without advice emitted nothing"
+    props.has_advice = saved_has_advice
+
+    # The list: a feasible row, and an infeasible one if the sweep found one.
+    feasible = next((r for r in props.advice if r.feasible), None)
+    assert feasible is not None, "no feasible row to draw"
+    layout = _StubLayout()
+    ui.GOREWRAP_UL_advice.draw_item(None, context, layout, props, feasible,
+                                     0, props, "advice_index", 0)
+    assert layout.calls, "draw_item on a feasible row emitted nothing"
+
+    infeasible = next((r for r in props.advice if not r.feasible), None)
+    if infeasible is not None:
+        layout = _StubLayout()
+        ui.GOREWRAP_UL_advice.draw_item(None, context, layout, props,
+                                         infeasible, 0, props,
+                                         "advice_index", 0)
+        assert layout.calls, "draw_item on an infeasible row emitted nothing"
+
+    print("[smoke] advisor panel ok")
 
 
 def _write_temp_pattern():

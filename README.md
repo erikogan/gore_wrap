@@ -6,7 +6,8 @@ A Blender extension that simplifies a scanned mesh into flat **gore strips** —
 vertical panels that taper to a point at the top — and exports a real-scale SVG
 for cutting on a CNC or desktop cutter for wrapping around the scanned object.
 
-An optional SVG pattern can be included and a separate pattern object will be mapped onto the gores such that the pattern will line up when wrapped.
+An optional SVG pattern can be included and a separate pattern object will be
+mapped onto the gores such that the pattern will line up when wrapped.
 
 Originally built for transferring complex patterns onto glass stuff-cups.
 
@@ -46,21 +47,26 @@ Installed this way the add-on will not update itself; repeat for a new version,
 or use [Blender Extensions](#from-blender-extensions) instead.
 
 ## From Source
+
 1. Build the extension zip into the `dist/` directory (pick one):
    - If you have make and Python installed:
-      ```
+
+      ```sh
       make
       ```
+
       The Makefile finds Blender on `PATH` or in the usual macOS / Linux /
       Windows install locations; override it with `make BLENDER=/path/to/blender`
       (`make blender-path` shows which one it picked).
 
    - _**-OR-**_ By hand with only blender installed:
-      ```
+
+      ```sh
       mkdir -p dist
       <path-to-blender>/blender --factory-startup --command extension build \
           --source-dir . --output-dir dist
       ```
+
       `--factory-startup` builds with none of your add-ons or preferences
       loaded, so the zip cannot depend on local configuration; it has to come
       before `--command`, which swallows every argument after it.
@@ -84,7 +90,7 @@ Header order is panel order, not the order you work in. For a first cut:
 1. Orient the scan **Z-up**, centered on the **X** and **Y** axes, and delete
    obvious base junk.
 2. Open the **Gore Wrap** tab in the 3D viewport sidebar (`N`).
-3. Set [**Strip Angle**](#strip-angle) and [**Mode**](#mode) in **Strips**.
+3. Set [**Strip Count**](#strip-count) and [**Mode**](#mode) in **Strips**.
 4. Set [**Bottom Crop**](#bottom-crop), then click [**Preview**](#preview) to
    check the fit and read the dimensions.
 5. [**Calibrate**](#calibrate-by) against one measured dimension, if the scan
@@ -92,7 +98,7 @@ Header order is panel order, not the order you work in. For a first cut:
 6. Optional: check [**Fill With Pattern**](#fill-with-pattern), pick a
    [**Pattern SVG**](#pattern-svg), and set
    [**Repeats Around**](#repeats-around).
-7. Optional: set [**Limit Pattern Height**](#limit-pattern-height) *first*,
+7. Optional: set [**Limit Pattern Height**](#limit-pattern-height) _first_,
    then click [**Optimize Placement**](#optimize-placement).
 8. Click [**Export SVG**](#export-svg) and open the file in your editor or
    cutter controller of choice.
@@ -101,11 +107,23 @@ Header order is panel order, not the order you work in. For a first cut:
 
 The geometry of the individual gore strips.
 
-### Strip Angle
+### Strip Count
 
-The target angular width of one gore (24° → 15 strips, 18° → 20 strips, etc.).
-The **Strip count** shown below it is what that angle snapped to, since only a
-whole number of strips fits around the object.
+How many gores to cut the object into, from 8 to 72. The **Strip angle** shown
+below it is the angular width each strip works out to — 360° divided by the
+count — and is what the geometry is actually built from.
+
+Fewer, wider strips mean fewer seams, which usually means fewer pattern pieces
+lost to a cut; see the [**Placement Advisor**](#placement-advisor) for what that
+is worth on your artwork. More, narrower strips conform to a curved surface more
+closely, which shows up as a lower [**Fit error**](#quality).
+
+> **Changed in 1.0.0.** This control used to be **Strip Angle**, and you set the
+> angle while the count was shown below it. The two have swapped: the count is
+> now what you set, because a whole number of strips is what you actually cut,
+> and an angle that snapped to one was a step of indirection. Files saved with
+> the old control keep their strip count when you open them — the angle they
+> stored is read and converted.
 
 ### Seam Offset (mm)
 
@@ -170,7 +188,7 @@ than this.
 
 Lower it when the cut is visibly faceted against a curved object; raise it when
 the outline carries far more nodes than the cutter needs. This governs the gore
-*outline* only — the pattern has its own control in
+_outline_ only — the pattern has its own control in
 [**Simplify Mode**](#simplify-mode).
 
 ### Fit error, Interpolated and Stray points
@@ -260,7 +278,7 @@ ground. Because the polarity leaves no trace in the geometry, the SVG's
 provenance comment records it, so a file can be read back later and weeded the
 way it was scored.
 
-Two consequences worth expecting. The pattern still has to be *filled* — a
+Two consequences worth expecting. The pattern still has to be _filled_ — a
 stroke-only file has nothing to invert, and scoring rejects it in both
 polarities. And the count of pieces no placement can fix usually drops to zero,
 because inverted material is one region that reaches the gore edge nearly
@@ -325,9 +343,9 @@ Reveals **Simplify Tol (mm)** and **Corner Angle (deg)**, below.
 
 Custom only. The maximum deviation of the fitted curves from the true shape.
 
-Some vector editors simplify with a *curve-precision percentage* instead of a
+Some vector editors simplify with a _curve-precision percentage_ instead of a
 distance. That runs the opposite way — a higher percentage keeps the path
-*closer* to the original, meaning less simplification — and it is a relative
+_closer_ to the original, meaning less simplification — and it is a relative
 setting with no real-world unit, so the same percentage deviates by different
 amounts on different artwork. **Simplify Tol** is an absolute limit in
 millimeters, so it stays predictable at cut scale regardless of the pattern's
@@ -335,12 +353,12 @@ size.
 
 #### Corner Angle (deg)
 
-Custom only. The *turn* angle: how far the path bends at a join. A join is kept
+Custom only. The _turn_ angle: how far the path bends at a join. A join is kept
 as a sharp corner only when it turns by more than this, and gentler bends are
 smoothed into one curve — so a **lower** value smooths more.
 
 Note this is the opposite sense from some vector editors, whose "corner angle
-threshold" measures the *interior* angle (180° − turn). Their 150° default
+threshold" measures the _interior_ angle (180° − turn). Their 150° default
 corresponds to about 30° here.
 
 ## Placement
@@ -354,8 +372,8 @@ is one connected web with holes in it is a single healthy shape to a
 per-contour test, and every real defect in it would be invisible, so the search
 measures connected pieces of material directly instead. Polarity, nesting and
 welding all fall out of that one rule: a filled SVG element is material, a
-subpath nested inside another *in the same element* is a hole in it, and two
-overlapping shapes in *different* elements weld into one piece. If your artwork
+subpath nested inside another _in the same element_ is a hole in it, and two
+overlapping shapes in _different_ elements weld into one piece. If your artwork
 is drawn the other way round, [**Invert Pattern**](#invert-pattern) flips which
 side counts as material.
 
@@ -412,6 +430,79 @@ Spins the pattern around the object, in degrees. It repeats every
 #### Rise (mm)
 
 Slides the pattern up the strip, in millimeters.
+
+### Placement Advisor
+
+[**Optimize Placement**](#optimize-placement) searches one thing: where the
+pattern sits. That is often not the thing that matters. On artwork finer than
+your floors, sweeping the entire rotation is worth a few percent, while the
+strip count is worth roughly its own share — defects scale with the number of
+seams, so going from 20 strips to 8 removes about sixty percent of them. How
+much is on the table depends on how many strips you are running now.
+
+The advisor answers the other question. It holds your artwork fixed and sweeps
+the settings that change the gores instead, reporting what each change would
+buy and what it would cost. It is offered on the Placement panel whenever an
+optimized placement still leaves defects.
+
+It sweeps three things:
+
+- **Strip count**, from 8 up to your current count. Usually the biggest lever.
+  Fewer, wider strips mean fewer seams for a cut to graze. In principle they
+  cost fit error — a wide strip conforms to a curved surface less willingly
+  than a narrow one — but on the reference scan that cost is about 0.05 mm
+  across the whole range, well inside a 0.3 mm tolerance. Read the fit-error
+  column rather than assuming the trade-off is real for your model. The trend
+  is not smooth, so every count is tried rather than guessed at.
+- **Repeats Around**, from 1 to one past your current. This is the same knob as
+  artwork size — the tile is the circumference divided by the repeat count — so
+  fewer repeats means larger artwork, coarser detail, and wider gaps between
+  shapes. It is frequently the single largest improvement available and it
+  always changes how the design reads, so every row that moves it is marked.
+- **The height limit**, off plus three depths. Be skeptical of these rows.
+  Running the pattern less far up the object always lowers the defect count,
+  because there is less pattern to have defects in. Rows marked _"gain is
+  mostly the coverage it removes"_ are buying their improvement that way, and
+  in practice nearly all of them are.
+
+It then crosses the best strip and repeat counts to check whether the gains
+stack, which they generally do.
+
+**This takes minutes, not seconds** — every candidate re-runs the whole
+pipeline from the scan and then searches placements on top of that. There is a
+progress bar, and Esc cancels without changing anything.
+
+Rows are ranked by defect count. A setting whose strips will not fit your mat is
+still listed, with the reason, rather than quietly dropped.
+
+Select a row for the full breakdown, or use **Full Advice Table** to see every
+column for every candidate at once. **Apply These Settings** adopts a row.
+
+#### What the columns mean
+
+| column | what it is |
+| --- | --- |
+| **setting** | The change this row would make, as it would appear in the panel — `10 strips`, `repeats 1`, `limit 75 mm`, or a combination of two. |
+| **defects** | Pattern pieces left below your floors after screening this setting at its best rotation. **This is the number rows are ranked on**, and the one to compare against your current row. |
+| **was** | The same count before any rotation search, for this row's own settings — that strip count, that many repeats, that height limit, with the pattern sitting at 0°. It is not your current placement: if you have already run Optimize, the count in the panel is from the rotation it found, not from 0°. The gap between **was** and **defects** is what searching the rotation buys you _for this row_; a small gap means the setting matters more than the placement does. |
+| **clean** | How many of the 96 screened rotations came out with no defects at all, as `n/96`. Zero means this setting never reaches clean. A high number means it reaches clean almost wherever you put it, which is a different and more comfortable thing than reaching it at exactly one rotation. |
+| **fit error** | RMS deviation between the flattened gores and the scanned surface, in millimeters — the same figure the **Quality** panel reports. Wider strips conform to a curve less willingly, so this tends to rise as the strip count falls. On a well-behaved scan the whole range is a small fraction of your tolerance; check it rather than assuming. |
+| **strip width** | How wide one gore is at its widest, in millimeters. This is the practical constraint: it has to fit your cutting mat, and it is why the best row is not always the one you can use. |
+| **coverage** | How far up the object the pattern reaches, as a percentage of the gore. Only the height-limit rows move this. Anything below 100% is pattern you have chosen not to apply. |
+| **notes** | Flags. _current settings_ marks the row you are on now. _changes how the design reads_ marks any row that alters Repeats Around, because that resizes your artwork. _gain is mostly the coverage it removes_ marks a height-limit row whose improvement is really just the pattern it deleted. A row that cannot be laid out carries its reason here instead. |
+
+The compact list in the panel shows only **setting**, **defects**, and a flag
+icon, because that is what fits at N-panel width. The full table is the same
+data with nothing elided.
+
+Two things to know about applying one. The placement is cleared, because it was
+optimized for the settings you just changed — run **Optimize Placement** again.
+The advice table is _not_ cleared, so you can go back and try another row
+against it.
+
+A row's number is a floor rather than a promise. The advisor screens on a
+coarse grid of rotations while Optimize also refines between them, so the real
+result should match what the table said or beat it.
 
 ### Mark Defects in Export
 
@@ -492,7 +583,7 @@ Geometry, layout, pattern warping, and SVG writing are pure
 numpy/svgelements/stdlib and tested without Blender. Requires Python 3.11+
 (the test suite reads `blender_manifest.toml` with `tomllib`):
 
-```
+```sh
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest
 ```
@@ -510,7 +601,7 @@ every supported Blender ships, and CI runs the suite against each.
 
 End-to-end smoke test inside Blender:
 
-```
+```sh
 blender --background --factory-startup --python-exit-code 1 \
     --python tests/blender_smoke.py
 ```
@@ -523,6 +614,16 @@ behind the script's own exit code.
 `make smoke` runs exactly that, locating Blender the same way the build does —
 PATH first, then the usual install locations, overridable with
 `make smoke BLENDER=/path/to/blender`.
+
+`make lint` style-checks `README.md` and `CHANGELOG.md` with
+[markdownlint](https://github.com/DavidAnson/markdownlint-cli2), through `npx`
+at a pinned version so a new rule cannot fail a commit that did not touch
+prose. The rule choices live in `.markdownlint-cli2.jsonc`, each with its
+reason beside it. Check other files with
+`make lint DOCS='docs/superpowers/specs/*.md'`, or use your own copy of the
+tool with `make lint MARKDOWNLINT=/path/to/markdownlint-cli2`. It is separate
+from `make test` on purpose: it needs Node, and a heading in the wrong place
+should not stand between anyone and the test suite.
 
 Module map: `geometry.py` (primitives), `pipeline.py` (orchestration),
 `svg_export.py` (mat layout + SVG), and the bpy shell

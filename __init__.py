@@ -6,7 +6,7 @@ imported lazily inside register().
 """
 
 # Kept in step with blender_manifest.toml by tests/test_manifest.py.
-__version__ = "0.9.4"
+__version__ = "1.0.0"
 
 
 def register():

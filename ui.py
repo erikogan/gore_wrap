@@ -5,18 +5,9 @@ import bpy
 from . import operators
 
 
-# `separator(type=...)` post-dates 4.2, the version floor in the manifest, so
-# ask the RNA rather than guessing from a version number.
-_HAS_LINE_SEPARATOR = "type" in (
-    bpy.types.UILayout.bl_rna.functions["separator"].parameters)
-
-
 def _divider(layout):
-    """A horizontal rule between groups of settings (a plain gap pre-4.3)."""
-    if _HAS_LINE_SEPARATOR:
-        layout.separator(type="LINE")
-    else:
-        layout.separator()
+    """A horizontal rule between groups of settings."""
+    layout.separator(type="LINE")
 
 
 def _labeled(layout, props, name):
@@ -47,8 +38,8 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         box = layout.box()
         box.label(text="Strips", icon="MOD_ARRAY")
         row = box.row(align=True)
-        row.prop(props, "strip_angle")
-        box.label(text=f"Strip count: {props.computed_n_strips}")
+        row.prop(props, "n_strips")
+        box.label(text=f"Strip angle: {props.strip_angle:.2f}°")
         box.prop(props, "seam_offset")
         box.prop(props, "mode")
         if props.mode == "FITTED":
@@ -135,6 +126,14 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
                         col.label(
                             text="Best placement is no better than this one",
                             icon="INFO")
+                    if props.pattern_defects:
+                        # Any leftover defect means some other setting might do
+                        # better. Tying this to the flat band would hide the
+                        # advisor exactly where it helps most, since the search
+                        # usually improves things a little and still leaves far
+                        # more defects than a different strip count would.
+                        col.operator("gorewrap.advise_settings",
+                                     icon="SHADERFX")
                 col.label(text=f"at {props.pattern_rotation:.1f}°, "
                                f"rise {props.pattern_rise:.1f} mm")
             else:
@@ -164,4 +163,81 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         col.operator("gorewrap.export_svg", icon="EXPORT")
 
 
-classes = (GOREWRAP_PT_panel,)
+class GOREWRAP_UL_advice(bpy.types.UIList):
+    """One line per candidate, narrow enough for the N-panel.
+
+    Deliberately fewer columns than the full table: the details go under the
+    list for the selected row, and the whole table goes in the dialog.
+    """
+
+    def draw_item(self, context, layout, data, item, icon, active_data,
+                  active_prop, index):
+        row = layout.row(align=True)
+        if not item.feasible:
+            row.label(text=item.label, icon="ERROR")
+            row.label(text="won't fit")
+            return
+        icon_name = "CHECKMARK" if item.current else "BLANK1"
+        row.label(text=item.label, icon=icon_name)
+        row.label(text=str(item.defects_screened))
+        if item.flag_aesthetic or item.flag_coverage:
+            row.label(text="", icon="INFO")
+
+
+class GOREWRAP_PT_advisor(bpy.types.Panel):
+    bl_label = "Placement Advisor"
+    bl_idname = "GOREWRAP_PT_advisor"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Gore Wrap"
+    bl_parent_id = "GOREWRAP_PT_panel"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.gore_wrap
+        if not props.use_pattern:
+            layout.label(text="Turn on Fill With Pattern", icon="INFO")
+            return
+
+        layout.operator("gorewrap.advise_settings", icon="SHADERFX")
+        layout.label(text="Minutes, not seconds. Esc cancels.", icon="TIME")
+        if not props.has_advice:
+            return
+
+        if props.advice_stamp != operators.advice_stamp(
+                props, context.active_object):
+            layout.label(text="Advice is stale", icon="ERROR")
+
+        current = next((r for r in props.advice if r.current), None)
+        if current is not None:
+            layout.label(text=f"From: {current.label}, "
+                              f"{current.defects_screened} defects")
+        layout.template_list("GOREWRAP_UL_advice", "", props, "advice",
+                             props, "advice_index", rows=6)
+
+        if 0 <= props.advice_index < len(props.advice):
+            row = props.advice[props.advice_index]
+            box = layout.box()
+            box.label(text=row.label)
+            col = box.column(align=True)
+            if row.feasible:
+                col.label(text=f"defects   {row.defects_screened} "
+                               f"(was {row.defects_base})")
+                col.label(text=f"fit error {row.fit_error:.2f} mm")
+                col.label(text=f"strip w   {row.strip_width:.1f} mm")
+                col.label(text=f"coverage  {row.coverage * 100:.0f}%")
+                if row.flag_aesthetic:
+                    col.label(text="Changes how the design reads", icon="INFO")
+                if row.flag_coverage:
+                    col.label(text="Gain is mostly the coverage it removes",
+                              icon="INFO")
+            else:
+                col.label(text=row.note, icon="ERROR")
+            op = box.operator("gorewrap.apply_advice", icon="CHECKMARK")
+            op.index = props.advice_index
+
+        layout.operator("gorewrap.show_advice_table", icon="LONGDISPLAY")
+
+
+classes = (GOREWRAP_PT_panel, GOREWRAP_UL_advice, GOREWRAP_PT_advisor)

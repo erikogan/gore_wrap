@@ -3,6 +3,7 @@
 #   make            # build dist/<id>-<version>.zip
 #   make test       # run the headless pytest suite
 #   make smoke      # run the end-to-end smoke test inside Blender
+#   make lint       # check README.md and CHANGELOG.md with markdownlint
 #   make clean      # remove dist/
 #
 # Blender is located automatically (PATH first, then the usual macOS, Linux
@@ -59,7 +60,28 @@ CHECK_BLENDER = [ -n '$(BLENDER)' ] || { \
 	  echo 'Blender not found. Install it or run: make BLENDER=/path/to/blender' >&2; \
 	  exit 1; }
 
-.PHONY: all build test smoke clean blender-path
+# The prose files worth holding to a style. Override for a one-off run, e.g.
+# `make lint DOCS='docs/superpowers/specs/*.md'`.
+DOCS ?= README.md CHANGELOG.md
+
+# Pinned for the same reason requirements.txt pins its wheels: a linter that
+# floats gains rules between runs, and an unrelated commit then fails on prose
+# it never touched. Bump deliberately, and re-run `make lint` when you do.
+MARKDOWNLINT_VERSION ?= 0.23.2
+NPX := $(shell command -v npx 2>/dev/null)
+MARKDOWNLINT ?= $(NPX) --yes markdownlint-cli2@$(MARKDOWNLINT_VERSION)
+
+# Tests the runner itself rather than npx specifically, so overriding
+# MARKDOWNLINT with your own copy needs nothing else alongside it. With npx
+# missing and no override, the first word is a bare flag, which fails this the
+# same way a missing binary would.
+CHECK_MARKDOWNLINT = command -v '$(firstword $(MARKDOWNLINT))' >/dev/null 2>&1 || { \
+	  echo 'npx not found, so markdownlint cannot run. Install Node.js, or' >&2; \
+	  echo 'point the target at your own copy:' >&2; \
+	  echo '  make lint MARKDOWNLINT=/path/to/markdownlint-cli2' >&2; \
+	  exit 1; }
+
+.PHONY: all build test smoke lint clean blender-path
 
 all: build
 
@@ -102,6 +124,15 @@ smoke:
 	@$(CHECK_BLENDER)
 	'$(BLENDER)' --background --factory-startup --python-exit-code 1 \
 	    --python tests/blender_smoke.py
+
+# Style-check the prose. Rule choices live in .markdownlint-cli2.jsonc, which
+# the tool picks up from the working directory; each entry there records why
+# the default was overridden. Deliberately not a prerequisite of `test`: this
+# one wants Node and a package fetch, and a failing heading should not stand
+# between anyone and the test suite.
+lint:
+	@$(CHECK_MARKDOWNLINT)
+	$(MARKDOWNLINT) $(DOCS)
 
 # Which Blender the build would use.
 blender-path:

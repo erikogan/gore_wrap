@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "gore_wrap"
-version = "0.9.4"
+version = "1.0.0"
 name = "Gore Wrap"
 tagline = "Flatten scanned meshes into gore strips and export SVG"
 maintainer = "Erik Ogan <erik@ogan.net>"
@@ -17,7 +17,7 @@ website = "https://github.com/erikogan/gore_wrap"
 #    UV, User Interface
 tags = ["Mesh", "Import-Export"]
 
-blender_version_min = "4.2.0"
+blender_version_min = "4.5.0"
 
 license = ["SPDX:GPL-3.0-or-later"]
 
@@ -42,6 +42,7 @@ paths = [
   "export_job.py",
   "geometry.py",
   "operators.py",
+  "pattern_advise.py",
   "pattern_fit.py",
   "pattern_warp.py",
   "pipeline.py",
