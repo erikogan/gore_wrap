@@ -52,14 +52,11 @@ release raises the minimum Blender version to 4.5.
   unchanged — 8 to 72 is exactly what the old 5° to 45° angle could reach.
   Files saved with the old control open with the strip count they were saved
   with; the angle they stored is read and converted.
-- **Minimum Blender version is now 4.5.0.** 4.2 reached end of life in July
-  2026. This is why the release is 1.0.0 rather than 0.10.0.
 - Applying an advisor row clears the recorded placement, since it was optimized
   for the settings you just changed. The advice table itself stays valid, so
   you can try another row against it.
-- The full advice table is wider, with more room between columns, so the
-  headings are no longer cut off. Millimeter values in it are shown to two
-  decimal places throughout.
+- **Minimum Blender version is now 4.5.0.** 4.2 reached end of life in July
+  2026. This is why the release is 1.0.0 rather than 0.10.0.
 
 ## 0.9.4 — 2026-09-09
 
