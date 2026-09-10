@@ -417,8 +417,10 @@ Slides the pattern up the strip, in millimeters.
 
 [**Optimize Placement**](#optimize-placement) searches one thing: where the
 pattern sits. That is often not the thing that matters. On artwork finer than
-your floors, sweeping the entire rotation is worth a few percent while changing
-the strip count is worth sixty.
+your floors, sweeping the entire rotation is worth a few percent, while the
+strip count is worth roughly its own share — defects scale with the number of
+seams, so going from 20 strips to 8 removes about sixty percent of them. How
+much is on the table depends on how many strips you are running now.
 
 The advisor answers the other question. It holds your artwork fixed and sweeps
 the settings that change the gores instead, reporting what each change would
@@ -428,9 +430,12 @@ optimized placement still leaves defects.
 It sweeps three things:
 
 - **Strip count**, from 8 up to your current count. Usually the biggest lever.
-  Fewer, wider strips mean fewer seams for a cut to graze, and they cost fit
-  error: a wide strip conforms to a curved surface less willingly than a narrow
-  one. The trend is not smooth, so every count is tried rather than guessed at.
+  Fewer, wider strips mean fewer seams for a cut to graze. In principle they
+  cost fit error — a wide strip conforms to a curved surface less willingly
+  than a narrow one — but on the reference scan that cost is about 0.05 mm
+  across the whole range, well inside a 0.3 mm tolerance. Read the fit-error
+  column rather than assuming the trade-off is real for your model. The trend
+  is not smooth, so every count is tried rather than guessed at.
 - **Repeats Around**, from 1 to one past your current. This is the same knob as
   artwork size — the tile is the circumference divided by the repeat count — so
   fewer repeats means larger artwork, coarser detail, and wider gaps between

@@ -112,6 +112,84 @@ inside the 0.3 mm tolerance. The column stays, because a scan that genuinely
 does not fit will say so here; it is simply no longer an argument against the
 largest lever the advisor has.
 
+#### Why the lever is this size: defects scale with seam count
+
+Measured 2026-09-10, after the re-measurement above raised the question of how
+much of this table is a property of the reference scan.
+
+**Defects are very nearly proportional to strip count.** Dividing each row of
+the table above by its strip count gives a defects-per-seam figure that barely
+moves: mean 8.78, coefficient of variation 6.3%, across a range of counts that
+differs by a factor of 2.5. The lever is not a subtle interaction between
+artwork and geometry. It is arithmetic — each seam is one more chance for a cut
+to graze the pattern, and `defects ≈ k · N`.
+
+The mechanism says why strip count behaves this way and Repeats Around does
+not. Tile width is `circumference / repeats_x`, entirely independent of the
+strip count, so changing `N` does not rescale the artwork at all; it only adds
+or removes seams, each meeting the pattern at an essentially independent phase.
+Repeats Around *does* rescale the artwork, which is why its cost is superlinear
+— 36, 80, 143 and 166 defects per repeat at repeats 1 through 4.
+
+**`k` carries everything scan- and artwork-specific, and it cancels out of the
+ratio.** That makes the *percentage* this lever offers far more portable than
+the counts. Two checks:
+
+| varied | `k` | per-seam CV | 20 → 8 cut |
+|---|---|---|---|
+| repeats 2 (reference) | 8.78 | 6.3% | 57% |
+| repeats 4 (4× the artwork density) | 36.49 | 6.3% | 57% |
+
+Quadrupling the effective density moves `k` by 4× and moves the ratio not at
+all. Six synthetic shapes, screened with the height limit **off** so the apex is
+included, say the same thing about geometry:
+
+| shape | 20 → 8 cut | per-seam CV |
+|---|---|---|
+| tall cylinder (h/r 5.0) | 65% | 4.6% |
+| cylinder (h/r 2.5) | 65% | 5.8% |
+| dome-dominated (h/r 0.25) | 66% | 6.3% |
+| tapered cone, 40 → 15 mm | 66% | 4.6% |
+| elliptical column, 48 × 32 | 62% | 3.9% |
+| wide-foot column (12× radius ratio) | 64% | 4.2% |
+
+62% to 66% across a twentyfold range of aspect ratio, a non-circular section, a
+strong taper, and a candlestick. The reference scan's 57% sits a little below
+that band, which is what a real, less uniform scan measured in FITTED mode with
+a height limit should do.
+
+**The apex was the obvious place for this to break, and it does not.** Where
+the gores converge, the seams are no longer independent and the warp crushes
+horizontal distance to nothing, so a dome-dominated model ought to misbehave.
+It does not, because the slivers the apex generates are classified `intrinsic` —
+unfixable by placement — and the advisor ranks on `defects`. The apex still
+produces them; they simply do not land in the column this lever moves.
+
+Two consequences for the design:
+
+- **The size of the lever is set by the user's current strip count, not by
+  their scan.** The best available cut is about `1 − MIN_STRIPS / n_strips`:
+  60% at 20 strips, 50% at 16, 33% at 12, and nothing at all at 8. This is why
+  the range is derived from the current settings rather than fixed, and it is
+  the honest caveat on any headline percentage.
+- **The non-monotonicity has a cause, and it is parity.** Even strip counts
+  beat odd ones by 8–10% per seam at both artwork densities tested (8.38
+  against 9.25 at repeats 2; 35.15 against 38.06 at repeats 4), and every
+  inversion in the table above — 10 over 9, 14 over 13, 16 over 15 — is an even
+  count beating an odd one. With `repeats_x` even, an even `N` shares a factor
+  with it and the seam-to-tile phase relationship repeats favorably. That is a
+  reason to keep sweeping every count rather than a reason to predict them:
+  the effect depends on `gcd(n_strips, repeats_x)`, so it inverts for odd
+  repeat counts, and it is worth 10% against a lever worth 60%.
+
+**Where this would stop holding.** Independence between seams needs strip width
+to stay well above feature size. At 20 strips the reference gores are 19.2 mm
+wide against sub-millimeter features, so the assumption is comfortable, and it
+is most comfortable exactly where the advisor is aimed — artwork finer than the
+floors. Coarse artwork whose features approach the strip width would break it.
+Both checks above vary one thing at a time against a single real scan and a
+single pattern, so this is a well-supported mechanism rather than a law.
+
 ### Repeats Around — the correction holds, harder than before
 
 | repeats | at 0° | screened | tile width | artwork size |

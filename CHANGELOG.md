@@ -38,7 +38,8 @@ minimum Blender version to 4.5.
     Repeats Around of 1 is always offered and always flagged, never filtered.
   - Height-limit rows are flagged when their improvement is mostly just the
     pattern they removed, which measurement says is nearly always.
-  - Minutes rather than seconds, with a progress bar and Esc to cancel.
+  - This process takes minutes rather than seconds, with a progress bar and Esc
+    to cancel.
 
 ### Changed
 
@@ -47,6 +48,7 @@ minimum Blender version to 4.5.
 - Applying an advisor row clears the recorded placement, since it was optimized
   for the settings you just changed. The advice table itself stays valid, so
   you can try another row against it.
+
 ## 0.9.4 — 2026-09-09
 
 **Stray points from the scanned surroundings no longer deform a gore or the
