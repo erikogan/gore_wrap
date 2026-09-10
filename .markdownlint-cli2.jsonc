@@ -1,0 +1,28 @@
+// markdownlint configuration.
+//
+// Everything not named here is left at its default; each entry below records a
+// deliberate choice the default rule would otherwise flag.
+{
+  "config": {
+    // MD024 — duplicate headings. CHANGELOG.md follows Keep a Changelog, where
+    // every release repeats "Added" / "Changed" / "Fixed" under its own
+    // version. siblings_only allows that, while still catching two headings
+    // with the same name under the same parent.
+    "MD024": { "siblings_only": true },
+
+    // MD013 — line length. Prose in this repo wraps at 80 and should keep
+    // doing so, but a markdown table row cannot be wrapped without breaking
+    // the table, so tables are exempt rather than the limit being raised.
+    "MD013": { "tables": false },
+
+    // MD025 — multiple top-level headings. README.md uses an H1 per major
+    // section (Install, Use, Development, Credits) as a deliberate structure.
+    // Demoting them would push the deepest headings to five levels and flatten
+    // the break GitHub renders between sections.
+    "MD025": false
+  },
+  // No "globs" key on purpose: the CLI lints the files it is given, so
+  // `markdownlint-cli2 README.md CHANGELOG.md` stays scoped to those two. The
+  // rule choices above still apply to any file an editor lints.
+  "ignores": [".venv/**", "node_modules/**", "dist/**"]
+}
