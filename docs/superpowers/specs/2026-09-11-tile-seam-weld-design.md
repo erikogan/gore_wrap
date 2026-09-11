@@ -161,19 +161,27 @@ turns a hole in the artwork into a failure someone can act on.
 The refactor must be provably inert before any behavior changes, and the
 snapshot suite can prove it — but only after one gap is closed.
 
-None of the five existing `WARP_CASES` exercises artwork lying on a tile border
-with a seam inside a gore. `FULL_CELL` fills its whole viewBox, so its outline
-runs along all four tile borders, but it is pinned at repeats 12 against 12
-strips, where the tile grid lines up with the gores and the *rect* rule already
-drops those edges. `STRADDLE` does put boundaries inside gores, but its rect is
-inset from every border and so has no seam edge to drop.
+Measured against the current suite, not assumed:
+
+- `FULL_CELL` at repeats 12 fills its whole viewBox, so its outline runs along
+  all four tile borders. Its tile *columns* line up with the gore cuts
+  (W = 20.94 mm = the gore width), so the rect rule already handles those. But
+  its tile is 10.47 mm tall against a 162.8 mm band, giving **15 row seams
+  inside every gore**. The row-seam case is therefore already pinned, and the
+  weld will change this snapshot.
+- No existing case has a tile *column* boundary inside a gore with artwork on
+  it. `FULL_CELL` at repeats 11 supplies it: W = 22.85 mm against a 20.94 mm
+  gore, so columns fall inside gores from gore 1 on.
+- `STRADDLE` at repeats 11 does put boundaries inside gores, but its rect is
+  inset from every border, so it has no seam edge to drop and must not move.
 
 So:
 
 1. Add `("FULL_CELL", 11, 0.05, 0.0)`, characterizing today's duplicated-cut
-   output.
+   output on the column-seam case.
 2. Refactor. All six snapshots must stay byte-identical.
-3. Weld. Exactly the new snapshot changes; the other five do not.
+3. Weld. Exactly `FULL_CELL|12` and `FULL_CELL|11` change; `SIMPLE`, both
+   `CURVE` cases and `STRADDLE` must not move.
 
 ### Plumbing
 
