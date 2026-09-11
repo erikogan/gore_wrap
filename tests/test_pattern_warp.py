@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gore_wrap import geometry, pattern_warp, svg_export
+from gore_wrap import geometry, pattern_fit, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 
@@ -979,3 +979,82 @@ def test_rect_edge_drop_needs_both_endpoints_on_the_same_edge():
     poked[2] = [1.5, 4.0]          # pull one corner off both edges
     drop = pattern_warp._rect_edge_drop(poked, 0.0, 3.0, 5.0, 1e-6)
     assert list(drop) == [True, False, False, True]
+
+
+# A real EdgeProfiles with hand-built arrays, not a stand-in: the seam rule
+# reads the arrays directly as well as going through covers(), so a fake
+# implementing only covers() would leave _coverage_breaks untested.
+_PROFILE_PITCH = 0.1
+_TEST_PX_WIDTH = 40.0
+_TEST_PX_HEIGHT = 20.0
+
+
+def _profiles(**covered):
+    """EdgeProfiles whose named sides carry material over the given spans.
+
+    `_profiles(left=[(0.0, 10.0)])` gives a left edge that is material from
+    pattern y 0 to 10 and background below it, every other side blank.
+    """
+    def build(length, spans):
+        arr = np.zeros(int(round(length / _PROFILE_PITCH)), dtype=bool)
+        for lo, hi in spans:
+            arr[int(lo / _PROFILE_PITCH):int(hi / _PROFILE_PITCH)] = True
+        return arr
+
+    return pattern_fit.EdgeProfiles(
+        left=build(_TEST_PX_HEIGHT, covered.get("left", [])),
+        right=build(_TEST_PX_HEIGHT, covered.get("right", [])),
+        bottom=build(_TEST_PX_WIDTH, covered.get("bottom", [])),
+        top=build(_TEST_PX_WIDTH, covered.get("top", [])),
+        pitch=_PROFILE_PITCH,
+        px_width=_TEST_PX_WIDTH,
+        px_height=_TEST_PX_HEIGHT)
+
+
+def _placement(dx=0.0, dy=0.0, k=0.5, tile_h=10.0):
+    return pattern_warp.TilePlacement(dx=dx, dy=dy, k=k, tile_h=tile_h)
+
+
+def test_a_seam_edge_backed_by_the_opposite_edge_is_dropped():
+    # A vertical edge on the tile's right boundary (pattern x = 40), running
+    # pattern y 4 -> 16. k = 0.5 and tile_h = 10, so master x = 20 and
+    # master y = 10 - 0.5 * py.
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 20.0)])
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles)
+    assert list(drop) == [True, False, False, False]
+
+
+def test_a_seam_edge_the_neighbor_does_not_back_is_kept():
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 2.0)])   # nowhere near y 4..16
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles)
+    assert not drop.any()
+
+
+def test_the_seam_rule_is_off_without_profiles():
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    assert not pattern_warp._seam_edge_drop(cpts, tile, None).any()
+
+
+def test_a_seam_edge_needs_both_endpoints_on_the_same_boundary():
+    # One endpoint on the right boundary, the other well inside: a corner
+    # touching a boundary is not an edge running along it.
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [14.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 20.0)])
+    assert not pattern_warp._seam_edge_drop(cpts, tile, profiles).any()
+
+
+def test_the_row_boundary_consults_the_opposite_row():
+    # A horizontal edge on the tile's top boundary (pattern y = 0), i.e.
+    # master y = dy + tile_h = 10, running pattern x 4 -> 24.
+    tile = _placement()
+    cpts = np.array([[2.0, 10.0], [12.0, 10.0], [12.0, 4.0], [2.0, 4.0]])
+    assert pattern_warp._seam_edge_drop(
+        cpts, tile, _profiles(bottom=[(0.0, 40.0)]))[0]
+    assert not pattern_warp._seam_edge_drop(
+        cpts, tile, _profiles(top=[(0.0, 40.0)]))[0]

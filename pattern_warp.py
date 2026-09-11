@@ -511,6 +511,66 @@ def _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol):
             | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
 
 
+# Pattern px. The artwork is only NOMINALLY on its artboard edge: measured
+# overhang on the sample patterns is up to 0.5 px on one side and 0.01 on
+# the other, and a cropped edge can sit a fraction short as easily as long.
+# This is deliberately NOT the 1e-6 mm the rect rule uses -- that governs
+# clip-generated points, which land on their bound by construction.
+SEAM_EDGE_TOL_PX = 1.0
+
+# Which boundary's profile backs which. A fragment's right-hand edge is
+# backed by the material on the next tile's left-hand edge, and so on.
+_OPPOSITE_EDGE = {"left": "right", "right": "left",
+                  "top": "bottom", "bottom": "top"}
+
+
+def _pattern_coords(cpts, tile):
+    """Master mm -> the source pattern's own px, for one tile placement.
+
+    The inverse of _sample_subpath_master's `master()`, which is what puts
+    the pattern into master space in the first place.
+    """
+    px = (cpts[:, 0] - tile.dx) / tile.k
+    py = (tile.dy + tile.tile_h - cpts[:, 1]) / tile.k
+    return px, py
+
+
+def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
+    """Which edges lie on a tile boundary the neighboring tile backs.
+
+    Returns a bool per edge i -> i+1 (wrapping), all False when `profiles`
+    is None. An edge qualifies only when BOTH endpoints sit on the SAME
+    boundary -- the same requirement, for the same reason, as the rect rule:
+    a corner can touch a boundary without either adjoining edge running
+    along it.
+
+    Where the neighbor backs the boundary with material, the two fragments
+    are one continuous piece and the cut would slice it apart. Where it does
+    not, the boundary is a real edge of the artwork and must still be cut.
+    """
+    n = len(cpts)
+    drop = np.zeros(n, dtype=bool)
+    if profiles is None:
+        return drop
+    px, py = _pattern_coords(cpts, tile)
+    nxt = np.roll(np.arange(n), -1)
+    on = {
+        "left": np.isclose(px, 0.0, rtol=0.0, atol=tol_px),
+        "right": np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px),
+        "top": np.isclose(py, 0.0, rtol=0.0, atol=tol_px),
+        "bottom": np.isclose(py, profiles.px_height, rtol=0.0, atol=tol_px),
+    }
+    across = {"left": py, "right": py, "top": px, "bottom": px}
+    for side, flags in on.items():
+        edges = np.nonzero(flags & flags[nxt])[0]
+        coord = across[side]
+        for i in edges:
+            lo, hi = sorted((float(coord[i]), float(coord[nxt[i]])))
+            if profiles.covers(_OPPOSITE_EDGE[side], lo, hi):
+                drop[i] = True
+    return drop
+
+
 def _runs_from_drop(n, drop, closed):
     """Split a closed polygon's indices into runs around the dropped edges.
 
