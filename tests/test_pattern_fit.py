@@ -1092,3 +1092,60 @@ def test_a_rise_sitting_exactly_on_the_band_is_not_inside_it():
     # A rise that really does cut through the artwork still reports.
     assert pattern_fit.seam_inside_band(87.885, band, tile_h)
     assert pattern_fit.seam_inside_band(band - 0.5, band, tile_h)
+
+
+# Material on the left edge over the TOP half of the artboard, and on the
+# right edge over the BOTTOM half. In pattern coordinates y grows downward,
+# so `left` is covered at small y and `right` at large y.
+HALF_EDGES_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="0" y="0" width="8" height="20"/>\
+<rect x="32" y="20" width="8" height="20"/></svg>'''
+
+
+def test_edge_profiles_are_read_in_pattern_coordinates(tmp_path):
+    # The tile mask's row 0 is master y = 0, which is the BOTTOM of the tile
+    # and so pattern y = px_height. Reading the profiles without flipping
+    # gets every row-seam test upside down, and only on artwork that is not
+    # symmetric -- which is most of it.
+    pattern = load(tmp_path, HALF_EDGES_SVG)
+    tile = pattern_fit.build_tile(pattern, 400.0, 1, 0.4)
+    prof = pattern_fit.edge_profiles(tile, pattern)
+
+    assert prof.px_width == 40.0 and prof.px_height == 40.0
+    n = len(prof.left)
+    assert prof.left[:n // 4].all(), "left edge should carry material near y=0"
+    assert not prof.left[-(n // 4):].any()
+    assert prof.right[-(n // 4):].all(), "right edge carries it near y=px_height"
+    assert not prof.right[:n // 4].any()
+
+
+def test_edge_profiles_index_by_pattern_coordinate(tmp_path):
+    pattern = load(tmp_path, HALF_EDGES_SVG)
+    tile = pattern_fit.build_tile(pattern, 400.0, 1, 0.4)
+    prof = pattern_fit.edge_profiles(tile, pattern)
+    assert prof.covers("left", 2.0, 8.0)         # inside the top-left rect
+    assert not prof.covers("left", 30.0, 38.0)   # below it
+    assert prof.covers("right", 30.0, 38.0)
+    assert not prof.covers("right", 2.0, 8.0)
+    # A span crossing the boundary is not fully covered.
+    assert not prof.covers("left", 2.0, 38.0)
+
+
+def test_edge_profiles_top_bottom_are_read_in_pattern_coordinates(tmp_path):
+    # Swapping `top` and `bottom` would silently break every row-seam test
+    # on artwork that is not left-right symmetric (most of it) -- the
+    # x-indexed analog of the y-flip bug the left/right test above guards
+    # against. HALF_EDGES_SVG is asymmetric top-to-bottom along x too: at
+    # pattern y=0 (top) only the left rect (x in [0,8]) is present, and at
+    # pattern y=px_height (bottom) only the right rect (x in [32,40]) is.
+    pattern = load(tmp_path, HALF_EDGES_SVG)
+    tile = pattern_fit.build_tile(pattern, 400.0, 1, 0.4)
+    prof = pattern_fit.edge_profiles(tile, pattern)
+
+    n = len(prof.top)
+    frac = n // 10
+    assert prof.top[:frac].all(), "top edge should carry material near x=0"
+    assert not prof.top[-frac:].any(), "top edge empty near x=px_width"
+    assert prof.bottom[-frac:].all(), "bottom edge carries material near x=px_width"
+    assert not prof.bottom[:frac].any(), "bottom edge empty near x=0"

@@ -99,6 +99,53 @@ def build_tile(pattern, circumference, repeats_x, px, invert=False):
     return TileMask(mask=mask, px=tpx, W=W, tile_h=tile_h)
 
 
+@dataclass
+class EdgeProfiles:
+    """Whether a tile carries material along each of its four boundaries.
+
+    Read off the scorer's own tile mask rather than recomputed from the
+    contours. A second answer could differ on fill rules, holes and element
+    grouping, and the exporter disagreeing with the scorer about what counts
+    as material is exactly the failure the weld exists to end.
+
+    `left` and `right` are indexed by pattern y ascending, `bottom` and `top`
+    by pattern x ascending. `top` is the boundary at pattern y = 0 and
+    `bottom` the one at pattern y = px_height -- named in the pattern's own
+    coordinates, because that is the space the exporter's seam test works in.
+    """
+    left: np.ndarray
+    right: np.ndarray
+    bottom: np.ndarray
+    top: np.ndarray
+    pitch: float          # pattern px per profile sample
+    px_width: float
+    px_height: float
+
+    def covers(self, side, lo, hi):
+        """Is `side` material across the whole pattern-coordinate span?"""
+        profile = getattr(self, side)
+        n = len(profile)
+        a = int(np.clip(np.floor(lo / self.pitch), 0, n - 1))
+        b = int(np.clip(np.ceil(hi / self.pitch), 1, n))
+        return bool(profile[a:b].all()) if b > a else False
+
+
+def edge_profiles(tile, pattern):
+    """The four boundary material profiles of one tile. See EdgeProfiles.
+
+    The mask's row 0 is master y = 0 -- the tile's BOTTOM, i.e. pattern
+    y = px_height -- so the y-indexed profiles are flipped on the way out.
+    """
+    k = tile.W / pattern.px_width
+    return EdgeProfiles(left=tile.mask[::-1, 0].copy(),
+                        right=tile.mask[::-1, -1].copy(),
+                        bottom=tile.mask[0, :].copy(),
+                        top=tile.mask[-1, :].copy(),
+                        pitch=tile.px / k,
+                        px_width=pattern.px_width,
+                        px_height=pattern.px_height)
+
+
 def _rasterize_tile(pattern, k, tile_h, tpx, W):
     """One tile as a boolean material mask at pitch `tpx`, polarity as drawn.
 
