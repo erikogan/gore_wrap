@@ -93,31 +93,159 @@ def build_tile(pattern, circumference, repeats_x, px, invert=False):
     """
     W, k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
     tpx = px / 2.0
+    mask = _rasterize_tile(pattern, k, tile_h, tpx, W)
+    if invert:
+        mask = ~mask
+    return TileMask(mask=mask, px=tpx, W=W, tile_h=tile_h)
+
+
+def _rasterize_tile(pattern, k, tile_h, tpx, W):
+    """One tile as a boolean material mask at pitch `tpx`, polarity as drawn.
+
+    Split out of build_tile because the tiling check needs the same
+    rasterization at its OWN fixed pitch, and a second implementation would be
+    free to disagree with the scorer about what counts as material.
+    """
+    return _run_to_completion(
+        _rasterize_tile_steps(pattern, k, tile_h, tpx, W))
+
+
+def _rasterize_tile_steps(pattern, k, tile_h, tpx, W, label="Rasterizing"):
+    """_rasterize_tile as a (fraction, label) generator.
+
+    The generator is the real implementation and the plain call drains it,
+    rather than the other way round, so the two cannot drift. Progress is per
+    element, which is where the time goes: sampling a few hundred paths, not
+    filling the mask.
+    """
     nx = max(1, int(round(W / tpx)))
     ny = max(1, int(round(tile_h / tpx)))
     mask = np.zeros((ny, nx), dtype=bool)
     filled = 0
-    for element in pattern.elements:
-        if element.fill is None:
-            continue
-        rings = []
-        for subpath in element.subpaths:
-            segs, _corners, _closed = _subpath_geometry(subpath)
-            pts = _sample_subpath_local(segs, k, tile_h, tpx)
-            if len(pts) >= 3:
-                rings.append(pts)
-        if not rings:
-            continue
-        filled += 1
-        raster.fill_into(mask, rings, tpx, even_odd=element.even_odd)
+    total = max(1, len(pattern.elements))
+    for done, element in enumerate(pattern.elements, start=1):
+        if element.fill is not None:
+            rings = []
+            for subpath in element.subpaths:
+                segs, _corners, _closed = _subpath_geometry(subpath)
+                pts = _sample_subpath_local(segs, k, tile_h, tpx)
+                if len(pts) >= 3:
+                    rings.append(pts)
+            if rings:
+                filled += 1
+                raster.fill_into(mask, rings, tpx, even_odd=element.even_odd)
+        yield done / total, f"{label} {done}/{total}"
     if not filled:
         raise PatternError(
             "No filled shapes in the pattern. Placement scoring measures "
             "pieces of material, so the artwork must be filled, not just "
             "stroked outlines.")
-    if invert:
-        mask = ~mask
-    return TileMask(mask=mask, px=tpx, W=W, tile_h=tile_h)
+    return mask
+
+
+def _run_to_completion(gen):
+    """Drain a progress generator, returning its StopIteration value."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
+
+
+SEAM_SCORE_MAX = 0.6       # above this the two edges are effectively unrelated
+SEAM_MISMATCH_MIN = 0.02   # below this a break is not worth reporting
+SEAM_COLUMNS = 1024        # reference raster width, in pixels
+
+
+@dataclass
+class SeamScore:
+    """How well one pair of opposite edges meets when the pattern repeats.
+
+    Two numbers, because one cannot answer both questions asked of it.
+
+    `mismatch` is the fraction of the seam's length where the two edges
+    disagree about material -- a plain measurement, reportable as a
+    percentage, and the only honest answer to "how broken is this join".
+
+    `score` is that mismatch divided by the disagreement two UNRELATED edges
+    of the same coverage would produce, so it reads as "how much of the way
+    to unrelated is this join". It answers a narrower question: does the
+    artwork repeat on this axis AT ALL. Only that decides whether constraining
+    the placement search can help, because a join that repeats but breaks
+    locally breaks the same way wherever the search puts it.
+
+    The normalization matters for the second question and would ruin the
+    first. A bare mismatch cannot tell a pattern that does not tile from one
+    that tiles raggedly, since a sparse pattern's edges can be wholly
+    unrelated and still disagree over only a fifth of the seam.
+    """
+    mismatch: float
+    score: float
+
+    @property
+    def tiles(self):
+        """Does the artwork repeat on this axis at all."""
+        return self.score <= SEAM_SCORE_MAX
+
+    @property
+    def flawed(self):
+        """Is the break big enough that the user should hear about it."""
+        return self.mismatch > SEAM_MISMATCH_MIN
+
+    @property
+    def percent(self):
+        return 100.0 * self.mismatch
+
+
+@dataclass
+class SeamScores:
+    vertical: SeamScore
+    horizontal: SeamScore
+
+
+def _seam_score(a, b):
+    """Score one pair of abutting edges. See SeamScore.
+
+    A zero score for two edges that are both entirely material or entirely
+    background: they join perfectly, and there is no chance level to measure
+    against.
+    """
+    mismatch = float((a != b).mean())
+    ca, cb = float(a.mean()), float(b.mean())
+    chance = ca * (1.0 - cb) + cb * (1.0 - ca)
+    return SeamScore(mismatch=mismatch,
+                     score=mismatch / chance if chance > 1e-9 else 0.0)
+
+
+def seam_scores(pattern):
+    """Score how well `pattern` joins itself on each axis. See SeamScore.
+
+    Deliberately independent of circumference, Repeats Around, the floors and
+    the polarity: whether artwork repeats is a property of the artwork. The
+    raster is a fixed SEAM_COLUMNS wide so the verdict cannot drift with a
+    setting, which matters because the numbers do move with resolution -- at
+    256 columns a one-pixel registration error reads as a real break.
+
+    Raises PatternError for a stroke-only pattern, same as build_tile: with
+    nothing filled there is no material region to compare.
+    """
+    return _run_to_completion(seam_scores_steps(pattern))
+
+
+def seam_scores_steps(pattern):
+    """seam_scores as a (fraction, label) generator, for the modal job.
+
+    A dense pattern takes about a second to check, and Blender runs property
+    callbacks and panel draws in the UI thread, where a second is a freeze.
+    """
+    tpx = pattern.px_width / SEAM_COLUMNS
+    mask = yield from _rasterize_tile_steps(
+        pattern, 1.0, pattern.px_height, tpx, pattern.px_width,
+        label="Checking pattern tiling")
+    # Row 0 is master y = 0 and the last row is the tile top; tiled, those two
+    # abut. Same for the first and last column across the vertical seam.
+    return SeamScores(vertical=_seam_score(mask[0], mask[-1]),
+                      horizontal=_seam_score(mask[:, 0], mask[:, -1]))
 
 
 def _sample_subpath_local(segs, k, tile_h, tol):
@@ -272,6 +400,7 @@ class Prepared:
     px: float
     steps: int
     multiplier: int          # gore-phase reduction factor; see prepare()
+    band: float              # tallest patterned band, mm; see pattern_band_height
 
 
 def _component_widths(mask, lab, n, px, steps):
@@ -364,7 +493,8 @@ def prepare(pattern, placements, outlines, circumference, repeats_x,
         geoms = geoms[:distinct]
     preps = [prepare_gore(g, px) for g in geoms if g is not None]
     return Prepared(tile=tile, preps=preps, px=px, steps=steps,
-                    multiplier=multiplier)
+                    multiplier=multiplier,
+                    band=pattern_band_height(outlines, top_inset))
 
 
 def score_placement(pattern, placements, outlines, circumference, repeats_x,
@@ -403,6 +533,56 @@ REFINE_STEPS_1D = 8
 REFINE_STEPS_2D = 4
 
 
+SEAM_RISE_TOL = 1e-3   # mm; below anything a cutter or a float32 Rise means
+
+
+def seam_inside_band(rise, band, tile_h):
+    """Does `rise` drag a tile-row boundary through the patterned band.
+
+    The tolerance is what makes this usable from the UI: Rise is stored as a
+    32-bit float, so the band value seam_free_rises handed out never comes
+    back quite the same, and an exact comparison would report the safest
+    placement of all -- the boundary landing on the ceiling cut -- as a
+    defect. A micron is far below anything a cutter resolves and far above the
+    round-trip error.
+    """
+    at = rise % tile_h
+    return SEAM_RISE_TOL < at < band - SEAM_RISE_TOL
+
+
+def seam_free_rises(n, band, tile_h):
+    """`n` coarse rise samples that keep every tile-row seam out of the band.
+
+    Rows sit at `r * tile_h + rise`, so the seam-free set is `{0}` together
+    with `[band, tile_h)`: at 0 the boundary lands on the base cut, and from
+    `band` up it lands above the ceiling. Zero is kept as a sample in its own
+    right rather than as the start of a range, because it is the only safe
+    rise that is not part of the window.
+
+    When the band is at least as tall as the tile no rise is seam-free -- a
+    row boundary crosses the artwork wherever it is put -- so this falls back
+    to the plain sweep rather than pretending to a choice that does not exist.
+    """
+    if band >= tile_h or n <= 1:
+        return (np.array([0.0]) if n <= 1
+                else np.linspace(0.0, tile_h, n, endpoint=False))
+    return np.concatenate(([0.0],
+                           np.linspace(band, tile_h, n - 1, endpoint=False)))
+
+
+def snap_seam_free(rise, band, tile_h):
+    """Move `rise` to the nearest seam-free value, wrapped into one period.
+
+    Refinement walks a neighborhood around a coarse winner and would otherwise
+    step straight back into the band. Snapping rather than skipping keeps the
+    number of evaluations -- and so the progress bar -- exactly as planned.
+    """
+    rise = rise % tile_h
+    if band >= tile_h or rise <= 0.0 or rise >= band:
+        return rise
+    return 0.0 if rise < 0.5 * band else band
+
+
 def search_placement(pattern, placements, outlines, circumference, repeats_x,
                      area_floor, width_floor, slide_vertically=False,
                      top_inset=0.0, invert=False):
@@ -415,10 +595,21 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
     Grids are fixed rather than adapted to the machine, so the same inputs give
     the same placement anywhere -- which is what makes the staleness
     fingerprint mean something.
+
+    When the artwork does not repeat vertically the rise is restricted to the
+    values that keep a tile-row seam out of the patterned band. The scorer
+    counts orphaned pieces, and a seam straight through the artwork orphans
+    nothing, so without this the search is free to pick a rise that ruins the
+    export it is supposed to improve -- and did.
     """
     W, _k, tile_h = _tile_metrics(pattern, circumference, repeats_x)
     prep = prepare(pattern, placements, outlines, circumference, repeats_x,
                    area_floor, width_floor, top_inset, invert=invert)
+    # Only worth asking when the answer can change the search: the reference
+    # raster is not free, and with the rise pinned at 0 no seam can move.
+    # Whether a seam-free rise EXISTS is left to seam_free_rises, so that one
+    # function owns the whole question of which rises are safe.
+    constrain = slide_vertically and not seam_scores(pattern).vertical.tiles
 
     def score_at(offset):
         return score_placement(pattern, placements, outlines, circumference,
@@ -438,8 +629,12 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
     r_steps = REFINE_STEPS_2D if slide_vertically else REFINE_STEPS_1D
 
     xs = np.linspace(0.0, W, n_x, endpoint=False)
-    ys = (np.linspace(0.0, tile_h, n_y, endpoint=False) if slide_vertically
-          else np.array([0.0]))
+    if not slide_vertically:
+        ys = np.array([0.0])
+    elif constrain:
+        ys = seam_free_rises(n_y, prep.band, tile_h)
+    else:
+        ys = np.linspace(0.0, tile_h, n_y, endpoint=False)
 
     coarse_total = n_x * n_y
     per_axis = 2 * r_steps + 1
@@ -472,8 +667,13 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
         for px_off in rxs:
             for py_off in rys:
                 # Wrap into one period so the reported offset is canonical.
-                offset = (float(px_off % W),
-                          float(py_off % tile_h) if slide_vertically else 0.0)
+                if not slide_vertically:
+                    rise = 0.0
+                elif constrain:
+                    rise = snap_seam_free(float(py_off), prep.band, tile_h)
+                else:
+                    rise = float(py_off) % tile_h
+                offset = (float(px_off % W), rise)
                 fs = score_at(offset)
                 if fs.key < best.key:
                     best, best_offset = fs, offset
@@ -483,6 +683,25 @@ def search_placement(pattern, placements, outlines, circumference, repeats_x,
                        f"{refine_total}")
 
     return best_offset, best, baseline
+
+
+def pattern_band_height(outlines, top_inset=0.0):
+    """Height of the tallest patterned band, in mm up the meridian.
+
+    The zone a tile-row seam has to stay out of. Tiles sit at
+    `r * tile_h + rise`, so a rise anywhere strictly inside (0, band) drags
+    the row -1 / row 0 boundary into the artwork; 0 puts it on the base cut
+    and anything from `band` up puts it above the ceiling.
+
+    Returns 0.0 when every gore is degenerate.
+    """
+    tops = []
+    for outline in outlines:
+        top, _left_x, _right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
+        if pattern_top > 0.0:
+            tops.append(float(pattern_top))
+    return max(tops, default=0.0)
 
 
 def narrow_apex_band(outlines, width_floor, top_inset=0.0):

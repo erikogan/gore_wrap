@@ -470,6 +470,21 @@ class _ModalJob:
         raise NotImplementedError
 
 
+def _scaled(gen, lo, hi):
+    """Re-map a progress generator's fractions into [lo, hi], passing through
+    its return value.
+
+    Lets one operator run two jobs back to back behind a single progress bar,
+    instead of the bar snapping back to zero halfway.
+    """
+    try:
+        while True:
+            frac, label = next(gen)
+            yield lo + (hi - lo) * frac, label
+    except StopIteration as stop:
+        return stop.value
+
+
 class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
     bl_idname = "gorewrap.optimize_placement"
     bl_label = "Optimize Placement"
@@ -521,12 +536,26 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
         self._props = props
         self._obj = obj
         self._circ = result.dims.bottom_circumference
-        self._gen = pattern_fit.search_placement(
-            pattern, layout.placements, result.outlines, self._circ,
-            props.pattern_repeats_x, props.pattern_min_area,
-            props.pattern_min_width,
-            slide_vertically=props.pattern_slide_vertically,
-            top_inset=top_inset, invert=props.pattern_invert)
+        self._seam = None
+        self._band = pattern_fit.pattern_band_height(result.outlines, top_inset)
+        _W, _k, self._tile_h = pattern_warp._tile_metrics(
+            pattern, self._circ, props.pattern_repeats_x)
+        self._pattern_path = bpy.path.abspath(props.pattern_svg)
+
+        def job():
+            # The tiling check first, behind the same progress bar: the search
+            # needs its verdict to decide whether the rise can move freely, and
+            # measuring it here means the panel gets a fresh one too.
+            self._seam = yield from _scaled(
+                pattern_fit.seam_scores_steps(pattern), 0.0, 0.05)
+            return (yield from _scaled(pattern_fit.search_placement(
+                pattern, layout.placements, result.outlines, self._circ,
+                props.pattern_repeats_x, props.pattern_min_area,
+                props.pattern_min_width,
+                slide_vertically=props.pattern_slide_vertically,
+                top_inset=top_inset, invert=props.pattern_invert), 0.05, 1.0))
+
+        self._gen = job()
         if len(pattern.fill_colors) > 1:
             self.report({"INFO"},
                         f"{len(pattern.fill_colors)} fill colors found; all "
@@ -560,7 +589,42 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
                     f"(was {baseline.defects}){extra} at "
                     f"{props.pattern_rotation:.1f} deg, "
                     f"rise {props.pattern_rise:.1f} mm")
+        self._report_seam()
         return {"FINISHED"}
+
+    def _report_seam(self):
+        """Cache the tiling verdict and say what it cost the search."""
+        props = self._props
+        seam = self._seam
+        if seam is None:
+            return
+        props.seam_vertical = seam.vertical.mismatch
+        props.seam_horizontal = seam.horizontal.mismatch
+        props.seam_tiles_vertically = seam.vertical.tiles
+        props.seam_tiles_horizontally = seam.horizontal.tiles
+        props.seam_stamp = self._pattern_path
+        props.has_seam_check = True
+        if seam.horizontal.flawed:
+            self.report({"WARNING"},
+                        f"Pattern seam around the object is "
+                        f"{seam.horizontal.percent:.0f}% broken; spinning "
+                        f"moves it but cannot close it.")
+        if seam.vertical.tiles:
+            return
+        if not props.pattern_slide_vertically:
+            return
+        if self._band >= self._tile_h:
+            self.report({"WARNING"},
+                        f"Pattern does not repeat up the strip, and Repeats "
+                        f"Around {props.pattern_repeats_x} makes the tile "
+                        f"shorter than the patterned band, so a seam crosses "
+                        f"the artwork at every rise. Lower Repeats Around.")
+        else:
+            self.report({"INFO"},
+                        f"Pattern does not repeat up the strip "
+                        f"({seam.vertical.percent:.0f}% broken), so Rise was "
+                        f"kept to 0 or {self._band:.1f}-{self._tile_h:.1f} mm "
+                        f"to keep the seam out of the artwork.")
 
 
 class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
@@ -657,8 +721,59 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
                    if summary is not None else None)
         if warning:
             self.report({"WARNING"}, warning)
+        seam = export_job.seam_warning(summary)
+        if seam:
+            self.report({"WARNING"}, seam)
         n = summary.n_strips if summary is not None else 0
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
+
+
+class GOREWRAP_OT_check_tiling(_ModalJob, bpy.types.Operator):
+    bl_idname = "gorewrap.check_tiling"
+    bl_label = "Check Tiling"
+    bl_description = ("Measure how well the pattern joins itself where it "
+                      "repeats, around the object and up the strip")
+    bl_options = {"REGISTER"}
+
+    _job_exceptions = (pattern_warp.PatternError,)
+    _cancel_message = "Tiling check canceled."
+
+    def execute(self, context):
+        props = context.scene.gore_wrap
+        if not props.pattern_svg:
+            self.report({"ERROR"}, "Choose a pattern SVG first.")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(props.pattern_svg)
+        try:
+            pattern = pattern_warp.load_pattern(path)
+        except pattern_warp.PatternError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        self._props = props
+        self._stamp = path
+        self._gen = pattern_fit.seam_scores_steps(pattern)
+        return self._start(context)
+
+    def _on_success(self, scores):
+        props = self._props
+        props.seam_vertical = scores.vertical.mismatch
+        props.seam_horizontal = scores.horizontal.mismatch
+        props.seam_tiles_vertically = scores.vertical.tiles
+        props.seam_tiles_horizontally = scores.horizontal.tiles
+        props.seam_stamp = self._stamp
+        props.has_seam_check = True
+        broken = [f"{axis} {sc.percent:.0f}%"
+                  for axis, sc in (("around", scores.horizontal),
+                                   ("up the strip", scores.vertical))
+                  if sc.flawed]
+        if broken:
+            self.report({"WARNING"},
+                        "Pattern seam does not close: " + ", ".join(broken)
+                        + " of it is broken.")
+        else:
+            self.report({"INFO"}, "Pattern tiles cleanly both ways.")
+        return {"FINISHED"}
 
 
 class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
@@ -834,6 +949,6 @@ class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
 
 
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
-           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_advise_settings,
-           GOREWRAP_OT_apply_advice, GOREWRAP_OT_show_advice_table,
-           GOREWRAP_OT_export)
+           GOREWRAP_OT_check_tiling, GOREWRAP_OT_optimize_placement,
+           GOREWRAP_OT_advise_settings, GOREWRAP_OT_apply_advice,
+           GOREWRAP_OT_show_advice_table, GOREWRAP_OT_export)

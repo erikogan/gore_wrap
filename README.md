@@ -257,6 +257,22 @@ Turns the pattern pipeline on and reveals everything below.
 
 A seamless (tileable) SVG. Export EPS to SVG from your vector editor first.
 
+Gore Wrap measures how well the artwork joins itself as soon as you pick it,
+and reports each seam as a percentage: how much of that join does not close.
+A pattern drawn to tile reads a fraction of a percent. Anything more is a
+straight cut line through what should be continuous material — around the
+object it lands on every strip join, and up the strip it lands wherever the
+tile rows meet.
+
+The check runs as a background job with a progress bar, not as a freeze when
+you choose the file; **Check Tiling** turns it off, and the button that
+replaces it runs the same check by hand.
+
+Many stock "seamless" patterns repeat in one direction only — they are drawn
+to wrap a cylinder and then cropped top and bottom. That is fine, and it is
+why [**Rise (mm)**](#rise-mm) is constrained for such artwork: at rise 0 the
+tile boundary lands on the base cut, where it does no harm.
+
 ### Repeats Around
 
 How many times the pattern tiles around the object. The panel shows the
@@ -418,6 +434,18 @@ it on searches a second axis, which costs substantially more time than the
 spin-only search. A dense pattern that fills its whole tile is slower still to
 search than an open one, since there is more of it for cuts to graze.
 
+If the pattern does not repeat up the strip, the search will not use a rise
+that drags a tile boundary into the artwork. Tile rows sit at multiples of the
+tile height above the rise, so the safe rises are 0 — which puts the boundary
+on the base cut — and anything from the top of the patterned band up to a full
+tile height. The panel says so when it applies.
+
+Raising [**Repeats Around**](#repeats-around) shrinks the tile in both
+directions. Push it far enough that the tile is shorter than the patterned
+band and a row boundary crosses the artwork at _every_ rise, rise 0 included;
+there is then no placement to protect and the search says so rather than
+pretending otherwise.
+
 ### Manual
 
 Place the pattern by hand instead.
@@ -429,7 +457,13 @@ Spins the pattern around the object, in degrees. It repeats every
 
 #### Rise (mm)
 
-Slides the pattern up the strip, in millimeters.
+Slides the pattern up the strip, in millimeters. It repeats every tile height,
+which is the strip width scaled by the pattern's aspect ratio.
+
+Rise 0 is the only value that is always safe. Any other puts the boundary
+between two tile rows somewhere on the strip, which shows as a straight line
+across every gore unless the artwork repeats vertically — see
+[**Slide Vertically**](#slide-vertically) for the rises that avoid it.
 
 ### Placement Advisor
 

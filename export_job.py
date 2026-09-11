@@ -63,6 +63,41 @@ class ExportSummary:
     # without the other, and the warning names the layers that are actually
     # there so the user is not sent hunting for one that is not.
     intrinsic_marked: bool = False
+    # How much of each seam does not close, as a fraction, and -- when the
+    # rise drags a tile-row boundary into the artwork -- how far up the strip
+    # it lands, in mm. See pattern_fit.SeamScore.
+    seam_vertical: float = 0.0
+    seam_horizontal: float = 0.0
+    seam_height: float | None = None
+
+
+def seam_warning(summary):
+    """What to say about a pattern that does not close where it repeats.
+
+    Built here rather than in the operator for the same reason as
+    cuttable_layer_warning: the message is the part that can be wrong in a way
+    the user sees, and the operator that reports it needs Blender.
+
+    The vertical case earns a height because it is otherwise unfindable -- a
+    straight line across every strip, in artwork with no other straight lines
+    -- and a remedy, because unlike the horizontal seam there is one: rise 0
+    puts the boundary on the base cut.
+    """
+    if summary is None:
+        return None
+    v = summary.seam_vertical
+    h = summary.seam_horizontal
+    if summary.seam_height is not None:
+        return (f"Pattern does not repeat up the strip, and this Rise puts a "
+                f"tile seam {summary.seam_height:.1f} mm up every one. Set "
+                f"Rise to 0 to move it onto the base cut.")
+    if v > pattern_fit.SEAM_MISMATCH_MIN:
+        return (f"Pattern is {100.0 * v:.0f}% broken where it would repeat up "
+                f"the strip; this Rise keeps that seam out of the artwork.")
+    if h > pattern_fit.SEAM_MISMATCH_MIN:
+        return (f"Pattern seam around the object is {100.0 * h:.0f}% broken; "
+                f"it shows on every strip join.")
+    return None
 
 
 def cuttable_layer_warning(summary):
@@ -168,9 +203,20 @@ def export_steps(result, params, filepath):
     comment = None
     defect_rects = None
     intrinsic_rects = None
+    seam = None
+    seam_height = None
     if params["use_pattern"]:
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
+        yield 0.08, "Checking pattern tiling…"
+        try:
+            seam = pattern_fit.seam_scores(pattern)
+        except pattern_warp.PatternError:
+            # Same contract as the defect layers below: measuring seams needs
+            # filled material, and a stroke-only pattern has none. It still
+            # warps and writes fine, so the check is skipped rather than
+            # failing an export that would otherwise succeed.
+            seam = None
         yield 0.10, "Preparing pattern…"
         circ = result.dims.bottom_circumference
         offset = (circ * params["pattern_rotation"] / 360.0,
@@ -236,6 +282,18 @@ def export_steps(result, params, filepath):
                 # opt-in decides only what reaches the file.
                 intrinsic_rects = None
 
+    if seam is not None and not seam.vertical.tiles:
+        # Rows sit at r * tile_h + rise, so a rise strictly inside the band is
+        # the one that drags a boundary through the artwork. Reported as a
+        # height up the strip, which is the same number the Rise field shows.
+        _W, _k, tile_h = pattern_warp._tile_metrics(
+            pattern, result.dims.bottom_circumference,
+            params["pattern_repeats_x"])
+        band = pattern_fit.pattern_band_height(result.outlines, top_inset)
+        rise = params["pattern_rise"]
+        if pattern_fit.seam_inside_band(rise, band, tile_h):
+            seam_height = rise % tile_h
+
     yield 0.97, "Writing SVG…"
     svg_export.write_svg(filepath, layout, labels_enabled=params["labels"],
                          pattern_polys=pattern_polys, edge_lines=edge_lines,
@@ -247,4 +305,9 @@ def export_steps(result, params, filepath):
                          # Mirror write_svg's own emission conditions, so these
                          # are true exactly when the groups are in the file.
                          defects_marked=bool(defect_rects),
-                         intrinsic_marked=bool(intrinsic_rects))
+                         intrinsic_marked=bool(intrinsic_rects),
+                         seam_vertical=(seam.vertical.mismatch
+                                        if seam is not None else 0.0),
+                         seam_horizontal=(seam.horizontal.mismatch
+                                          if seam is not None else 0.0),
+                         seam_height=seam_height)

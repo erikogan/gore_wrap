@@ -19,6 +19,53 @@ a count is a change of representation, not of range.
 """
 
 
+def _launch_seam_check(props):
+    """Start the tiling check without doing any of it here.
+
+    Property callbacks run in Blender's UI thread, and the check takes about a
+    second on a dense pattern -- as a callback that is a freeze. So this only
+    schedules: the timer hands the work to the modal operator, which draws a
+    progress bar and can be cancelled. A timer rather than a direct call
+    because an operator cannot be invoked from inside a property update, but
+    it can be from the timer that update schedules.
+    """
+    if bpy.app.background:
+        return
+    if not (props.pattern_check_tiling and props.use_pattern
+            and props.pattern_svg):
+        return
+
+    def _launch():
+        try:
+            bpy.ops.gorewrap.check_tiling("INVOKE_DEFAULT")
+        except RuntimeError:
+            # No window, or the operator refuses: the panel falls back to its
+            # "not checked" state and its button, which is a fine place to end
+            # up and not worth an error the user cannot act on.
+            pass
+        return None
+
+    bpy.app.timers.register(_launch, first_interval=0.01)
+
+
+def _update_pattern_svg(self, context):
+    """A different pattern invalidates the verdict, so drop it and re-measure."""
+    self.has_seam_check = False
+    self.seam_stamp = ""
+    _launch_seam_check(self)
+
+
+def _update_check_tiling(self, context):
+    """Turning the automatic check on measures what is not measured yet.
+
+    Turning it off deliberately keeps whatever has already been measured:
+    the setting governs whether Gore Wrap checks by itself, not whether the
+    answer it already has is still true.
+    """
+    if self.pattern_check_tiling and not self.has_seam_check:
+        _launch_seam_check(self)
+
+
 def _update_strip_count(self, context):
     self.computed_n_strips = geometry.strip_count(self.strip_angle)
 
@@ -125,7 +172,20 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
     pattern_svg: bpy.props.StringProperty(
         name="Pattern SVG",
         description="Seamless (tileable) pattern as an SVG file",
-        subtype="FILE_PATH", default="")
+        subtype="FILE_PATH", default="", update=_update_pattern_svg)
+    pattern_check_tiling: bpy.props.BoolProperty(
+        name="Check Tiling",
+        description="Measure how well the pattern joins itself when it "
+                    "repeats, whenever the pattern file changes. Runs in the "
+                    "background with a progress bar; turn it off to skip it "
+                    "and check by hand instead",
+        default=True, update=_update_check_tiling)
+    has_seam_check: bpy.props.BoolProperty(default=False)
+    seam_stamp: bpy.props.StringProperty(default="")
+    seam_vertical: bpy.props.FloatProperty(default=0.0)
+    seam_horizontal: bpy.props.FloatProperty(default=0.0)
+    seam_tiles_vertically: bpy.props.BoolProperty(default=True)
+    seam_tiles_horizontally: bpy.props.BoolProperty(default=True)
     pattern_repeats_x: bpy.props.IntProperty(
         name="Repeats Around",
         description="How many times the pattern tiles around the full "

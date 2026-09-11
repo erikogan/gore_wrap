@@ -884,3 +884,211 @@ def test_fingerprint_changes_when_the_metric_changes(monkeypatch):
     monkeypatch.setattr(pattern_fit, "METRIC_VERSION",
                         pattern_fit.METRIC_VERSION + 1)
     assert pattern_fit.fingerprint(alpha=1, beta="two") != before
+
+
+# Material that runs off one edge and continues at the opposite one, in both
+# directions: the tile joins itself cleanly on all four sides.
+TILES_BOTH_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="12" y="12" width="16" height="16"/>\
+<rect x="30" y="4" width="10" height="8"/><rect x="0" y="4" width="6" height="8"/>\
+<rect x="4" y="34" width="8" height="6"/><rect x="4" y="0" width="8" height="4"/>\
+</svg>'''
+
+# Tiles like TILES_BOTH_SVG, except the left continuation is shorter than the
+# right edge it has to meet: the join repeats, but visibly breaks along part
+# of its length -- what real artwork does when it overhangs its artboard.
+RAGGED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="30" y="4" width="10" height="8"/><rect x="0" y="6" width="6" height="6"/>\
+</svg>'''
+
+# Opposite edges that have nothing to do with each other, carrying very little
+# material: a tenth of each edge, and disjoint.
+SPARSE_UNTILED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="0" y="28" width="4" height="12"/><rect x="20" y="0" width="4" height="12"/>\
+</svg>'''
+
+# The same unrelated-edges failure at half coverage instead of a tenth.
+DENSE_UNTILED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="0" y="28" width="20" height="12"/><rect x="20" y="0" width="20" height="12"/>\
+</svg>'''
+
+
+def test_a_pattern_that_tiles_has_nothing_to_report_on_either_axis(tmp_path):
+    scores = pattern_fit.seam_scores(load(tmp_path, TILES_BOTH_SVG))
+    assert scores.vertical.percent < 1.0
+    assert scores.horizontal.percent < 1.0
+    assert scores.vertical.tiles and not scores.vertical.flawed
+    assert scores.horizontal.tiles and not scores.horizontal.flawed
+
+
+def test_a_ragged_join_is_reported_as_a_percentage_not_as_untiled(tmp_path):
+    # The case that made a bare verdict useless: the artwork plainly repeats,
+    # so clamping Rise would buy nothing, yet the join really does break along
+    # part of its length and the user has to be told how much.
+    scores = pattern_fit.seam_scores(load(tmp_path, RAGGED_SVG))
+    assert scores.horizontal.tiles           # repeating, so nothing to clamp
+    assert scores.horizontal.flawed          # ...but not clean either
+    assert 2.0 < scores.horizontal.percent < 20.0
+
+
+def test_unrelated_edges_are_flagged_however_little_material_they_carry(
+        tmp_path):
+    # Scoring the bare mismatch cannot do this. Two unrelated edges disagree
+    # at most as often as chance, which never exceeds 0.5, so a threshold
+    # loose enough to tolerate a ragged join flags nothing at all -- and a
+    # sparse pattern least of all, since its disagreement is small in absolute
+    # terms however unrelated its edges are. Un-normalized this fixture reads
+    # 0.199 and passes as tiled.
+    sparse = pattern_fit.seam_scores(load(tmp_path, SPARSE_UNTILED_SVG))
+    dense = pattern_fit.seam_scores(load(tmp_path, DENSE_UNTILED_SVG, "d.svg"))
+    assert not sparse.vertical.tiles
+    assert not dense.vertical.tiles
+    # Coverage-independence is the property doing the work. Carrying a tenth
+    # of an edge does not soften the verdict: the sparse fixture still reaches
+    # "no better than unrelated", which is where the scale puts 1.0.
+    assert sparse.vertical.score >= 1.0
+
+
+def _rises_evaluated(monkeypatch, pattern, layout, result, repeats,
+                     top_inset=20.0):
+    """Every rise the search scores, at a coarse rotation grid.
+
+    Rotation is cut to a handful of samples because none of these tests say
+    anything about it -- the rise grid is built independently, and the full
+    96-sample sweep is pinned by
+    test_the_vertical_grid_keeps_the_full_rotation_resolution. At full
+    resolution these three tests alone cost a minute and a half.
+    """
+    monkeypatch.setattr(pattern_fit, "COARSE_1D", 6)
+    seen = []
+    real_score = pattern_fit.score_placement
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("offset", (0.0, 0.0))[1])
+        return real_score(*args, **kwargs)
+
+    monkeypatch.setattr(pattern_fit, "score_placement", spy)
+    _drain(pattern_fit.search_placement(
+        pattern, layout.placements, result.outlines,
+        result.dims.bottom_circumference, repeats, 10.0, 0.6,
+        slide_vertically=True, top_inset=top_inset))
+    return seen
+
+
+def test_the_search_keeps_the_seam_out_of_a_pattern_that_does_not_tile(
+        tmp_path, monkeypatch):
+    # The reported bug: with Slide Vertically on, the search chose a rise that
+    # dragged a tile-row boundary into the middle of every strip, because it
+    # scores orphaned pieces and a seam through the artwork costs it nothing.
+    # A rise is safe only at 0 or at or above the patterned band -- anywhere
+    # between, row -1 meets row 0 inside the artwork.
+    pattern, layout, result = _averaged_setup(
+        12, tmp_path, svg=SPARSE_UNTILED_SVG)
+    band = pattern_fit.pattern_band_height(result.outlines, 20.0)
+    _W, _k, tile_h = pattern_warp._tile_metrics(
+        pattern, result.dims.bottom_circumference, 1)
+    assert band < tile_h, "fixture must leave a seam-free window"
+
+    rises = _rises_evaluated(monkeypatch, pattern, layout, result, 1)
+
+    inside = [y for y in rises if 1e-9 < y % tile_h < band - 1e-9]
+    assert not inside, f"{len(inside)} rises seam the artwork, e.g. {inside[:3]}"
+    assert any(y > 0.0 for y in rises), "the vertical axis was not searched"
+
+
+def test_a_pattern_that_tiles_vertically_keeps_the_whole_rise_range(
+        tmp_path, monkeypatch):
+    # Constraining unconditionally would be the easy mistake, and it would
+    # cost real placements: artwork that repeats carries its seam harmlessly,
+    # so every rise stays on the table.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=BANDS_SVG)
+    assert pattern_fit.seam_scores(pattern).vertical.tiles
+    band = pattern_fit.pattern_band_height(result.outlines, 20.0)
+    _W, _k, tile_h = pattern_warp._tile_metrics(
+        pattern, result.dims.bottom_circumference, 1)
+
+    rises = _rises_evaluated(monkeypatch, pattern, layout, result, 1)
+
+    assert any(1e-9 < y % tile_h < band - 1e-9 for y in rises), \
+        "the rise range was clamped for a pattern that tiles"
+
+
+def test_the_rise_is_unclamped_when_no_rise_can_avoid_a_seam(
+        tmp_path, monkeypatch):
+    # Repeats Around high enough to make the tile shorter than the band puts a
+    # seam in the artwork at EVERY rise, rise 0 included. There is nothing to
+    # protect, so narrowing the search would only cost placements while
+    # implying a safety it cannot deliver.
+    pattern, layout, result = _averaged_setup(
+        12, tmp_path, svg=SPARSE_UNTILED_SVG)
+    assert not pattern_fit.seam_scores(pattern).vertical.tiles
+    band = pattern_fit.pattern_band_height(result.outlines, 20.0)
+    _W, _k, tile_h = pattern_warp._tile_metrics(
+        pattern, result.dims.bottom_circumference, 3)
+    assert band > tile_h, "fixture must leave no seam-free window"
+
+    rises = _rises_evaluated(monkeypatch, pattern, layout, result, 3)
+
+    # "Inside the band" is every rise there is once the band swallows the
+    # tile, so the claim has to be the sweep itself: the plain coarse grid,
+    # unmoved.
+    for want in np.linspace(0.0, tile_h, pattern_fit.COARSE_2D_Y,
+                            endpoint=False):
+        assert any(abs(y - want) < 1e-9 for y in rises), \
+            f"rise sample {want} is missing from the sweep"
+
+
+def test_the_tiling_check_reports_progress_and_agrees_with_the_plain_call(
+        tmp_path):
+    # It has to run as a job, not a function call: on a dense pattern the
+    # check takes about a second, and Blender's property callbacks run in the
+    # UI thread, where a second is a freeze.
+    pattern = load(tmp_path, TILES_BOTH_SVG)
+    gen = pattern_fit.seam_scores_steps(pattern)
+    seen = []
+    try:
+        while True:
+            frac, label = next(gen)
+            seen.append(frac)
+            assert isinstance(label, str) and label
+    except StopIteration as stop:
+        scores = stop.value
+    assert seen == sorted(seen)
+    assert 0.0 < seen[0] <= 1.0
+    assert seen[-1] == pytest.approx(1.0, abs=1e-6)
+    assert scores == pattern_fit.seam_scores(pattern)
+
+
+@pytest.mark.parametrize("band,tile_h", [(130.0, 175.8), (5.0, 175.8),
+                                         (175.8, 175.8), (200.0, 175.8)])
+def test_constraining_the_rise_never_drops_the_spin_only_answer(band, tile_h):
+    # "Sliding vertically can never be worse than spinning alone" holds only
+    # because rise 0 -- the whole 1-D search -- stays on the grid. Narrowing
+    # the grid must not cost that, in any of the shapes the window can take.
+    rises = pattern_fit.seam_free_rises(pattern_fit.COARSE_2D_Y, band, tile_h)
+    assert 0.0 in rises
+    assert len(rises) == pattern_fit.COARSE_2D_Y
+    assert len(set(np.round(rises, 9))) == len(rises), "duplicate rise samples"
+
+
+def test_a_rise_sitting_exactly_on_the_band_is_not_inside_it():
+    # seam_free_rises offers `band` itself as a sample, and it is the best
+    # rise of the bunch: the tile boundary lands on the ceiling cut, where the
+    # pattern is trimmed anyway. But Rise is stored as a 32-bit float, so the
+    # value that comes back is never quite the band that produced it, and an
+    # exact comparison reports the safest placement as a defect.
+    band, tile_h = 129.98331742588783, 175.769
+    stored = float(np.float32(band))
+    assert stored != band, "fixture needs the float32 round-trip to move it"
+    assert not pattern_fit.seam_inside_band(band, band, tile_h)
+    assert not pattern_fit.seam_inside_band(stored, band, tile_h)
+    assert not pattern_fit.seam_inside_band(0.0, band, tile_h)
+    assert not pattern_fit.seam_inside_band(float(np.float32(tile_h)),
+                                            band, tile_h)
+    # A rise that really does cut through the artwork still reports.
+    assert pattern_fit.seam_inside_band(87.885, band, tile_h)
+    assert pattern_fit.seam_inside_band(band - 0.5, band, tile_h)

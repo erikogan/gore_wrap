@@ -230,6 +230,7 @@ def main():
           f"viewport colors set")
 
     check_non_finite_rejected(obj)
+    check_tiling_check(obj)
     check_optimize_placement(obj)
     check_advisor(obj)
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
@@ -330,6 +331,54 @@ def test_advice_properties_exist(props):
     print("[smoke] advice properties ok")
 
 
+def check_tiling_check(obj):
+    """The tiling check runs as an operator, caches its verdict, and the panel
+    draws from the cache rather than measuring on every redraw."""
+    import bpy
+    from gore_wrap import pattern_fit
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_check_tiling = True
+
+    # A band running the full width joins itself perfectly around the object;
+    # the block hanging off the top edge has nothing to meet it at the bottom.
+    # So: repeats around, does not repeat up the strip.
+    untiled = os.path.join(tempfile.gettempdir(), "gorewrap_untiled.svg")
+    with open(untiled, "w") as fh:
+        fh.write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+                 'width="40" height="40">'
+                 '<rect x="0" y="28" width="40" height="12"/>'
+                 '<rect x="10" y="0" width="20" height="12"/></svg>')
+
+    # Setting the path must not measure anything: that callback runs in the UI
+    # thread, and the whole point of the operator is to keep it out of there.
+    props.pattern_svg = untiled
+    assert not props.has_seam_check, "the property callback measured inline"
+
+    res = bpy.ops.gorewrap.check_tiling()
+    assert res == {"FINISHED"}, res
+    assert props.has_seam_check, "check did not record a verdict"
+    assert props.seam_stamp == bpy.path.abspath(untiled)
+    assert not props.seam_tiles_vertically, "untiled artwork passed as tiling"
+    assert props.seam_tiles_horizontally, "tiling artwork failed as untiled"
+    assert props.seam_vertical > pattern_fit.SEAM_MISMATCH_MIN
+
+    # Turning the automatic check off must not throw away an answer already
+    # measured: the setting governs whether Gore Wrap checks by itself.
+    props.pattern_check_tiling = False
+    assert props.has_seam_check, "turning the check off discarded its verdict"
+    props.pattern_check_tiling = True
+
+    # A new pattern file drops the cached verdict, so the panel cannot show
+    # one pattern's numbers against another's artwork.
+    props.pattern_svg = _write_temp_pattern()
+    assert not props.has_seam_check, "stale verdict survived a pattern change"
+
+    for area in bpy.context.screen.areas if bpy.context.screen else []:
+        area.tag_redraw()
+    print("[smoke] tiling check ok: untiled artwork flagged, cache invalidated")
+
+
 def check_optimize_placement(obj):
     """Optimize writes a placement, and the panel draws in both modes."""
     import bpy
@@ -346,6 +395,10 @@ def check_optimize_placement(obj):
     assert res == {"FINISHED"}, res
     assert props.has_pattern_fit, "optimize did not record a placement"
     assert props.pattern_fit_stamp, "optimize did not record a stamp"
+    # Optimize measures the tiling on its way in, so the panel has a verdict
+    # even for a user who never pressed Check.
+    assert props.has_seam_check, "optimize did not record a tiling verdict"
+    assert props.seam_stamp == bpy.path.abspath(props.pattern_svg)
 
     # Changing a dependency must invalidate the stamp.
     from gore_wrap import operators

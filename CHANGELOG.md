@@ -10,6 +10,53 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 1.0.1 — 2026-09-11
+
+**Seams the search could not see.** Optimize Placement with Slide Vertically on
+could return a Rise that dragged a tile-row boundary into the middle of every
+strip, drawing a straight cut line across artwork that has no other straight
+lines. The scorer counts orphaned pieces of material, and a seam straight
+through the pattern orphans nothing, so nothing stopped it. Gore Wrap now
+measures how well a pattern joins itself where it repeats — around the object
+and up the strip — reports each seam as a percentage, and keeps the search away
+from rises that put a boundary inside the artwork.
+
+### Added
+
+- **Pattern tiling check.** Every pattern is measured when you choose it, and
+  each seam is reported as the share of its length that does not close.
+  Percentages rather than a verdict, because the interesting cases are not
+  binary: artwork routinely repeats while still breaking along part of the
+  join, and only you can say whether that much break matters for what you are
+  cutting.
+  - Runs as a background job with a progress bar, not in the UI thread — the
+    check takes about a second on a dense pattern, which as a property
+    callback would be a freeze.
+  - **Check Tiling**, on by default, turns the automatic run off; the panel
+    then offers a button that runs the same check on demand.
+  - Optimize Placement and Export measure it too, so the verdict is never
+    missing from a report that depends on it.
+
+### Changed
+
+- **Slide Vertically will not seam the artwork.** When a pattern does not
+  repeat up the strip, the search is restricted to the rises that keep every
+  tile-row boundary out of the patterned band: 0, which puts the boundary on
+  the base cut, and anything from the top of the band up to a full tile
+  height. Patterns that do repeat vertically keep the whole range.
+  - When Repeats Around makes the tile shorter than the patterned band, a
+    boundary crosses the artwork at every rise, rise 0 included. There is
+    nothing to protect, so the search is left alone and says so instead of
+    implying a safety it cannot deliver.
+- Export warns when the Rise in force puts a tile seam inside the artwork, and
+  names the height so the line can be found in the file.
+
+### Fixed
+
+- Optimize Placement no longer recommends a Rise that ruins the export it was
+  run to improve. On the example scan and pattern it had been choosing 87.9 mm
+  — half a tile — which put a hard line across all twenty gores at 97.1 mm.
+
 ## 1.0.0 — 2026-09-09
 
 **The Placement Advisor.** When Optimize Placement finishes and defects remain,
