@@ -535,6 +535,33 @@ def _pattern_coords(cpts, tile):
     return px, py
 
 
+def _seam_edge_flags(cpts, tile, profiles, tol_px):
+    """Boundary-touching flags shared by _seam_edge_drop and _subdivide_seam_edges.
+
+    Both callers must agree on which edges are seam edges: whether an edge
+    touches a tile boundary, in which pattern coordinate, is a single
+    question with a single tolerance and coordinate space. Answering it
+    twice -- once to decide what to drop, once to decide where to split --
+    is how a drop rule and a split rule end up disagreeing about the same
+    edge. So the computation lives here once, and both callers build on it.
+
+    Returns `(on, across, nxt)`: `on[side]` is a bool per point saying it
+    sits on that boundary; `across[side]` is the pattern coordinate that
+    runs along that boundary (py for left/right, px for top/bottom); `nxt`
+    maps each point index to its successor, wrapping.
+    """
+    px, py = _pattern_coords(cpts, tile)
+    nxt = np.roll(np.arange(len(cpts)), -1)
+    on = {
+        "left": np.isclose(px, 0.0, rtol=0.0, atol=tol_px),
+        "right": np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px),
+        "top": np.isclose(py, 0.0, rtol=0.0, atol=tol_px),
+        "bottom": np.isclose(py, profiles.px_height, rtol=0.0, atol=tol_px),
+    }
+    across = {"left": py, "right": py, "top": px, "bottom": px}
+    return on, across, nxt
+
+
 def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
     """Which edges lie on a tile boundary the neighboring tile backs.
 
@@ -552,15 +579,7 @@ def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
     drop = np.zeros(n, dtype=bool)
     if profiles is None:
         return drop
-    px, py = _pattern_coords(cpts, tile)
-    nxt = np.roll(np.arange(n), -1)
-    on = {
-        "left": np.isclose(px, 0.0, rtol=0.0, atol=tol_px),
-        "right": np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px),
-        "top": np.isclose(py, 0.0, rtol=0.0, atol=tol_px),
-        "bottom": np.isclose(py, profiles.px_height, rtol=0.0, atol=tol_px),
-    }
-    across = {"left": py, "right": py, "top": px, "bottom": px}
+    on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
     for side, flags in on.items():
         edges = np.nonzero(flags & flags[nxt])[0]
         coord = across[side]
@@ -569,6 +588,69 @@ def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
             if profiles.covers(_OPPOSITE_EDGE[side], lo, hi):
                 drop[i] = True
     return drop
+
+
+def _coverage_breaks(profiles, side, lo, hi):
+    """Pattern coordinates in (lo, hi) where `side`'s coverage changes.
+
+    Sampled at the profile's own pitch, so a break lands on the sample
+    boundary the profile itself resolves -- there is no finer truth to find.
+    """
+    profile = getattr(profiles, side)
+    n = len(profile)
+    a = int(np.clip(np.floor(lo / profiles.pitch), 0, n - 1))
+    b = int(np.clip(np.ceil(hi / profiles.pitch), 1, n))
+    window = profile[a:b]
+    if len(window) < 2:
+        return []
+    changes = np.nonzero(np.diff(window.astype(np.int8)))[0] + 1
+    out = [(a + c) * profiles.pitch for c in changes]
+    return [v for v in out if lo + 1e-9 < v < hi - 1e-9]
+
+
+def _subdivide_seam_edges(cpts, cmask, tile, profiles,
+                          tol_px=SEAM_EDGE_TOL_PX):
+    """Insert points where a tile-boundary edge's backing starts or stops.
+
+    After this every seam edge is backed along its whole length or none of
+    it, so _seam_edge_drop's answer is whole-edge and _runs_from_drop never
+    has to represent half a dropped edge. Inserted points are not corners:
+    they are an artifact of where the neighbor's material happens to end,
+    not a feature of the artwork.
+
+    Returns the inputs unchanged when there is nothing to do, so the common
+    case allocates nothing.
+    """
+    if profiles is None:
+        return cpts, cmask
+    n = len(cpts)
+    on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
+    inserts = {}
+    for side, flags in on.items():
+        coord = across[side]
+        for i in np.nonzero(flags & flags[nxt])[0]:
+            a, b = float(coord[i]), float(coord[nxt[i]])
+            lo, hi = sorted((a, b))
+            breaks = _coverage_breaks(profiles, _OPPOSITE_EDGE[side], lo, hi)
+            if not breaks:
+                continue
+            # Order the cuts along the edge's own direction, then place them
+            # by linear interpolation in master space -- the edge is straight
+            # in both spaces, so the parameter carries over exactly.
+            span = b - a
+            ts = sorted(((v - a) / span for v in breaks))
+            p0, p1 = cpts[i], cpts[nxt[i]]
+            inserts[int(i)] = [p0 + t * (p1 - p0) for t in ts]
+    if not inserts:
+        return cpts, cmask
+    pts, mask = [], []
+    for i in range(n):
+        pts.append(cpts[i])
+        mask.append(bool(cmask[i]))
+        for extra in inserts.get(i, ()):
+            pts.append(extra)
+            mask.append(False)
+    return np.array(pts, dtype=float), np.array(mask, dtype=bool)
 
 
 def _runs_from_drop(n, drop, closed):

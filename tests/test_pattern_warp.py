@@ -1058,3 +1058,47 @@ def test_the_row_boundary_consults_the_opposite_row():
         cpts, tile, _profiles(bottom=[(0.0, 40.0)]))[0]
     assert not pattern_warp._seam_edge_drop(
         cpts, tile, _profiles(top=[(0.0, 40.0)]))[0]
+
+
+def test_a_partly_backed_seam_edge_is_split_at_the_coverage_boundary():
+    # Right-boundary edge running pattern y 4 -> 16, backed only over y 4..10.
+    # k = 0.5, tile_h = 10, so master y = 10 - 0.5 * py: the edge runs master
+    # y 8 -> 2 and the coverage boundary at py = 10 is master y = 5.
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    cmask = np.array([True, True, False, False])
+    profiles = _profiles(left=[(0.0, 10.0)])
+    pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, profiles)
+    assert len(pts) == 5
+    assert pts[1] == pytest.approx([20.0, 5.0])
+    assert list(mask) == [True, False, True, False, False]
+
+
+def test_subdivision_leaves_a_fully_backed_edge_alone():
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    cmask = np.zeros(4, dtype=bool)
+    profiles = _profiles(left=[(0.0, 20.0)])
+    pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, profiles)
+    assert len(pts) == 4
+    assert np.array_equal(pts, cpts)
+
+
+def test_subdivision_is_a_no_op_without_profiles():
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    cmask = np.zeros(4, dtype=bool)
+    pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, None)
+    assert pts is cpts and mask is cmask
+
+
+def test_subdividing_then_dropping_cuts_only_the_unbacked_half():
+    # The point of splitting first: after it, every edge is wholly dropped
+    # or wholly kept, so the run builder never sees partial coverage.
+    tile = _placement()
+    cpts = np.array([[20.0, 8.0], [20.0, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    cmask = np.zeros(4, dtype=bool)
+    profiles = _profiles(left=[(0.0, 10.0)])
+    pts, _mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, profiles)
+    drop = pattern_warp._seam_edge_drop(pts, tile, profiles)
+    assert list(drop) == [True, False, False, False, False]
