@@ -425,11 +425,19 @@ def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
         top, left_x, right_x = _edge_profiles(outline)
+        pattern_top = top - top_inset if top_inset > 0.0 else top
+        hw0 = float(right_x(0.0))
+        if hw0 <= 1e-9 or pattern_top <= 0.0:
+            yield i, None
+            continue
 
         # See AsymmetricGoreError. Checked through _edge_profiles rather than
         # by reversing the point array, because left_x and right_x are
         # exactly what the warp and the suppression consult -- a point order
-        # that happened to pair up would prove nothing about them.
+        # that happened to pair up would prove nothing about them. Sits below
+        # the degenerate-gore filter above because the invariant only binds
+        # gores that actually get a pattern layer; a gore skipped as None
+        # never reaches the suppression this check guards.
         probe = np.linspace(0.0, top, 64)
         skew = float(np.abs(np.asarray(left_x(probe), dtype=float)
                             + np.asarray(right_x(probe), dtype=float)).max())
@@ -439,11 +447,6 @@ def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
                 f"(worst mismatch {skew:.4f} mm). The pattern layer "
                 f"suppresses the gore-edge cuts on the assumption that the "
                 f"cuts layer draws exactly those lines.")
-        pattern_top = top - top_inset if top_inset > 0.0 else top
-        hw0 = float(right_x(0.0))
-        if hw0 <= 1e-9 or pattern_top <= 0.0:
-            yield i, None
-            continue
         xc = (i + 0.5) * circumference / n
 
         # Defaults bind the loop variables at definition time; a caller that
