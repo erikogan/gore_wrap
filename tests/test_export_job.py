@@ -144,7 +144,8 @@ def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypat
     captured = {}
 
     def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
-                  corner_cos, top_inset=0.0, offset=(0.0, 0.0)):
+                  corner_cos, top_inset=0.0, offset=(0.0, 0.0),
+                  profiles=None):
         captured["resolution"] = resolution
         captured["corner_cos"] = corner_cos
         return iter(())

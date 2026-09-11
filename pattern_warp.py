@@ -677,7 +677,8 @@ def _runs_from_drop(n, drop, closed):
     return runs
 
 
-def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
+def _boundary_runs(cpts, cmask, x_lo, x_hi, y_hi, closed,
+                   tile=None, profiles=None, tol=1e-6):
     """Split a clipped polygon into open runs, dropping edges that another
     layer already cuts.
 
@@ -709,16 +710,30 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     point flagged by the clip (`cmask`) is not enough, since a corner point
     can touch a rect edge without either adjoining edge running along it.
 
-    `tol = 1e-6` mm is fine for clip-generated points, which land exactly on
-    the bound by construction. It is not robust for artwork that is only
-    *nominally* on a tile boundary (e.g. an edge at 39.9999 in a 40-unit
-    viewBox) -- such an edge silently falls back to the old duplicated-cut
-    behavior instead of being detected and dropped. Do not change this
-    tolerance without evidence; it is a real limitation, not an oversight.
+    `tol = 1e-6` mm governs the RECT bounds alone, and is fine for them:
+    clip-generated points land exactly on the bound by construction. Do not
+    change it without evidence; it is deliberately tight, not an oversight.
+    Artwork that is only *nominally* on a TILE boundary (e.g. an edge at
+    39.9999 in a 40-unit viewBox) is not this tolerance's business at all --
+    that is the seam rule below, which works in the pattern's own pixels at
+    the far looser `SEAM_EDGE_TOL_PX` precisely because artwork does not
+    land on its artboard edge to 1e-6.
 
-    Returns a list of (idx, run_closed): `idx` indexes into `cpts` (and any
-    same-length array derived from it, e.g. the warped points or the corner
-    mask) for that run, in the order to emit; a run with < 2 points is
+    With `tile` and `profiles` supplied, edges lying on a TILE boundary are
+    dropped too, wherever the neighboring tile backs that boundary with
+    material -- the two fragments are one continuous piece there, and the
+    cut would slice it apart. Seam edges are subdivided at the coverage
+    boundaries first, so each one is then wholly dropped or wholly kept and
+    the run builder below never sees a half-dropped edge.
+
+    Returns `(points, mask, runs)` rather than runs alone, because
+    subdivision introduces points the caller's own arrays do not have. With
+    no subdivision the inputs come back unchanged -- by identity, not as
+    copies, so callers must treat them as read-only.
+
+    Each run is an (idx, run_closed) pair: `idx` indexes into the RETURNED
+    `points` (and any same-length array derived from them, e.g. the returned
+    corner mask) for that run, in the order to emit; a run with < 2 points is
     still returned and left for the caller to skip. When nothing was
     dropped, returns a single run covering the whole polygon in its
     original order with `run_closed = closed`, exactly reproducing
@@ -731,8 +746,14 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     are built by walking forward from just after each dropped edge to the
     next one, which handles the wraparound without an explicit rotation.
     """
-    drop = _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol)
-    return _runs_from_drop(len(cpts), drop, closed)
+    if tile is None:
+        pts, mask = cpts, cmask
+        seam = np.zeros(len(pts), dtype=bool)
+    else:
+        pts, mask = _subdivide_seam_edges(cpts, cmask, tile, profiles)
+        seam = _seam_edge_drop(pts, tile, profiles)
+    drop = _rect_edge_drop(pts, x_lo, x_hi, y_hi, tol) | seam
+    return pts, mask, _runs_from_drop(len(pts), drop, closed)
 
 
 def _iter_clipped_fragments(pattern, placements, outlines, circumference,
@@ -819,7 +840,7 @@ def iter_clipped_fragments(pattern, placements, outlines, circumference,
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                     resolution, corner_cos=_CORNER_COS, top_inset=0.0,
-                    offset=(0.0, 0.0)):
+                    profiles=None, offset=(0.0, 0.0)):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
@@ -828,6 +849,12 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
     `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
     rect, so the pattern stops short of the top; 0 fills the whole gore.
+
+    `profiles` are the pattern tile's four boundary material profiles (see
+    pattern_fit.edge_profiles). Supplied, the pattern layer stops cutting
+    along a tile boundary wherever the neighboring tile backs it with
+    material. Omitted, tiling behaves as it did before 1.0.1 and every
+    boundary is cut twice.
 
     `offset` is (phi_x, phi_y) in mm of master space: phi_x spins the pattern
     around the object (period W = circumference/repeats_x), phi_y slides it up
@@ -845,14 +872,22 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             # one or more open runs instead, so the pattern layer does not
             # duplicate the cuts/pattern-edge layers along every seam.
             # Detection compares the MASTER-space points (cpts) against the
-            # clip bounds -- the same space x_lo/x_hi/pattern_top are in --
-            # and the resulting point indices are then used to slice the
-            # warped points (wpts) for fitting.
-            for idx, run_closed in _boundary_runs(
-                    cpts, frame.x_lo, frame.x_hi, frame.pattern_top, closed):
+            # clip bounds -- the same space x_lo/x_hi/pattern_top are in.
+            pts, mask, runs = _boundary_runs(
+                cpts, cmask, frame.x_lo, frame.x_hi, frame.pattern_top,
+                closed, tile=tile, profiles=profiles)
+            # The run indices then slice a freshly warped copy of the
+            # polygon _boundary_runs handed back, NOT the fragment's own
+            # `wpts`: seam subdivision may have inserted points `wpts` does
+            # not have. `pts`/`mask` may be the fragment's own arrays by
+            # identity (the no-subdivision fast path), so they are read here
+            # and never written.
+            fx, fy = frame.warp(pts[:, 0], pts[:, 1])
+            run_source = np.column_stack([fx, fy])
+            for idx, run_closed in runs:
                 if len(idx) < 2:
                     continue
-                run_wpts = wpts[idx]
+                run_wpts = run_source[idx]
                 # The fragment-level _MIN_FRAGMENT_MM screen in
                 # _iter_clipped_fragments checks the whole clipped polygon,
                 # before _boundary_runs splits it -- it does not protect an
@@ -866,7 +901,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                                         - run_wpts.min(axis=0))))
                 if diag < _MIN_FRAGMENT_MM:
                     continue
-                corner_idx = np.nonzero(cmask[idx])[0]
+                corner_idx = np.nonzero(mask[idx])[0]
                 # fit_beziers is always called with closed=False: a closed
                 # subpath's implicit Close edge is already sampled (see
                 # _subpath_geometry, which appends it as a real Line), so

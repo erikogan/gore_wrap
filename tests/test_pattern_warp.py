@@ -330,6 +330,44 @@ def test_straddle_config_exercises_suppression_with_real_geometry(tmp_path):
         "expected at least one untouched, still-closed copy"
 
 
+def test_a_seam_inside_a_gore_is_not_cut_when_the_neighbor_backs_it(tmp_path):
+    # FULL_CELL fills its whole viewBox, so every tile boundary carries
+    # artwork and every neighbor backs it. Tiled, the material is
+    # continuous, and the only true edges are the gore cuts -- which another
+    # layer already draws. So the pattern layer should be empty.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    circ = 2 * np.pi * 40.0
+    tile = pattern_fit.build_tile(pattern, circ, 11, 0.15)
+    profiles = pattern_fit.edge_profiles(tile, pattern)
+
+    before = sum(len(sp) for _i, sp in pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 11, 0.05))
+    after = sum(len(sp) for _i, sp in pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 11, 0.05,
+        profiles=profiles))
+
+    assert before > 0, "fixture must currently emit seam cuts"
+    assert after == 0, f"{after} subpaths survived on continuous material"
+
+
+def test_an_unbacked_tile_boundary_is_still_cut(tmp_path):
+    # STRADDLE's rect is inset from every tile border, so no boundary
+    # carries artwork and nothing may be suppressed.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, STRADDLE_SVG))
+    circ = 2 * np.pi * 40.0
+    tile = pattern_fit.build_tile(pattern, circ, 11, 0.15)
+    profiles = pattern_fit.edge_profiles(tile, pattern)
+
+    before = [sp for _i, sp in pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 11, 0.05)]
+    after = [sp for _i, sp in pattern_warp.iter_warp_gores(
+        pattern, layout.placements, outlines, circ, 11, 0.05,
+        profiles=profiles)]
+    assert [len(a) for a in before] == [len(b) for b in after]
+
+
 def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
     # A square (kept off y=0 so only the x_hi clip is under test) straddling
     # the right clip edge: clip_to_rect_flagged bakes the x=8 edge it was cut
@@ -340,7 +378,8 @@ def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
     poly, _cmask = pattern_warp.clip_to_rect_flagged(
         square, mask, 0.0, 8.0, -1.0, 11.0)
     # x_lo passed far away so this isolates the x_hi edge alone.
-    runs = pattern_warp._boundary_runs(poly, -100.0, 8.0, 11.0, closed=True)
+    _pts, _mask, runs = pattern_warp._boundary_runs(
+        poly, _cmask, -100.0, 8.0, 11.0, closed=True)
     assert len(runs) == 1
     idx, run_closed = runs[0]
     assert run_closed is False
@@ -355,7 +394,8 @@ def test_boundary_runs_leaves_an_uncut_polygon_closed():
     # Nothing here touches any clip edge -- current behavior is preserved
     # exactly: one run, original point order, original closed flag.
     tri = np.array([[1.0, 1.0], [5.0, 1.0], [3.0, 6.0]])
-    runs = pattern_warp._boundary_runs(tri, 0.0, 10.0, 10.0, closed=True)
+    _pts, _mask, runs = pattern_warp._boundary_runs(
+        tri, np.zeros(3, dtype=bool), 0.0, 10.0, 10.0, closed=True)
     assert len(runs) == 1
     idx, run_closed = runs[0]
     assert run_closed is True
@@ -372,7 +412,8 @@ def test_boundary_runs_drops_the_ceiling_unconditionally():
     # seam_offset/2), so with a positive seam offset the apex is a flat,
     # non-zero-width edge that would otherwise duplicate the cut.
     square = np.array([[1.0, 1.0], [9.0, 1.0], [9.0, 10.0], [1.0, 10.0]])
-    runs = pattern_warp._boundary_runs(square, 0.0, 20.0, 10.0, closed=True)
+    _pts, _mask, runs = pattern_warp._boundary_runs(
+        square, np.zeros(4, dtype=bool), 0.0, 20.0, 10.0, closed=True)
     assert any(not run_closed for _idx, run_closed in runs)
     for idx, _run_closed in runs:
         run = square[idx]
@@ -394,8 +435,8 @@ def test_boundary_runs_remaps_corner_indices_per_run():
     cmask = np.array([False, False, True, False, False, True])
     # Drop the bottom (y=0) and top (y=10) edges: points 0-1 (y=0) and
     # 3-4 (y=10).
-    runs = pattern_warp._boundary_runs(hexagon, -1.0, 100.0, 10.0,
-                                       closed=True)
+    _pts, _mask, runs = pattern_warp._boundary_runs(hexagon, cmask, -1.0,
+                                                    100.0, 10.0, closed=True)
     assert len(runs) == 2
     seen_global_corners = set()
     for idx, run_closed in runs:
@@ -618,13 +659,18 @@ def _warp_snapshot(tmp_path, svg, repeats, resolution, top_inset):
     per-subpath arrays are what stop a change that merely redistributes points
     between subpaths -- or moves one to another gore -- from comparing equal on
     the concatenated coordinates alone.
+
+    Profiles are supplied, so this pins the path the exporter actually takes.
     """
     layout, outlines = _one_gore_layout()
     pattern = pattern_warp.load_pattern(_write(tmp_path, svg))
+    circ = 2 * np.pi * 40.0
+    tile = pattern_fit.build_tile(pattern, circ, repeats, 0.15)
+    profiles = pattern_fit.edge_profiles(tile, pattern)
     pts, lengths, closed_flags, gores = [], [], [], []
     for i, subpaths in pattern_warp.iter_warp_gores(
-            pattern, layout.placements, outlines, 2 * np.pi * 40.0, repeats,
-            resolution, top_inset=top_inset):
+            pattern, layout.placements, outlines, circ, repeats,
+            resolution, top_inset=top_inset, profiles=profiles):
         for cubics, closed in subpaths:
             p = np.asarray(cubics, dtype=float).reshape(-1, 2)
             pts.append(p)

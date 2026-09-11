@@ -209,6 +209,7 @@ def export_steps(result, params, filepath):
         yield 0.05, "Loading pattern…"
         pattern = pattern_warp.load_pattern(params["pattern_svg"])
         yield 0.08, "Checking pattern tiling…"
+        circ = result.dims.bottom_circumference
         try:
             seam = pattern_fit.seam_scores(pattern)
         except pattern_warp.PatternError:
@@ -217,8 +218,22 @@ def export_steps(result, params, filepath):
             # warps and writes fine, so the check is skipped rather than
             # failing an export that would otherwise succeed.
             seam = None
+        # The exporter must agree with the scorer about what counts as
+        # material, or the search optimizes geometry the file does not
+        # contain -- so the profiles come off the scorer's own tile mask.
+        px, _steps = pattern_fit.raster_pitch(params["pattern_min_area"],
+                                              params["pattern_min_width"])
+        try:
+            tile_mask = pattern_fit.build_tile(
+                pattern, circ, params["pattern_repeats_x"], px,
+                invert=params["pattern_invert"])
+            profiles = pattern_fit.edge_profiles(tile_mask, pattern)
+        except pattern_warp.PatternError:
+            # Same contract as the defect layers: a stroke-only pattern has
+            # no material region to read profiles from, and still warps and
+            # writes fine.
+            profiles = None
         yield 0.10, "Preparing pattern…"
-        circ = result.dims.bottom_circumference
         offset = (circ * params["pattern_rotation"] / 360.0,
                   params["pattern_rise"])
         comment = placement_comment(params["pattern_rotation"],
@@ -255,7 +270,7 @@ def export_steps(result, params, filepath):
         for i, subpaths in pattern_warp.iter_warp_gores(
                 pattern, layout.placements, result.outlines, circ,
                 params["pattern_repeats_x"], resolution, corner_cos,
-                top_inset=top_inset, offset=offset):
+                top_inset=top_inset, offset=offset, profiles=profiles):
             if params["pattern_smooth"]:
                 pattern_polys.extend(subpaths)
             else:
