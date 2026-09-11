@@ -564,6 +564,10 @@ WARP_CASES = [
     ("CURVE", 24, 0.02, 0.0),
     ("CURVE", 8, 0.02, 30.0),
     ("FULL_CELL", 12, 0.05, 0.0),
+    # repeats 11 against 12 strips puts the tile COLUMN boundary inside a gore
+    # (W = 22.85 mm against a 20.94 mm gore), which no other case does.
+    # FULL_CELL's rect fills its viewBox, so that boundary carries artwork.
+    ("FULL_CELL", 11, 0.05, 0.0),
     ("STRADDLE", 11, 0.05, 0.0),
 ]
 
