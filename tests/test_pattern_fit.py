@@ -24,6 +24,12 @@ UNFILLED_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
 width="40" height="40"><rect x="5" y="5" width="10" height="10" \
 fill="none"/></svg>'''
 
+# Fills its own tile, so tiling gives continuous material and the only real
+# edges are the gore cuts.
+FULL_TILE_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" \
+viewBox="0 0 40 40" width="40" height="40">\
+<rect x="0" y="0" width="40" height="40"/></svg>'''
+
 
 def load(tmp_path, text, name="p.svg"):
     path = tmp_path / name
@@ -495,6 +501,31 @@ def test_search_never_returns_worse_than_the_baseline(tmp_path):
     # whole point of the objective, so only the count and the key are promised.
     assert best.key <= base.key
     assert best.defects <= base.defects
+
+
+def test_the_exporter_no_longer_cuts_what_the_scorer_calls_one_piece(tmp_path):
+    # The bug this closes: gore_mask looks the tile up modulo the tile, so
+    # material either side of a seam is one connected component and the
+    # search never sees an orphan there -- while the exporter cut along the
+    # seam anyway. A pattern that fills its own tile makes the disagreement
+    # total: the scorer sees one piece per gore, and the exporter used to
+    # emit a grid of cuts through it.
+    from gore_wrap import raster
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=FULL_TILE_SVG)
+    circ = result.dims.bottom_circumference
+    prep = pattern_fit.prepare(pattern, layout.placements, result.outlines,
+                               circ, 11, 10.0, 0.6, top_inset=20.0)
+    mask = pattern_fit.gore_mask(prep.preps[0], prep.tile, (0.0, 0.0))
+    _lab, n_components = raster.label(mask)
+    assert n_components == 1, "fixture must give the scorer one whole piece"
+
+    tile = pattern_fit.build_tile(pattern, circ, 11, 0.15)
+    profiles = pattern_fit.edge_profiles(tile, pattern)
+    emitted = sum(len(sp) for _i, sp in pattern_warp.iter_warp_gores(
+        pattern, layout.placements, result.outlines, circ, 11, 0.05,
+        top_inset=20.0, profiles=profiles))
+    assert emitted == 0, (
+        f"scorer sees 1 piece, exporter emits {emitted} subpaths through it")
 
 
 def test_search_reports_monotonic_progress(tmp_path):
