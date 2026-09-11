@@ -906,6 +906,20 @@ def test_gore_geometry_yields_none_for_a_ceiling_below_the_baseline(tmp_path):
     assert all(g is None for g in geoms.values())
 
 
+def test_an_asymmetric_outline_is_rejected_rather_than_silently_holed():
+    # _boundary_runs drops the left-hand gore edge because the cuts layer
+    # draws exactly that line. That holds only while outlines are symmetric.
+    # An asymmetric one would have the pattern layer delete an edge nothing
+    # else draws -- a hole in the artwork, with nothing to notice it.
+    layout, outlines = _one_gore_layout()
+    skewed = [o.copy() for o in outlines]
+    right = skewed[0][:, 0] > 0.0
+    skewed[0][right, 0] += 0.5                          # widen one side only
+    with pytest.raises(pattern_warp.AsymmetricGoreError):
+        list(pattern_warp._gore_geometry(layout.placements, skewed,
+                                         2 * np.pi * 40.0))
+
+
 def test_runs_from_drop_returns_the_whole_polygon_when_nothing_drops():
     runs = pattern_warp._runs_from_drop(4, np.zeros(4, dtype=bool), True)
     assert len(runs) == 1

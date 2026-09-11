@@ -100,6 +100,17 @@ class PatternError(Exception):
     """Raised when a pattern SVG cannot be used (no viewBox / no shapes)."""
 
 
+class AsymmetricGoreError(PatternError):
+    """Raised when a gore outline is not symmetric about its own center.
+
+    _boundary_runs suppresses the pattern layer's left and right gore edges
+    because the `cuts` layer draws exactly those lines. That identity holds
+    only for a symmetric outline. Asymmetry would make the suppression
+    delete an edge nothing else draws -- a hole in the artwork, silent
+    unless something checks. This is that check.
+    """
+
+
 @dataclass
 class PatternElement:
     """One source SVG shape: its subpaths, its fill, and its fill rule.
@@ -413,7 +424,21 @@ def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
     for (i, poly), outline in zip(placements, outlines):
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
-        top, _left_x, right_x = _edge_profiles(outline)
+        top, left_x, right_x = _edge_profiles(outline)
+
+        # See AsymmetricGoreError. Checked through _edge_profiles rather than
+        # by reversing the point array, because left_x and right_x are
+        # exactly what the warp and the suppression consult -- a point order
+        # that happened to pair up would prove nothing about them.
+        probe = np.linspace(0.0, top, 64)
+        skew = float(np.abs(np.asarray(left_x(probe), dtype=float)
+                            + np.asarray(right_x(probe), dtype=float)).max())
+        if skew > 1e-3:
+            raise AsymmetricGoreError(
+                f"Gore {i} outline is not symmetric about its center "
+                f"(worst mismatch {skew:.4f} mm). The pattern layer "
+                f"suppresses the gore-edge cuts on the assumption that the "
+                f"cuts layer draws exactly those lines.")
         pattern_top = top - top_inset if top_inset > 0.0 else top
         hw0 = float(right_x(0.0))
         if hw0 <= 1e-9 or pattern_top <= 0.0:
