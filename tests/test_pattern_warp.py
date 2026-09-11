@@ -129,6 +129,35 @@ def test_iter_warp_gores_yields_bezier_subpaths(tmp_path):
     assert len(cubics) >= 1 and len(cubics[0]) == 4
 
 
+def test_clipped_fragments_know_which_tile_they_came_from(tmp_path):
+    # Converting a fragment's master points back to the pattern's own
+    # coordinates -- which the seam test needs -- is impossible without the
+    # origin of the tile that placed them.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, FULL_CELL_SVG))
+    circ = 2 * np.pi * 40.0
+    _W, k, tile_h = pattern_warp._tile_metrics(pattern, circ, 11)
+    for _i, frags in pattern_warp._iter_clipped_fragments(
+            pattern, layout.placements, outlines, circ, 11, 0.05,
+            pattern_warp._CORNER_COS, 0.0, (0.0, 0.0)):
+        for cpts, _wpts, _cmask, _closed, _frame, tile in frags:
+            assert isinstance(tile, pattern_warp.TilePlacement)
+            assert tile.k == pytest.approx(k)
+            assert tile.tile_h == pytest.approx(tile_h)
+            # every point must sit within its own tile, give or take the
+            # artwork's overhang past the artboard
+            local_x = (cpts[:, 0] - tile.dx) / k
+            assert local_x.min() > -1.0 and local_x.max() < pattern.px_width + 1.0
+            # `dy` gets no exercise from the x check above: k and tile_h are
+            # frame-level constants shared by every tile, and local_x never
+            # reads dy. dy is exactly the field the row-seam conversion
+            # (Tasks 7/8) reads back to pattern y, so pin it separately here
+            # or a wrong/hard-coded dy would pass this test silently.
+            local_y = (tile.dy + tile.tile_h - cpts[:, 1]) / k
+            assert local_y.min() > -1.0 and local_y.max() < pattern.px_height + 1.0
+        break
+
+
 def _dense_warp_gore(pattern, placements, outlines, circ, R, gore, n_per_seg=60):
     """Ground-truth warped shape for one gore: sample every subpath finely,
     tile/clip/warp exactly like the warp does but without fitting."""

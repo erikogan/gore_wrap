@@ -376,6 +376,19 @@ class GoreFrame:
     tile_h: float
 
 
+@dataclass
+class TilePlacement:
+    """Where one tile copy sits, and at what scale.
+
+    Enough to map a master-space point back to the source pattern's own
+    coordinates, which is the space the tile-seam test works in.
+    """
+    dx: float
+    dy: float
+    k: float
+    tile_h: float
+
+
 def _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset=(0.0, 0.0)):
     """Origins of every tile overlapping the gore rect, in master mm.
 
@@ -583,7 +596,7 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
 def _iter_clipped_fragments(pattern, placements, outlines, circumference,
                             repeats_x, resolution, corner_cos, top_inset,
                             offset):
-    """Yield (gore_index, [(cpts, wpts, cmask, closed, frame), ...]) per gore.
+    """Yield (gore_index, [(cpts, wpts, cmask, closed, frame, tile), ...]) per gore.
 
     The shared first half of the export path: adaptively sample each
     positioned subpath in warp-space, clip it to the gore rect (carrying
@@ -601,6 +614,9 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
     its subpath's original closed flag, and `frame` the GoreFrame it was
     clipped against (callers that need to test edges against x_lo/x_hi/
     pattern_top read them off this).
+
+    `tile` is the TilePlacement the fragment came from -- the only way back
+    from master mm to the pattern's own coordinates.
     """
     geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
     for i, frame in _iter_gore_frames(pattern, placements, outlines,
@@ -609,6 +625,8 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
         fragments = []
         if frame is not None:
             for dx, dy in frame.tiles:
+                placement = TilePlacement(dx=dx, dy=dy, k=frame.k,
+                                          tile_h=frame.tile_h)
                 for segs, corners, closed in geoms:
                     if not segs:
                         continue
@@ -630,7 +648,8 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
                         # feature. See _MIN_FRAGMENT_MM: this is not the
                         # user's Min Feature size.
                         continue
-                    fragments.append((cpts, wpts, cmask, closed, frame))
+                    fragments.append((cpts, wpts, cmask, closed, frame,
+                                      placement))
         yield i, fragments
 
 
@@ -652,7 +671,8 @@ def iter_clipped_fragments(pattern, placements, outlines, circumference,
     for i, fragments in _iter_clipped_fragments(
             pattern, placements, outlines, circumference, repeats_x,
             resolution, corner_cos, top_inset, offset):
-        yield i, [wpts for _cpts, wpts, _cmask, _closed, _frame in fragments]
+        yield i, [wpts for _cpts, wpts, _cmask, _closed, _frame, _tile
+                  in fragments]
 
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
@@ -676,7 +696,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             pattern, placements, outlines, circumference, repeats_x,
             resolution, corner_cos, top_inset, offset):
         subpaths = []
-        for cpts, wpts, cmask, closed, frame in fragments:
+        for cpts, wpts, cmask, closed, frame, tile in fragments:
             # clip_to_rect_flagged bakes the clip-rectangle edge it cut
             # against into the fragment's outline. Where another layer
             # already supplies that cut, drop it and emit the fragment as
