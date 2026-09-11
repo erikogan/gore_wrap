@@ -454,6 +454,46 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
                            tile_h=tile_h)
 
 
+def _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol):
+    """Which edges of a clipped polygon lie along a clip-rectangle edge.
+
+    Returns a bool per edge i -> i+1 (wrapping). See _boundary_runs for why
+    both endpoints must lie on the SAME edge, and why `tol` stays tiny.
+    """
+    x, y = cpts[:, 0], cpts[:, 1]
+    on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
+    on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
+    on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
+    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
+    nxt = np.roll(np.arange(len(cpts)), -1)
+    return ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
+            | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
+
+
+def _runs_from_drop(n, drop, closed):
+    """Split a closed polygon's indices into runs around the dropped edges.
+
+    `drop[i]` suppresses the edge from point i to point i+1, wrapping. Runs
+    are built by walking forward from just after each dropped edge to the
+    next one, which handles the wraparound without an explicit rotation.
+    With nothing dropped the whole polygon comes back in its original order
+    and keeps its `closed` flag; otherwise every run is open, because a
+    fragment missing one of its cut edges is no longer a closed shape.
+    """
+    breaks = np.nonzero(drop)[0]
+    if len(breaks) == 0:
+        return [(np.arange(n), closed)]
+    m = len(breaks)
+    runs = []
+    for k in range(m):
+        start = (int(breaks[k]) + 1) % n
+        end = int(breaks[(k + 1) % m])
+        idx = (np.arange(start, end + 1) if start <= end else
+               np.concatenate([np.arange(start, n), np.arange(0, end + 1)]))
+        runs.append((idx, False))
+    return runs
+
+
 def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     """Split a clipped polygon into open runs, dropping edges that another
     layer already cuts.
@@ -508,27 +548,8 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     are built by walking forward from just after each dropped edge to the
     next one, which handles the wraparound without an explicit rotation.
     """
-    n = len(cpts)
-    x, y = cpts[:, 0], cpts[:, 1]
-    on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
-    on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
-    on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
-    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
-    nxt = np.roll(np.arange(n), -1)
-    drop = ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
-           | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
-    breaks = np.nonzero(drop)[0]
-    if len(breaks) == 0:
-        return [(np.arange(n), closed)]
-    m = len(breaks)
-    runs = []
-    for k in range(m):
-        start = (int(breaks[k]) + 1) % n
-        end = int(breaks[(k + 1) % m])
-        idx = (np.arange(start, end + 1) if start <= end else
-              np.concatenate([np.arange(start, n), np.arange(0, end + 1)]))
-        runs.append((idx, False))
-    return runs
+    drop = _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol)
+    return _runs_from_drop(len(cpts), drop, closed)
 
 
 def _iter_clipped_fragments(pattern, placements, outlines, circumference,

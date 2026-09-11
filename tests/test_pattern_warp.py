@@ -904,3 +904,35 @@ def test_gore_geometry_yields_none_for_a_ceiling_below_the_baseline(tmp_path):
     geoms = dict(pattern_warp._gore_geometry(
         layout.placements, result.outlines, circ, top_inset=huge))
     assert all(g is None for g in geoms.values())
+
+
+def test_runs_from_drop_returns_the_whole_polygon_when_nothing_drops():
+    runs = pattern_warp._runs_from_drop(4, np.zeros(4, dtype=bool), True)
+    assert len(runs) == 1
+    idx, run_closed = runs[0]
+    assert list(idx) == [0, 1, 2, 3]
+    assert run_closed is True
+
+
+def test_runs_from_drop_walks_past_the_end_of_the_array():
+    # The polygon is closed, so a dropped edge at the end must produce a run
+    # that wraps rather than two truncated ones. Dropping edge 3->0 and edge
+    # 1->2 leaves runs [0,1] and [2,3].
+    drop = np.array([False, True, False, True])
+    runs = pattern_warp._runs_from_drop(4, drop, True)
+    assert [list(idx) for idx, _c in runs] == [[2, 3], [0, 1]]
+    assert all(run_closed is False for _idx, run_closed in runs)
+
+
+def test_rect_edge_drop_needs_both_endpoints_on_the_same_edge():
+    # A corner point touches two edges; neither adjoining edge runs along
+    # one, so nothing may be dropped on its account.
+    cpts = np.array([[0.0, 0.0], [0.0, 5.0], [3.0, 5.0], [3.0, 0.0]])
+    drop = pattern_warp._rect_edge_drop(cpts, 0.0, 3.0, 5.0, 1e-6)
+    # edge 0->1 runs up x_lo, 1->2 along y_hi, 2->3 down x_hi, 3->0 along base
+    assert list(drop) == [True, True, True, True]
+
+    poked = cpts.copy()
+    poked[2] = [1.5, 4.0]          # pull one corner off both edges
+    drop = pattern_warp._rect_edge_drop(poked, 0.0, 3.0, 5.0, 1e-6)
+    assert list(drop) == [True, False, False, True]
