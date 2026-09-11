@@ -127,6 +127,54 @@ left edge consults the right profile, and both are asking whether the same
 interval is covered on both sides. Both halves therefore drop together or not
 at all — which is what stops a lone surviving cut.
 
+### Refactor first
+
+`_boundary_runs` fuses two jobs today: deciding which edges to suppress, and
+building runs around them. Adding a third rule with its own tolerance, its own
+coordinate space and its own partial-coverage behavior to that fusion is how
+this change would go wrong.
+
+Split it into four pure functions it then composes:
+
+| function | responsibility |
+| --- | --- |
+| `_runs_from_drop(n, drop, closed)` | extracted unchanged: wraparound run building |
+| `_rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol)` | the existing four tests, exact `1e-6` |
+| `_subdivide_seam_edges(cpts, cmask, tile, profiles)` | insert points where coverage changes |
+| `_seam_edge_drop(points, tile, profiles, tol_px)` | per-edge flag, pattern coords, 1 px |
+
+The ordering is what removes the hard part. Subdividing **before** the drop
+flags are computed means every edge is then wholly dropped or wholly kept, so
+partial coverage never reaches the run builder and the existing wraparound
+logic is untouched. The two tolerance regimes also end up in different
+functions against different bounds, which is the structural answer to the
+tolerance-bleed risk below rather than a promise to be careful.
+
+`_boundary_runs`' docstring names three invariants that fail *silently* when
+broken: `right_x` interpolating the same simplified outline the `cuts` layer
+emits, `unwrap_gore` producing exactly symmetric outlines, and `close_apex`
+zeroing the radius but not the width. Assert the symmetry one. An assertion
+turns a hole in the artwork into a failure someone can act on.
+
+### Sequencing
+
+The refactor must be provably inert before any behavior changes, and the
+snapshot suite can prove it — but only after one gap is closed.
+
+None of the five existing `WARP_CASES` exercises artwork lying on a tile border
+with a seam inside a gore. `FULL_CELL` fills its whole viewBox, so its outline
+runs along all four tile borders, but it is pinned at repeats 12 against 12
+strips, where the tile grid lines up with the gores and the *rect* rule already
+drops those edges. `STRADDLE` does put boundaries inside gores, but its rect is
+inset from every border and so has no seam edge to drop.
+
+So:
+
+1. Add `("FULL_CELL", 11, 0.05, 0.0)`, characterizing today's duplicated-cut
+   output.
+2. Refactor. All six snapshots must stay byte-identical.
+3. Weld. Exactly the new snapshot changes; the other five do not.
+
 ### Plumbing
 
 Two signature changes, both forced by the fragment needing to know which tile
@@ -138,11 +186,11 @@ over. It must carry the tile origin through, since converting a master point
 back to pattern coordinates needs it.
 
 `_boundary_runs` returns `(idx, run_closed)` pairs today, where `idx` indexes
-the caller's existing arrays. Splitting an edge introduces points that were
-not in the input polygon, so it instead returns `(points, mask, runs)`: the
-augmented master polygon, its augmented corner mask, and runs indexing into
-them. `iter_warp_gores` warps the augmented points rather than slicing `wpts`,
-which also removes the current requirement that `cpts` and `wpts` stay the same
+the caller's existing arrays. Subdivision introduces points that were not in
+the input polygon, so it instead returns `(points, mask, runs)`: the augmented
+master polygon, its augmented corner mask, and runs indexing into them.
+`iter_warp_gores` warps the augmented points rather than slicing `wpts`, which
+also removes the current requirement that `cpts` and `wpts` stay the same
 length.
 
 ## Risks
@@ -161,9 +209,12 @@ length.
 
 ## Testing
 
-- `_boundary_runs` units on synthetic polygons: seam edge fully backed →
-  dropped; unbacked → kept; partly backed → split at the right coordinates;
-  rect edges behave exactly as before.
+- Units on each extracted function rather than only on the composition:
+  `_runs_from_drop` on a hand-built drop mask including the wraparound case;
+  `_rect_edge_drop` unchanged in behavior; `_subdivide_seam_edges` inserting
+  points at the right coordinates; `_seam_edge_drop` on backed, unbacked and
+  partly-backed edges.
+- The six warp snapshots, as sequenced above.
 - A synthetic tileable pattern with a seam falling mid-gore: no exported point
   lies on the seam line.
 - The same pattern with a seam falling **on** a gore cut: output unchanged from
