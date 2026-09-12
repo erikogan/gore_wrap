@@ -233,6 +233,7 @@ def main():
     check_tiling_check(obj)
     check_optimize_placement(obj)
     check_advisor(obj)
+    check_alert_dialog_draws()
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
     test_strip_count_and_angle_stay_in_step(bpy.context.scene.gore_wrap)
     test_a_pre_1_0_file_keeps_its_strip_count(bpy.context.scene.gore_wrap)
@@ -574,6 +575,50 @@ class _StubPanel:
         if self._cls is not None:
             return getattr(self._cls, name)
         raise AttributeError(name)
+
+
+def check_alert_dialog_draws():
+    """Every collected warning reaches the dialog, with one icon per warning.
+
+    The dialog is the whole point of collecting them: self.report leaves a
+    warning in the status bar for a second or two and in an Info editor most
+    workspaces do not show, which is how "this file is not safe to cut" gets
+    missed. Headless there is no window to open a dialog in, so this asserts
+    the layout the draw should have -- the same approach, and the same stubs,
+    as check_advice_dialog_draws.
+
+    That the operators do not TRY to open one headlessly is asserted by this
+    script completing at all: _flush_alerts is skipped when there is no
+    window, and both Optimize and Export raise real warnings on this scan.
+    """
+    from gore_wrap import alerts, operators
+    dialog = operators.GOREWRAP_OT_alert
+
+    box = alerts.Alerts()
+    box.warn(None)                      # a builder with nothing to say
+    box.warn("Pattern seam around the object is 50% broken; it shows on "
+             "every strip join.")
+    box.warn("Exported with a 'defects' layer - those rectangles are "
+             "cuttable. Hide or delete that layer before cutting.")
+    assert len(box.messages) == 2, box.messages
+
+    layout = _StubLayout()
+    panel = _StubPanel(layout, dialog)
+    panel.messages = "\n".join(box.messages)
+    dialog.draw(panel, bpy.context)
+
+    labels = [kwargs for kind, kwargs in layout.calls if kind == "label"]
+    expected = alerts.dialog_lines(box.messages)
+    assert len(labels) == len(expected), (len(labels), len(expected))
+    for kwargs, (text, first) in zip(labels, expected):
+        assert kwargs.get("text") == text, (kwargs, text)
+        # An icon only where a message starts: a warning wrapped over three
+        # lines must not read as three separate problems.
+        assert (kwargs.get("icon") == "ERROR") == first, (kwargs, text)
+    assert sum(1 for _text, first in expected if first) == 2
+    assert len(labels) > 2, "both warnings are long enough to wrap"
+    print(f"[smoke] alert dialog ok: {len(box.messages)} warnings, "
+          f"{len(labels)} lines")
 
 
 def check_advice_dialog_draws(props):
