@@ -19,7 +19,9 @@ lines. The scorer counts orphaned pieces of material, and a seam straight
 through the pattern orphans nothing, so nothing stopped it. Gore Wrap now
 measures how well a pattern joins itself where it repeats — around the object
 and up the strip — reports each seam as a percentage, and keeps the search away
-from rises that put a boundary inside the artwork.
+from rises that put a boundary inside the artwork. It also stops the exporter
+cutting along the join between two repeats of the pattern wherever the artwork
+runs straight through it.
 
 ### Added
 
@@ -56,6 +58,17 @@ from rises that put a boundary inside the artwork.
 - Optimize Placement no longer recommends a Rise that ruins the export it was
   run to improve. On the example scan and pattern it had been choosing 87.9 mm
   — half a tile — which put a hard line across all twenty gores at 97.1 mm.
+- **The pattern layer no longer cuts through its own repeats.** Where one
+  repeat meets the next inside a strip, both drew a cut along the join,
+  slicing material that is continuous and stranding the sliver between the
+  join and the gore cut. The scorer never saw those pieces as orphans — it
+  reads the tile modulo its own width, so material either side of a join is
+  one piece to it — which meant Optimize Placement was ranking placements by
+  a picture of the artwork the exported file did not contain. On the example
+  scan, 152 exported points sat on that join in gore 10 alone.
+  - Only the stretches where the artwork is continuous across the join are
+    suppressed. Where a motif ends at the join with nothing to meet it, that
+    is a real edge and is still cut.
 
 ## 1.0.0 — 2026-09-09
 

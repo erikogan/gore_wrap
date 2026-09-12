@@ -278,6 +278,18 @@ tile boundary lands on the base cut, where it does no harm.
 How many times the pattern tiles around the object. The panel shows the
 resulting repeats per gore beneath it.
 
+The pattern joins itself where one repeat meets the next. When that join
+lands on a gore cut it is invisible, because the cut is there anyway — which
+is what happens when Repeats Around divides the strip count and the pattern
+has not been rotated. Otherwise the join falls inside a strip, and Gore Wrap
+stops cutting along it wherever the artwork is continuous across it, so the
+two repeats come out as one piece rather than two with a slice between them.
+
+Where the artwork genuinely ends at the join — one repeat has a motif its
+neighbor does not meet — that really is an edge, and it is still cut. See
+[**Pattern SVG**](#pattern-svg) for how to tell how much of a join does not
+close.
+
 ### Invert Pattern
 
 Default off. Treats the filled shapes in the pattern file as the holes and
