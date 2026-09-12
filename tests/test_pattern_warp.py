@@ -1189,42 +1189,139 @@ def test_the_seam_tolerance_is_capped_not_flat():
         _profiles(px_width=30.0, px_height=4.0)) == 0.2
 
 
-def test_an_edge_on_two_boundaries_at_once_keeps_both_splits():
-    # A short edge near the tile's pattern-(0, 0) corner lies within tolerance
-    # of the left boundary AND of the top boundary, so both sides subdivide it
-    # -- against different profiles, at different coordinates. Recording the
-    # second side's breaks used to overwrite the first's, silently losing
-    # splits the drop rule needs to make every edge wholly dropped or wholly
-    # kept. k = 0.5 and tile_h = 10, so px = 2 * mx and py = 20 - 2 * my: this
-    # edge runs pattern (0.2, 0.2) -> (0.8, 0.8).
+def test_an_edge_inset_from_the_boundary_is_not_welded():
+    # The residual behind 1.0.1's small-artboard weld. An edge 0.4 px INSIDE
+    # the right boundary (pattern x = 39.6 against px_width 40) is genuine
+    # interior artwork: the neighboring tile draws its own copy 0.4 px away,
+    # not on top of this line, so dropping the cut leaves a hole rather than
+    # removing a duplicate. A symmetric tolerance cannot tell it from the
+    # 0.5 px OVERSHOOT the sample patterns really have -- the sign can.
+    # k = 0.5, so master x = 19.8 is pattern x = 39.6.
     tile = _placement()
-    cpts = np.array([[0.1, 9.9], [0.4, 9.6], [5.0, 5.0]])
+    cpts = np.array([[19.8, 8.0], [19.8, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 20.0)])
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles)
+    assert not drop.any(), "an inset interior edge must still be cut"
+
+
+def test_an_edge_overshooting_the_boundary_is_welded():
+    # The case the weld exists for, and the one the asymmetric rule must keep.
+    # Artwork overshooting its artboard runs into the neighboring tile and
+    # overlaps the neighbor's own copy -- two cut lines through one continuous
+    # region of material -- because nothing clips a tile to its own box; the
+    # only clip is to the gore frame. Measured overshoot on the real patterns
+    # is up to 0.52 px. Pattern x = 40.4, i.e. master x = 20.2.
+    tile = _placement()
+    cpts = np.array([[20.2, 8.0], [20.2, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 20.0)])
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles)
+    assert list(drop) == [True, False, False, False]
+
+
+def test_an_edge_a_sampling_error_inside_the_boundary_is_welded():
+    # The inward side is not zero: the sampled polyline's vertices sit up to
+    # _SAMPLE_TOL_CAP mm off the true curve, so artwork genuinely ON its
+    # artboard edge can land a hair inside. That allowance is in mm -- a
+    # physical bound on the sampler -- not in artboard px. k = 0.5 mm/px, so
+    # 0.02 mm is 0.04 px: master x = 20.0 - 0.019 is inside it.
+    tile = _placement()
+    cpts = np.array([[19.981, 8.0], [19.981, 2.0], [12.0, 2.0], [12.0, 8.0]])
+    profiles = _profiles(left=[(0.0, 20.0)])
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles)
+    assert list(drop) == [True, False, False, False]
+
+
+def test_the_inward_allowance_does_not_scale_with_the_artboard():
+    # The reported bug, at the artboard that made it visible. A 10 x 10
+    # viewBox at 11 repeats puts one pattern px at 2.2848 mm, so the old
+    # twentieth-of-the-shorter-side tolerance was 0.5 px = 1.14 mm and this
+    # 0.4 px inset -- a 0.91 mm hole -- fell inside it. The inward allowance
+    # is 0.02 mm however many mm a px is worth, so the edge survives.
+    k = 2.2848
+    tile = _placement(k=k, tile_h=10.0 * k)
+    inset = np.array([[9.6 * k, 8.0 * k], [9.6 * k, 2.0 * k],
+                      [5.0 * k, 2.0 * k], [5.0 * k, 8.0 * k]])
+    profiles = _profiles(px_width=10.0, px_height=10.0, left=[(0.0, 10.0)])
+    assert not pattern_warp._seam_edge_drop(inset, tile, profiles).any()
+
+
+def test_an_edge_on_two_boundaries_at_once_keeps_both_splits():
+    # An edge hugging the tile's pattern-(0, 0) corner lies on the left
+    # boundary AND on the top boundary, so both sides subdivide it -- against
+    # different profiles, at different coordinates. Recording the second
+    # side's breaks used to overwrite the first's, silently losing splits the
+    # drop rule needs to make every edge wholly dropped or wholly kept.
+    #
+    # It has to hug the corner from OUTSIDE it: the window reaches a full
+    # tol_px outward but only _inward_tol_px in, so an edge sitting a few
+    # tenths of a px inside the corner -- as this fixture used to -- is on
+    # neither boundary now. Running pattern (-0.6, -0.6) -> (0.03, 0.02), an
+    # overshoot, keeps it on both. k = 0.5 and tile_h = 10, so
+    # mx = 0.5 * px and my = 10 - 0.5 * py.
+    #
+    # The profile pitch is fine here (0.005 px) for the same reason: only the
+    # 0.04 px of each span that lies inside the tile can hold a break, so a
+    # 0.1 px pitch has no sample to change on. Built by hand rather than
+    # through _profiles, which is fixed at the coarser pitch.
+    tile = _placement()
+    a_master, b_master = [-0.3, 10.3], [0.015, 9.99]
+    cpts = np.array([a_master, b_master, [5.0, 5.0]])
     cmask = np.zeros(3, dtype=bool)
-    # As a LEFT edge it consults `right` over py 0.2..0.8, which breaks at 0.5;
-    # as a TOP edge it consults `bottom` over px 0.2..0.8, breaking at 0.4.
-    profiles = _profiles(right=[(0.0, 0.5)], bottom=[(0.0, 0.4)])
+    pitch = 0.005
+
+    def fine(length, spans):
+        arr = np.zeros(int(round(length / pitch)), dtype=bool)
+        for lo, hi in spans:
+            arr[int(lo / pitch):int(hi / pitch)] = True
+        return arr
+
+    # As a LEFT edge it consults `right` over py -0.6..0.02, which breaks at
+    # py 0.01; as a TOP edge it consults `bottom` over px -0.6..0.03, breaking
+    # at px 0.015. Two sides, two coordinates, one edge.
+    profiles = pattern_fit.EdgeProfiles(
+        left=fine(_TEST_PX_HEIGHT, []),
+        right=fine(_TEST_PX_HEIGHT, [(0.0, 0.01)]),
+        bottom=fine(_TEST_PX_WIDTH, [(0.0, 0.015)]),
+        top=fine(_TEST_PX_WIDTH, []),
+        pitch=pitch, px_width=_TEST_PX_WIDTH, px_height=_TEST_PX_HEIGHT)
     pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, profiles)
     assert len(pts) == 5, "both sides' breaks must survive"
-    # py = 0.5 is t = 0.5 along the edge and px = 0.4 is t = 1/3, so the two
+    # The top side's break is the earlier one along the edge, so the two
     # inserted points must come out in that order, not the order the sides
-    # happened to be visited in.
-    assert pts[1] == pytest.approx([0.2, 9.8])
-    assert pts[2] == pytest.approx([0.25, 9.75])
+    # happened to be visited in. Asserted as position along the segment
+    # rather than as coordinates: what the invariant is about is that both
+    # survive, in order, on the edge they were cut from.
+    a, b = np.array(a_master), np.array(b_master)
+    ts = [float(np.dot(p - a, b - a) / np.dot(b - a, b - a)) for p in pts[1:3]]
+    assert 0.0 < ts[0] < ts[1] < 1.0, ts
+    d = b - a
+    for p in pts[1:3]:                      # each must lie ON the segment
+        v = p - a
+        assert d[0] * v[1] - d[1] * v[0] == pytest.approx(0.0, abs=1e-9)
     assert list(mask) == [False, False, False, False, False]
 
 
 def test_an_axis_too_narrow_to_tell_its_boundaries_apart_is_not_welded():
-    # With px_width = 1 and a 1 px tolerance, every point in the tile is
-    # within tolerance of x = 0 AND of x = px_width, so which boundary an edge
-    # lies on is not knowable -- and the weld's rule is to consult the
+    # With px_width = 1 and the two INWARD reaches overlapping, a point can
+    # satisfy the left test and the right test at once, so which boundary an
+    # edge lies on is not knowable -- and the weld's rule is to consult the
     # OPPOSITE boundary's profile. Welding on a guess risks dropping an edge
     # whose real neighbor draws nothing, so the axis is refused outright and
     # keeps being cut as it was before 1.0.1. Unguarded, this edge was
     # subdivided twice over (once per side) against two different profiles.
-    tile = _placement()
-    cpts = np.array([[0.15, 9.0], [0.15, 1.0], [5.0, 1.0], [5.0, 9.0]])
+    #
+    # Only the inward reaches can overlap, so it takes a small k to get there:
+    # the inward allowance is _SAMPLE_TOL_CAP mm expressed in px, which is
+    # 1.0 px at k = 0.02. Reached through the tol_px parameter, as the
+    # production comment says -- _seam_tol_px cannot produce this on its own.
+    # k = 0.02 and tile_h = 0.4, so mx = 0.02 * px and my = 0.4 - 0.02 * py:
+    # the vertical edge runs pattern (0.3, 2) -> (0.3, 18).
+    tile = _placement(k=0.02, tile_h=0.4)
+    cpts = np.array([[0.006, 0.36], [0.006, 0.04], [0.1, 0.04], [0.1, 0.36]])
     cmask = np.zeros(4, dtype=bool)
     profiles = _profiles(px_width=1.0, left=[(0.0, 12.0)], right=[(0.0, 5.0)])
+    assert pattern_warp._inward_tol_px(tile.k, 1.0) == 1.0, (
+        "fixture must actually make the two inward reaches overlap")
     pts, _mask = pattern_warp._subdivide_seam_edges(
         cpts, cmask, tile, profiles, tol_px=1.0)
     assert len(pts) == len(cpts), "no split may be invented on an unreadable axis"
@@ -1234,12 +1331,13 @@ def test_an_axis_too_narrow_to_tell_its_boundaries_apart_is_not_welded():
 
 
 def test_the_row_axis_still_welds_when_the_column_axis_is_unreadable():
-    # The refusal is per axis, not per tile: px_height = 20 against a 1 px
-    # tolerance is perfectly readable and must still weld.
-    tile = _placement()
+    # The refusal is per axis, not per tile: px_height = 20 is far wider than
+    # the inward allowance and must still weld, on the same fixture whose
+    # column axis is refused above.
+    tile = _placement(k=0.02, tile_h=0.4)
     # A horizontal edge on the tile's top boundary (pattern y = 0, i.e.
-    # master y = 10), running pattern x 0.2 -> 0.6 with px_width = 1.
-    cpts = np.array([[0.1, 10.0], [0.3, 10.0], [0.3, 5.0]])
+    # master y = tile_h = 0.4), running pattern x 0.2 -> 0.6 with px_width = 1.
+    cpts = np.array([[0.004, 0.4], [0.012, 0.4], [0.012, 0.2]])
     profiles = _profiles(px_width=1.0, bottom=[(0.0, 1.0)])
     drop = pattern_warp._seam_edge_drop(cpts, tile, profiles, tol_px=1.0)
     assert list(drop) == [True, False, False]

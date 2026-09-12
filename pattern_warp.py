@@ -512,11 +512,20 @@ def _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol):
 
 
 # Pattern px, and a CAP rather than a flat value -- see _seam_tol_px. The
-# artwork is only NOMINALLY on its artboard edge: measured overhang on the
-# sample patterns is up to 0.5 px on one side and 0.01 on the other, and a
-# cropped edge can sit a fraction short as easily as long.
+# artwork is only NOMINALLY on its artboard edge: measured OVERSHOOT on the
+# sample patterns is up to 0.52 px on one side and 0.01 on the other.
+#
+# This governs the OUTWARD reach only -- how far PAST its artboard edge the
+# artwork may run and still be recognized there. It is generous because
+# overshoot is unambiguous: nothing clips a tile to its own box, so artwork
+# that overshoots really does run into the neighboring tile and overlap the
+# neighbor's copy, and the two coincident cut lines really are this rule's to
+# suppress. The inward reach is a different and much smaller question --
+# see _inward_tol_px.
+#
 # This is deliberately NOT the 1e-6 mm the rect rule uses -- that governs
-# clip-generated points, which land on their bound by construction.
+# clip-generated points, which land on their bound by construction. A tile
+# boundary has no such clip, which is the whole reason this is loose.
 SEAM_EDGE_TOL_PX = 1.0
 
 # Below a 20 px artboard the cap gives way to this fraction of the artboard's
@@ -530,18 +539,45 @@ _SEAM_TOL_FRACTION = 1.0 / 20.0
 
 
 def _seam_tol_px(profiles):
-    """How near a tile boundary an edge must sit to count as lying on it.
+    """How far PAST a tile boundary an edge may sit and still lie on it.
 
     SEAM_EDGE_TOL_PX measures in the pattern's OWN px, which is not a physical
     size: one px is W/px_width mm, so the same 1.0 is 0.08 mm on a 300 px wide
     artboard and 2.28 mm on a 10 px one. Bounding it by a fraction of the
-    artboard stops it becoming a large share of the artwork, which is what
-    turns a genuine interior edge merely running near the boundary into a
-    false seam edge -- dropped with nothing on the neighbor drawing it
-    instead, i.e. a hole rather than the duplicate line the weld removes.
+    artboard stops it becoming a large share of the artwork.
+
+    This is the outward reach alone. Reaching the same distance INWARD is
+    what turned a genuine interior edge merely running near the boundary into
+    a false seam edge -- dropped with nothing on the neighbor drawing it
+    instead, i.e. a hole rather than the duplicate line the weld removes --
+    and that half is _inward_tol_px's, measured in mm. The fraction rule
+    predates the split and is kept because it still bounds the outward reach
+    on a small artboard; it is no longer what protects the interior.
     """
     return min(SEAM_EDGE_TOL_PX,
                _SEAM_TOL_FRACTION * min(profiles.px_width, profiles.px_height))
+
+
+def _inward_tol_px(mm_per_px, tol_px):
+    """How far INSIDE a tile boundary an edge may sit and still count as on it.
+
+    Unlike the outward reach, this one is physical. Artwork genuinely on its
+    artboard edge can still land a hair inside it, because the reference
+    polyline's vertices sit up to `_SAMPLE_TOL_CAP` mm off the true curve --
+    a bound on the sampler, in mm, however many mm a pattern px is worth.
+    Derived from that cap rather than given its own number: the sampler's
+    error is the whole reason the inward window is not zero.
+
+    Scaling this with the artboard, as a px-quoted tolerance does, is what
+    let a small viewBox swallow a genuine interior edge 0.9 mm inside the
+    boundary and leave a hole where its cut should have been.
+
+    Bounded by `tol_px` so the window never reaches further in than out, and
+    falling back to it when the scale is degenerate.
+    """
+    if mm_per_px <= 0.0:
+        return tol_px
+    return min(_SAMPLE_TOL_CAP / mm_per_px, tol_px)
 
 
 # Which boundary's profile backs which. A fragment's right-hand edge is
@@ -577,27 +613,46 @@ def _seam_edge_flags(cpts, tile, profiles, tol_px):
     maps each point index to its successor, wrapping. An axis too narrow to
     tell its own two boundaries apart contributes no sides at all -- see
     below.
+
+    The window is deliberately ASYMMETRIC about each boundary, which is what
+    lets an overshoot be told from an inset. Nothing clips a tile to its own
+    box -- the only clip is to the gore frame -- so artwork overshooting its
+    artboard runs on into the neighboring tile and overlaps the neighbor's
+    own copy there. Both tiles then draw a cut line through one continuous
+    region of material, and suppressing one of them is exactly this rule's
+    job; the outward reach is therefore the full `tol_px`, generous because
+    the measured overshoot on the real patterns is up to 0.52 px.
+    An edge sitting INSIDE the boundary is the opposite case: the neighbor
+    draws its copy some distance away rather than on top of it, so dropping
+    the cut leaves a hole. A symmetric tolerance cannot tell the two apart --
+    that is the residual this asymmetry closes -- so inward the window
+    reaches only `_inward_tol_px`, the sampler's own error and nothing more.
     """
     px, py = _pattern_coords(cpts, tile)
     nxt = np.roll(np.arange(len(cpts)), -1)
     on = {}
-    # An axis no wider than 2 * tol cannot tell its two boundaries apart: one
-    # point satisfies both tests at once. The weld's whole argument is "consult
-    # the OPPOSITE boundary's profile", which needs to know WHICH boundary the
-    # edge is on, so there is nothing honest to do with such an axis -- guessing
-    # risks dropping an edge whose real neighbor draws nothing, and a hole in
-    # the artwork is worse than the duplicate line this rule removes. The axis
-    # is therefore not a seam axis, and that boundary keeps being cut twice as
-    # it was before 1.0.1. Both callers skip it together because both read this
-    # dict; _seam_tol_px makes it unreachable by default (2 * tol is at most a
-    # tenth of the shorter side), but tol_px is a parameter.
-    if profiles.px_width > 2.0 * tol_px:
-        on["left"] = np.isclose(px, 0.0, rtol=0.0, atol=tol_px)
-        on["right"] = np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px)
-    if profiles.px_height > 2.0 * tol_px:
-        on["top"] = np.isclose(py, 0.0, rtol=0.0, atol=tol_px)
-        on["bottom"] = np.isclose(py, profiles.px_height, rtol=0.0,
-                                  atol=tol_px)
+    inward = _inward_tol_px(tile.k, tol_px)
+    # An axis no wider than 2 * inward cannot tell its two boundaries apart:
+    # one point satisfies both tests at once. Only the inward reaches can
+    # overlap -- the outward ones point away from each other, off opposite
+    # ends of the axis -- so it is `inward` that bounds this, not `tol_px`.
+    # The weld's whole argument is "consult the OPPOSITE boundary's profile",
+    # which needs to know WHICH boundary the edge is on, so there is nothing
+    # honest to do with such an axis -- guessing risks dropping an edge whose
+    # real neighbor draws nothing, and a hole in the artwork is worse than the
+    # duplicate line this rule removes. The axis is therefore not a seam axis,
+    # and that boundary keeps being cut twice as it was before 1.0.1. Both
+    # callers skip it together because both read this dict. _seam_tol_px
+    # cannot reach this on its own -- the fraction rule shrinks tol_px faster
+    # than a narrow axis can catch up with it -- but tol_px is a parameter.
+    if profiles.px_width > 2.0 * inward:
+        on["left"] = (px >= -tol_px) & (px <= inward)
+        on["right"] = ((px >= profiles.px_width - inward)
+                       & (px <= profiles.px_width + tol_px))
+    if profiles.px_height > 2.0 * inward:
+        on["top"] = (py >= -tol_px) & (py <= inward)
+        on["bottom"] = ((py >= profiles.px_height - inward)
+                        & (py <= profiles.px_height + tol_px))
     across = {"left": py, "right": py, "top": px, "bottom": px}
     return on, across, nxt
 
@@ -767,11 +822,13 @@ def _boundary_runs(cpts, cmask, x_lo, x_hi, y_hi, closed,
     clip-generated points land exactly on the bound by construction. Do not
     change it without evidence; it is deliberately tight, not an oversight.
     Artwork that is only *nominally* on a TILE boundary (e.g. an edge at
-    39.9999 in a 40-unit viewBox) is not this tolerance's business at all --
-    that is the seam rule below, which works in the pattern's own pixels at
-    the far looser `SEAM_EDGE_TOL_PX` (capped there, and scaled down on a
-    coarse artboard -- see `_seam_tol_px`) precisely because artwork does not
-    land on its artboard edge to 1e-6.
+    40.0001 in a 40-unit viewBox) is not this tolerance's business at all --
+    that is the seam rule below, which reaches the far looser
+    `SEAM_EDGE_TOL_PX` in the pattern's own pixels precisely because artwork
+    does not land on its artboard edge to 1e-6. That reach is asymmetric:
+    loose outward, where an overshoot really does overlap the neighbor, and
+    only `_inward_tol_px` inward, where a hole is the price of guessing
+    wrong.
 
     With `tile` and `profiles` supplied, edges lying on a TILE boundary are
     dropped too, wherever the neighboring tile backs that boundary with
