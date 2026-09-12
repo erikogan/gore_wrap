@@ -100,6 +100,17 @@ class PatternError(Exception):
     """Raised when a pattern SVG cannot be used (no viewBox / no shapes)."""
 
 
+class AsymmetricGoreError(PatternError):
+    """Raised when a gore outline is not symmetric about its own center.
+
+    _boundary_runs suppresses the pattern layer's left and right gore edges
+    because the `cuts` layer draws exactly those lines. That identity holds
+    only for a symmetric outline. Asymmetry would make the suppression
+    delete an edge nothing else draws -- a hole in the artwork, silent
+    unless something checks. This is that check.
+    """
+
+
 @dataclass
 class PatternElement:
     """One source SVG shape: its subpaths, its fill, and its fill rule.
@@ -365,6 +376,19 @@ class GoreFrame:
     tile_h: float
 
 
+@dataclass
+class TilePlacement:
+    """Where one tile copy sits, and at what scale.
+
+    Enough to map a master-space point back to the source pattern's own
+    coordinates, which is the space the tile-seam test works in.
+    """
+    dx: float
+    dy: float
+    k: float
+    tile_h: float
+
+
 def _tile_origins(x_lo, x_hi, pattern_top, W, tile_h, offset=(0.0, 0.0)):
     """Origins of every tile overlapping the gore rect, in master mm.
 
@@ -413,12 +437,29 @@ def _gore_geometry(placements, outlines, circumference, top_inset=0.0):
     for (i, poly), outline in zip(placements, outlines):
         tx = poly[0, 0] - outline[0, 0]
         base_y = poly[0, 1] + outline[0, 1]
-        top, _left_x, right_x = _edge_profiles(outline)
+        top, left_x, right_x = _edge_profiles(outline)
         pattern_top = top - top_inset if top_inset > 0.0 else top
         hw0 = float(right_x(0.0))
         if hw0 <= 1e-9 or pattern_top <= 0.0:
             yield i, None
             continue
+
+        # See AsymmetricGoreError. Checked through _edge_profiles rather than
+        # by reversing the point array, because left_x and right_x are
+        # exactly what the warp and the suppression consult -- a point order
+        # that happened to pair up would prove nothing about them. Sits below
+        # the degenerate-gore filter above because the invariant only binds
+        # gores that actually get a pattern layer; a gore skipped as None
+        # never reaches the suppression this check guards.
+        probe = np.linspace(0.0, top, 64)
+        skew = float(np.abs(np.asarray(left_x(probe), dtype=float)
+                            + np.asarray(right_x(probe), dtype=float)).max())
+        if skew > 1e-3:
+            raise AsymmetricGoreError(
+                f"Gore {i} outline is not symmetric about its center "
+                f"(worst mismatch {skew:.4f} mm). The pattern layer "
+                f"suppresses the gore-edge cuts on the assumption that the "
+                f"cuts layer draws exactly those lines.")
         xc = (i + 0.5) * circumference / n
 
         # Defaults bind the loop variables at definition time; a caller that
@@ -454,7 +495,298 @@ def _iter_gore_frames(pattern, placements, outlines, circumference, repeats_x,
                            tile_h=tile_h)
 
 
-def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
+def _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol):
+    """Which edges of a clipped polygon lie along a clip-rectangle edge.
+
+    Returns a bool per edge i -> i+1 (wrapping). See _boundary_runs for why
+    both endpoints must lie on the SAME edge, and why `tol` stays tiny.
+    """
+    x, y = cpts[:, 0], cpts[:, 1]
+    on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
+    on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
+    on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
+    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
+    nxt = np.roll(np.arange(len(cpts)), -1)
+    return ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
+            | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
+
+
+# Pattern px, and a CAP rather than a flat value -- see _seam_tol_px. The
+# artwork is only NOMINALLY on its artboard edge: measured OVERSHOOT on the
+# sample patterns is up to 0.52 px on one side and 0.01 on the other.
+#
+# This governs the OUTWARD reach only -- how far PAST its artboard edge the
+# artwork may run and still be recognized there. It is generous because
+# overshoot is unambiguous: nothing clips a tile to its own box, so artwork
+# that overshoots really does run into the neighboring tile and overlap the
+# neighbor's copy, and the two coincident cut lines really are this rule's to
+# suppress. The inward reach is a different and much smaller question --
+# see _inward_tol_px.
+#
+# This is deliberately NOT the 1e-6 mm the rect rule uses -- that governs
+# clip-generated points, which land on their bound by construction. A tile
+# boundary has no such clip, which is the whole reason this is loose.
+SEAM_EDGE_TOL_PX = 1.0
+
+# Below a 20 px artboard the cap gives way to this fraction of the artboard's
+# SHORTER side. 1/20 is the smallest fraction that still reaches the cap at
+# 20 px (1/20 * 20 == 1.0), and smallest is what is wanted: every bit above
+# that widens the tolerance on exactly the coarse artboards it exists to
+# protect. So 40x20, 100x100 and 300x40 all still get the full 1.0 px, while
+# a 10x10 artboard -- where one px is already 2.28 mm at 11 repeats -- gets
+# 0.5 px.
+_SEAM_TOL_FRACTION = 1.0 / 20.0
+
+
+def _seam_tol_px(profiles):
+    """How far PAST a tile boundary an edge may sit and still lie on it.
+
+    SEAM_EDGE_TOL_PX measures in the pattern's OWN px, which is not a physical
+    size: one px is W/px_width mm, so the same 1.0 is 0.08 mm on a 300 px wide
+    artboard and 2.28 mm on a 10 px one. Bounding it by a fraction of the
+    artboard stops it becoming a large share of the artwork.
+
+    This is the outward reach alone. Reaching the same distance INWARD is
+    what turned a genuine interior edge merely running near the boundary into
+    a false seam edge -- dropped with nothing on the neighbor drawing it
+    instead, i.e. a hole rather than the duplicate line the weld removes --
+    and that half is _inward_tol_px's, measured in mm. The fraction rule
+    predates the split and is kept because it still bounds the outward reach
+    on a small artboard; it is no longer what protects the interior.
+    """
+    return min(SEAM_EDGE_TOL_PX,
+               _SEAM_TOL_FRACTION * min(profiles.px_width, profiles.px_height))
+
+
+def _inward_tol_px(mm_per_px, tol_px):
+    """How far INSIDE a tile boundary an edge may sit and still count as on it.
+
+    Unlike the outward reach, this one is physical. Artwork genuinely on its
+    artboard edge can still land a hair inside it, because the reference
+    polyline's vertices sit up to `_SAMPLE_TOL_CAP` mm off the true curve --
+    a bound on the sampler, in mm, however many mm a pattern px is worth.
+    Derived from that cap rather than given its own number: the sampler's
+    error is the whole reason the inward window is not zero.
+
+    Scaling this with the artboard, as a px-quoted tolerance does, is what
+    let a small viewBox swallow a genuine interior edge 0.9 mm inside the
+    boundary and leave a hole where its cut should have been.
+
+    Bounded by `tol_px` so the window never reaches further in than out, and
+    falling back to it when the scale is degenerate.
+    """
+    if mm_per_px <= 0.0:
+        return tol_px
+    return min(_SAMPLE_TOL_CAP / mm_per_px, tol_px)
+
+
+# Which boundary's profile backs which. A fragment's right-hand edge is
+# backed by the material on the next tile's left-hand edge, and so on.
+_OPPOSITE_EDGE = {"left": "right", "right": "left",
+                  "top": "bottom", "bottom": "top"}
+
+
+def _pattern_coords(cpts, tile):
+    """Master mm -> the source pattern's own px, for one tile placement.
+
+    The inverse of _sample_subpath_master's `master()`, which is what puts
+    the pattern into master space in the first place.
+    """
+    px = (cpts[:, 0] - tile.dx) / tile.k
+    py = (tile.dy + tile.tile_h - cpts[:, 1]) / tile.k
+    return px, py
+
+
+def _seam_edge_flags(cpts, tile, profiles, tol_px):
+    """Boundary-touching flags shared by _seam_edge_drop and _subdivide_seam_edges.
+
+    Both callers must agree on which edges are seam edges: whether an edge
+    touches a tile boundary, in which pattern coordinate, is a single
+    question with a single tolerance and coordinate space. Answering it
+    twice -- once to decide what to drop, once to decide where to split --
+    is how a drop rule and a split rule end up disagreeing about the same
+    edge. So the computation lives here once, and both callers build on it.
+
+    Returns `(on, across, nxt)`: `on[side]` is a bool per point saying it
+    sits on that boundary; `across[side]` is the pattern coordinate that
+    runs along that boundary (py for left/right, px for top/bottom); `nxt`
+    maps each point index to its successor, wrapping. An axis too narrow to
+    tell its own two boundaries apart contributes no sides at all -- see
+    below.
+
+    The window is deliberately ASYMMETRIC about each boundary, which is what
+    lets an overshoot be told from an inset. Nothing clips a tile to its own
+    box -- the only clip is to the gore frame -- so artwork overshooting its
+    artboard runs on into the neighboring tile and overlaps the neighbor's
+    own copy there. Both tiles then draw a cut line through one continuous
+    region of material, and suppressing one of them is exactly this rule's
+    job; the outward reach is therefore the full `tol_px`, generous because
+    the measured overshoot on the real patterns is up to 0.52 px.
+    An edge sitting INSIDE the boundary is the opposite case: the neighbor
+    draws its copy some distance away rather than on top of it, so dropping
+    the cut leaves a hole. A symmetric tolerance cannot tell the two apart --
+    that is the residual this asymmetry closes -- so inward the window
+    reaches only `_inward_tol_px`, the sampler's own error and nothing more.
+    """
+    px, py = _pattern_coords(cpts, tile)
+    nxt = np.roll(np.arange(len(cpts)), -1)
+    on = {}
+    inward = _inward_tol_px(tile.k, tol_px)
+    # An axis no wider than 2 * inward cannot tell its two boundaries apart:
+    # one point satisfies both tests at once. Only the inward reaches can
+    # overlap -- the outward ones point away from each other, off opposite
+    # ends of the axis -- so it is `inward` that bounds this, not `tol_px`.
+    # The weld's whole argument is "consult the OPPOSITE boundary's profile",
+    # which needs to know WHICH boundary the edge is on, so there is nothing
+    # honest to do with such an axis -- guessing risks dropping an edge whose
+    # real neighbor draws nothing, and a hole in the artwork is worse than the
+    # duplicate line this rule removes. The axis is therefore not a seam axis,
+    # and that boundary keeps being cut twice as it was before 1.0.1. Both
+    # callers skip it together because both read this dict. _seam_tol_px
+    # cannot reach this on its own -- the fraction rule shrinks tol_px faster
+    # than a narrow axis can catch up with it -- but tol_px is a parameter.
+    if profiles.px_width > 2.0 * inward:
+        on["left"] = (px >= -tol_px) & (px <= inward)
+        on["right"] = ((px >= profiles.px_width - inward)
+                       & (px <= profiles.px_width + tol_px))
+    if profiles.px_height > 2.0 * inward:
+        on["top"] = (py >= -tol_px) & (py <= inward)
+        on["bottom"] = ((py >= profiles.px_height - inward)
+                        & (py <= profiles.px_height + tol_px))
+    across = {"left": py, "right": py, "top": px, "bottom": px}
+    return on, across, nxt
+
+
+def _seam_edge_drop(cpts, tile, profiles, tol_px=None):
+    """Which edges lie on a tile boundary the neighboring tile backs.
+
+    Returns a bool per edge i -> i+1 (wrapping), all False when `profiles`
+    is None. `tol_px` defaults to _seam_tol_px(profiles). An edge qualifies
+    only when BOTH endpoints sit on the SAME boundary -- the same
+    requirement, for the same reason, as the rect rule: a corner can touch a
+    boundary without either adjoining edge running along it.
+
+    Where the neighbor backs the boundary with material, the two fragments
+    are one continuous piece and the cut would slice it apart. Where it does
+    not, the boundary is a real edge of the artwork and must still be cut.
+    """
+    n = len(cpts)
+    drop = np.zeros(n, dtype=bool)
+    if profiles is None:
+        return drop
+    if tol_px is None:
+        tol_px = _seam_tol_px(profiles)
+    on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
+    for side, flags in on.items():
+        edges = np.nonzero(flags & flags[nxt])[0]
+        coord = across[side]
+        for i in edges:
+            lo, hi = sorted((float(coord[i]), float(coord[nxt[i]])))
+            if profiles.covers(_OPPOSITE_EDGE[side], lo, hi):
+                drop[i] = True
+    return drop
+
+
+def _coverage_breaks(profiles, side, lo, hi):
+    """Pattern coordinates in (lo, hi) where `side`'s coverage changes.
+
+    Sampled at the profile's own pitch, so a break lands on the sample
+    boundary the profile itself resolves -- there is no finer truth to find.
+    """
+    profile = getattr(profiles, side)
+    n = len(profile)
+    a = int(np.clip(np.floor(lo / profiles.pitch), 0, n - 1))
+    b = int(np.clip(np.ceil(hi / profiles.pitch), 1, n))
+    window = profile[a:b]
+    if len(window) < 2:
+        return []
+    changes = np.nonzero(np.diff(window.astype(np.int8)))[0] + 1
+    out = [(a + c) * profiles.pitch for c in changes]
+    return [v for v in out if lo + 1e-9 < v < hi - 1e-9]
+
+
+def _subdivide_seam_edges(cpts, cmask, tile, profiles, tol_px=None):
+    """Insert points where a tile-boundary edge's backing starts or stops.
+
+    After this every seam edge is backed along its whole length or none of
+    it, so _seam_edge_drop's answer is whole-edge and _runs_from_drop never
+    has to represent half a dropped edge. Inserted points are not corners:
+    they are an artifact of where the neighbor's material happens to end,
+    not a feature of the artwork.
+
+    Returns the inputs unchanged when there is nothing to do, so the common
+    case allocates nothing. `tol_px` defaults to _seam_tol_px(profiles).
+    """
+    if profiles is None:
+        return cpts, cmask
+    if tol_px is None:
+        tol_px = _seam_tol_px(profiles)
+    n = len(cpts)
+    on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
+    inserts = {}
+    for side, flags in on.items():
+        coord = across[side]
+        for i in np.nonzero(flags & flags[nxt])[0]:
+            a, b = float(coord[i]), float(coord[nxt[i]])
+            lo, hi = sorted((a, b))
+            breaks = _coverage_breaks(profiles, _OPPOSITE_EDGE[side], lo, hi)
+            if not breaks:
+                continue
+            # Recorded as the edge's own parameter, and ACCUMULATED rather
+            # than assigned: a short edge near a tile CORNER can lie on two
+            # boundaries at once (within tol of x = 0 and of y = 0, say), and
+            # assigning threw one side's breaks away -- silently losing the
+            # very splits the drop rule then needs to be whole-edge.
+            span = b - a
+            inserts.setdefault(int(i), []).extend(
+                (v - a) / span for v in breaks)
+    if not inserts:
+        return cpts, cmask
+    pts, mask = [], []
+    for i in range(n):
+        pts.append(cpts[i])
+        mask.append(bool(cmask[i]))
+        p0, p1 = cpts[i], cpts[nxt[i]]
+        # Sorted so the inserted points still run along the edge in order,
+        # which is what lets the run builder walk them. Two sides' breaks can
+        # land on the same point; emit it once rather than as a zero-length
+        # step for the bezier fit to choke on.
+        last = None
+        for t in sorted(inserts.get(i, ())):
+            if last is not None and t - last <= 1e-12:
+                continue
+            last = t
+            pts.append(p0 + t * (p1 - p0))
+            mask.append(False)
+    return np.array(pts, dtype=float), np.array(mask, dtype=bool)
+
+
+def _runs_from_drop(n, drop, closed):
+    """Split a closed polygon's indices into runs around the dropped edges.
+
+    `drop[i]` suppresses the edge from point i to point i+1, wrapping. Runs
+    are built by walking forward from just after each dropped edge to the
+    next one, which handles the wraparound without an explicit rotation.
+    With nothing dropped the whole polygon comes back in its original order
+    and keeps its `closed` flag; otherwise every run is open, because a
+    fragment missing one of its cut edges is no longer a closed shape.
+    """
+    breaks = np.nonzero(drop)[0]
+    if len(breaks) == 0:
+        return [(np.arange(n), closed)]
+    m = len(breaks)
+    runs = []
+    for k in range(m):
+        start = (int(breaks[k]) + 1) % n
+        end = int(breaks[(k + 1) % m])
+        idx = (np.arange(start, end + 1) if start <= end else
+               np.concatenate([np.arange(start, n), np.arange(0, end + 1)]))
+        runs.append((idx, False))
+    return runs
+
+
+def _boundary_runs(cpts, cmask, x_lo, x_hi, y_hi, closed,
+                   tile=None, profiles=None, tol=1e-6):
     """Split a clipped polygon into open runs, dropping edges that another
     layer already cuts.
 
@@ -486,16 +818,33 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     point flagged by the clip (`cmask`) is not enough, since a corner point
     can touch a rect edge without either adjoining edge running along it.
 
-    `tol = 1e-6` mm is fine for clip-generated points, which land exactly on
-    the bound by construction. It is not robust for artwork that is only
-    *nominally* on a tile boundary (e.g. an edge at 39.9999 in a 40-unit
-    viewBox) -- such an edge silently falls back to the old duplicated-cut
-    behavior instead of being detected and dropped. Do not change this
-    tolerance without evidence; it is a real limitation, not an oversight.
+    `tol = 1e-6` mm governs the RECT bounds alone, and is fine for them:
+    clip-generated points land exactly on the bound by construction. Do not
+    change it without evidence; it is deliberately tight, not an oversight.
+    Artwork that is only *nominally* on a TILE boundary (e.g. an edge at
+    40.0001 in a 40-unit viewBox) is not this tolerance's business at all --
+    that is the seam rule below, which reaches the far looser
+    `SEAM_EDGE_TOL_PX` in the pattern's own pixels precisely because artwork
+    does not land on its artboard edge to 1e-6. That reach is asymmetric:
+    loose outward, where an overshoot really does overlap the neighbor, and
+    only `_inward_tol_px` inward, where a hole is the price of guessing
+    wrong.
 
-    Returns a list of (idx, run_closed): `idx` indexes into `cpts` (and any
-    same-length array derived from it, e.g. the warped points or the corner
-    mask) for that run, in the order to emit; a run with < 2 points is
+    With `tile` and `profiles` supplied, edges lying on a TILE boundary are
+    dropped too, wherever the neighboring tile backs that boundary with
+    material -- the two fragments are one continuous piece there, and the
+    cut would slice it apart. Seam edges are subdivided at the coverage
+    boundaries first, so each one is then wholly dropped or wholly kept and
+    the run builder below never sees a half-dropped edge.
+
+    Returns `(points, mask, runs)` rather than runs alone, because
+    subdivision introduces points the caller's own arrays do not have. With
+    no subdivision the inputs come back unchanged -- by identity, not as
+    copies, so callers must treat them as read-only.
+
+    Each run is an (idx, run_closed) pair: `idx` indexes into the RETURNED
+    `points` (and any same-length array derived from them, e.g. the returned
+    corner mask) for that run, in the order to emit; a run with < 2 points is
     still returned and left for the caller to skip. When nothing was
     dropped, returns a single run covering the whole polygon in its
     original order with `run_closed = closed`, exactly reproducing
@@ -508,33 +857,20 @@ def _boundary_runs(cpts, x_lo, x_hi, y_hi, closed, tol=1e-6):
     are built by walking forward from just after each dropped edge to the
     next one, which handles the wraparound without an explicit rotation.
     """
-    n = len(cpts)
-    x, y = cpts[:, 0], cpts[:, 1]
-    on_xlo = np.isclose(x, x_lo, rtol=0.0, atol=tol)
-    on_xhi = np.isclose(x, x_hi, rtol=0.0, atol=tol)
-    on_ybase = np.isclose(y, 0.0, rtol=0.0, atol=tol)
-    on_ytop = np.isclose(y, y_hi, rtol=0.0, atol=tol)
-    nxt = np.roll(np.arange(n), -1)
-    drop = ((on_xlo & on_xlo[nxt]) | (on_xhi & on_xhi[nxt])
-           | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
-    breaks = np.nonzero(drop)[0]
-    if len(breaks) == 0:
-        return [(np.arange(n), closed)]
-    m = len(breaks)
-    runs = []
-    for k in range(m):
-        start = (int(breaks[k]) + 1) % n
-        end = int(breaks[(k + 1) % m])
-        idx = (np.arange(start, end + 1) if start <= end else
-              np.concatenate([np.arange(start, n), np.arange(0, end + 1)]))
-        runs.append((idx, False))
-    return runs
+    if tile is None:
+        pts, mask = cpts, cmask
+        seam = np.zeros(len(pts), dtype=bool)
+    else:
+        pts, mask = _subdivide_seam_edges(cpts, cmask, tile, profiles)
+        seam = _seam_edge_drop(pts, tile, profiles)
+    drop = _rect_edge_drop(pts, x_lo, x_hi, y_hi, tol) | seam
+    return pts, mask, _runs_from_drop(len(pts), drop, closed)
 
 
 def _iter_clipped_fragments(pattern, placements, outlines, circumference,
                             repeats_x, resolution, corner_cos, top_inset,
                             offset):
-    """Yield (gore_index, [(cpts, wpts, cmask, closed, frame), ...]) per gore.
+    """Yield (gore_index, [(cpts, wpts, cmask, closed, frame, tile), ...]) per gore.
 
     The shared first half of the export path: adaptively sample each
     positioned subpath in warp-space, clip it to the gore rect (carrying
@@ -552,6 +888,9 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
     its subpath's original closed flag, and `frame` the GoreFrame it was
     clipped against (callers that need to test edges against x_lo/x_hi/
     pattern_top read them off this).
+
+    `tile` is the TilePlacement the fragment came from -- the only way back
+    from master mm to the pattern's own coordinates.
     """
     geoms = [_subpath_geometry(sp, corner_cos) for sp in pattern.subpaths]
     for i, frame in _iter_gore_frames(pattern, placements, outlines,
@@ -560,6 +899,8 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
         fragments = []
         if frame is not None:
             for dx, dy in frame.tiles:
+                placement = TilePlacement(dx=dx, dy=dy, k=frame.k,
+                                          tile_h=frame.tile_h)
                 for segs, corners, closed in geoms:
                     if not segs:
                         continue
@@ -581,7 +922,8 @@ def _iter_clipped_fragments(pattern, placements, outlines, circumference,
                         # feature. See _MIN_FRAGMENT_MM: this is not the
                         # user's Min Feature size.
                         continue
-                    fragments.append((cpts, wpts, cmask, closed, frame))
+                    fragments.append((cpts, wpts, cmask, closed, frame,
+                                      placement))
         yield i, fragments
 
 
@@ -603,12 +945,13 @@ def iter_clipped_fragments(pattern, placements, outlines, circumference,
     for i, fragments in _iter_clipped_fragments(
             pattern, placements, outlines, circumference, repeats_x,
             resolution, corner_cos, top_inset, offset):
-        yield i, [wpts for _cpts, wpts, _cmask, _closed, _frame in fragments]
+        yield i, [wpts for _cpts, wpts, _cmask, _closed, _frame, _tile
+                  in fragments]
 
 
 def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                     resolution, corner_cos=_CORNER_COS, top_inset=0.0,
-                    offset=(0.0, 0.0)):
+                    profiles=None, offset=(0.0, 0.0)):
     """Yield (gore_index, [(cubics, closed), ...]) per gore.
 
     Per gore, only overlapping tile columns/rows are processed; each positioned
@@ -617,6 +960,12 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
 
     `top_inset` (mm down the meridian from the apex) lowers the ceiling of that
     rect, so the pattern stops short of the top; 0 fills the whole gore.
+
+    `profiles` are the pattern tile's four boundary material profiles (see
+    pattern_fit.edge_profiles). Supplied, the pattern layer stops cutting
+    along a tile boundary wherever the neighboring tile backs it with
+    material. Omitted, tiling behaves as it did before 1.0.1 and every
+    boundary is cut twice.
 
     `offset` is (phi_x, phi_y) in mm of master space: phi_x spins the pattern
     around the object (period W = circumference/repeats_x), phi_y slides it up
@@ -627,21 +976,29 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             pattern, placements, outlines, circumference, repeats_x,
             resolution, corner_cos, top_inset, offset):
         subpaths = []
-        for cpts, wpts, cmask, closed, frame in fragments:
+        for cpts, _wpts, cmask, closed, frame, tile in fragments:
             # clip_to_rect_flagged bakes the clip-rectangle edge it cut
             # against into the fragment's outline. Where another layer
             # already supplies that cut, drop it and emit the fragment as
             # one or more open runs instead, so the pattern layer does not
             # duplicate the cuts/pattern-edge layers along every seam.
             # Detection compares the MASTER-space points (cpts) against the
-            # clip bounds -- the same space x_lo/x_hi/pattern_top are in --
-            # and the resulting point indices are then used to slice the
-            # warped points (wpts) for fitting.
-            for idx, run_closed in _boundary_runs(
-                    cpts, frame.x_lo, frame.x_hi, frame.pattern_top, closed):
+            # clip bounds -- the same space x_lo/x_hi/pattern_top are in.
+            pts, mask, runs = _boundary_runs(
+                cpts, cmask, frame.x_lo, frame.x_hi, frame.pattern_top,
+                closed, tile=tile, profiles=profiles)
+            # The run indices then slice a freshly warped copy of the
+            # polygon _boundary_runs handed back, NOT the fragment's own
+            # `wpts`: seam subdivision may have inserted points `wpts` does
+            # not have. `pts`/`mask` may be the fragment's own arrays by
+            # identity (the no-subdivision fast path), so they are read here
+            # and never written.
+            fx, fy = frame.warp(pts[:, 0], pts[:, 1])
+            run_source = np.column_stack([fx, fy])
+            for idx, run_closed in runs:
                 if len(idx) < 2:
                     continue
-                run_wpts = wpts[idx]
+                run_wpts = run_source[idx]
                 # The fragment-level _MIN_FRAGMENT_MM screen in
                 # _iter_clipped_fragments checks the whole clipped polygon,
                 # before _boundary_runs splits it -- it does not protect an
@@ -655,7 +1012,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
                                         - run_wpts.min(axis=0))))
                 if diag < _MIN_FRAGMENT_MM:
                     continue
-                corner_idx = np.nonzero(cmask[idx])[0]
+                corner_idx = np.nonzero(mask[idx])[0]
                 # fit_beziers is always called with closed=False: a closed
                 # subpath's implicit Close edge is already sampled (see
                 # _subpath_geometry, which appends it as a real Line), so

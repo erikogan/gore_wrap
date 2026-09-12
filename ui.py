@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import operators
+from . import operators, pattern_fit
 
 
 def _divider(layout):
@@ -80,6 +80,7 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         if props.use_pattern:
             col = box.column(align=True)
             col.prop(props, "pattern_svg")
+            _draw_tiling(col, props, bpy.path.abspath(props.pattern_svg))
             col.prop(props, "pattern_repeats_x")
             if props.has_preview and props.pattern_repeats_x:
                 per_gore = props.pattern_repeats_x / max(props.computed_n_strips, 1)
@@ -161,6 +162,39 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
         row = col.row(align=True)
         row.prop(props, "labels")
         col.operator("gorewrap.export_svg", icon="EXPORT")
+
+
+def _draw_tiling(col, props, path):
+    """The pattern's tiling verdict, as measured percentages.
+
+    Percentages rather than a verdict because the interesting cases are not
+    binary: artwork routinely repeats while still breaking along part of the
+    join, and only the user can say whether that much break matters for what
+    they are cutting.
+    """
+    col.prop(props, "pattern_check_tiling")
+    if not props.pattern_svg:
+        return
+    if not props.has_seam_check or props.seam_stamp != path:
+        col.operator("gorewrap.check_tiling", icon="UV_SYNC_SELECT")
+        return
+    broken = [(name, pct) for name, pct in
+              (("around", 100.0 * props.seam_horizontal),
+               ("up", 100.0 * props.seam_vertical))
+              if pct > 100.0 * pattern_fit.SEAM_MISMATCH_MIN]
+    if not broken:
+        col.label(text="Pattern tiles cleanly", icon="CHECKMARK")
+        return
+    for name, pct in broken:
+        col.label(text=f"Seam {name}: {pct:.0f}% broken", icon="ERROR")
+    if (not props.seam_tiles_vertically
+            and props.pattern_placement_mode == "AUTO"
+            and props.pattern_slide_vertically):
+        # Stated as what the search will do, not as what it did: the panel
+        # cannot know whether a seam-free rise exists without the gore
+        # outlines, and Optimize reports the answer when it has them.
+        col.label(text="Rise will be limited to keep the seam out",
+                  icon="INFO")
 
 
 class GOREWRAP_UL_advice(bpy.types.UIList):

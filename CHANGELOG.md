@@ -10,6 +10,101 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 1.0.1 — 2026-09-12
+
+**Seams the search could not see.** Optimize Placement with Slide Vertically on
+could return a Rise that dragged a tile-row boundary into the middle of every
+strip, drawing a straight cut line across artwork that has no other straight
+lines. The scorer counts orphaned pieces of material, and a seam straight
+through the pattern orphans nothing, so nothing stopped it. Gore Wrap now
+measures how well a pattern joins itself where it repeats — around the object
+and up the strip — reports each seam as a percentage, and keeps the search away
+from rises that put a boundary inside the artwork. It also stops the exporter
+cutting along the join between two repeats of the pattern wherever the artwork
+runs straight through it. Warnings from a long run no longer flash past in the
+status bar: anything Optimize Placement, Export or Check Tiling wants to tell
+you is collected into one dialog you have to dismiss.
+
+### Added
+
+- **Pattern tiling check.** Every pattern is measured when you choose it, and
+  each seam is reported as the share of its length that does not close.
+  Percentages rather than a verdict, because the interesting cases are not
+  binary: artwork routinely repeats while still breaking along part of the
+  join, and only you can say whether that much break matters for what you are
+  cutting.
+  - Runs as a background job with a progress bar, not in the UI thread — the
+    check takes about a second on a dense pattern, which as a property
+    callback would be a freeze.
+  - **Check Tiling**, on by default, turns the automatic run off; the panel
+    then offers a button that runs the same check on demand.
+  - Optimize Placement and Export measure it too, so the verdict is never
+    missing from a report that depends on it.
+
+### Changed
+
+- **Slide Vertically will not seam the artwork.** When a pattern does not
+  repeat up the strip, the search is restricted to the rises that keep every
+  tile-row boundary out of the patterned band: 0, which puts the boundary on
+  the base cut, and anything from the top of the band up to a full tile
+  height. Patterns that do repeat vertically keep the whole range.
+  - When Repeats Around makes the tile shorter than the patterned band, a
+    boundary crosses the artwork at every rise, rise 0 included. There is
+    nothing to protect, so the search is left alone and says so instead of
+    implying a safety it cannot deliver.
+- Export warns when the Rise in force puts a tile seam inside the artwork, and
+  names the height so the line can be found in the file.
+- **Warnings from a long run are shown in a dialog.** Optimize Placement,
+  Export, Check Tiling and the Placement Advisor collect everything they warn
+  about and raise one dialog at the end. The status-bar report and the
+  Info-log row are still there — the dialog is in addition to them, not
+  instead — but a warning that changes whether the file is safe to cut no
+  longer depends on the user happening to read the status bar in the second
+  or two before it clears.
+  - One dialog per run rather than one per warning, listing them in the order
+    they were raised. Warnings raised before the job starts, such as a stale
+    placement, are in the same dialog as what the job itself found.
+- The advisor now warns, rather than notes, when the settings in the panel are
+  the ones that will not fit the mat. There is a way forward — pick any
+  workable row from the table — but what it is reporting is that the current
+  settings cannot be exported at all, which is worth interrupting for.
+- `iter_warp_gores` gained a `profiles` argument — the tile's four boundary
+  material profiles, read off the scorer's own tile mask by the new
+  `pattern_fit.edge_profiles`/`EdgeProfiles`; omitted, tiling behaves as it did
+  before. `_boundary_runs` now returns `(points, mask, runs)` rather than runs
+  alone, because subdividing a seam edge introduces points the caller's own
+  arrays do not have. `pattern_warp` also gained `TilePlacement`,
+  `AsymmetricGoreError` and `SEAM_EDGE_TOL_PX`.
+
+### Fixed
+
+- Optimize Placement no longer recommends a Rise that ruins the export it was
+  run to improve. On the example scan and pattern it had been choosing 87.9 mm
+  — half a tile — which put a hard line across all twenty gores at 97.1 mm.
+- **The pattern layer no longer cuts through its own repeats.** Where one
+  repeat meets the next inside a strip, both drew a cut along the join,
+  slicing material that is continuous and stranding the sliver between the
+  join and the gore cut. The scorer never saw those pieces as orphans — it
+  reads the tile modulo its own width, so material either side of a join is
+  one piece to it — which meant Optimize Placement was ranking placements by
+  a picture of the artwork the exported file did not contain. On the example
+  scan, 152 exported points sat on that join in gore 10 alone.
+  - Only the stretches where the artwork is continuous across the join are
+    suppressed. Where a motif ends at the join with nothing to meet it, that
+    is a real edge and is still cut.
+  - The test for whether an edge lies on a join reaches further outward than
+    inward, which is what tells the two apart. Artwork overshooting its
+    artboard — measured at up to 0.52 px on the sample patterns — runs into
+    the next repeat and overlaps it, so the join really is drawn twice and
+    one of them is this rule's to suppress. An edge sitting *inside* the
+    boundary is ordinary interior artwork, and dropping its cut would leave a
+    hole. A tolerance that reached equally in both directions could not
+    distinguish them, and on a small viewBox it swallowed genuine interior
+    edges: a 10 × 10 artboard at 11 repeats welded away an edge 0.4 px in,
+    opening a 0.91 mm gap. The inward reach is now bounded in millimeters, by
+    the sampler's own error, so it no longer grows just because a pattern
+    pixel is worth more millimeters.
+
 ## 1.0.0 — 2026-09-09
 
 **The Placement Advisor.** When Optimize Placement finishes and defects remain,

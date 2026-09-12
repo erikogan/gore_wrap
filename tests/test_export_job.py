@@ -144,7 +144,8 @@ def test_non_smooth_export_ignores_simplify_mode_uses_cutter(tmp_path, monkeypat
     captured = {}
 
     def fake_iter(pattern, placements, outlines, circ, repeats, resolution,
-                  corner_cos, top_inset=0.0, offset=(0.0, 0.0)):
+                  corner_cos, top_inset=0.0, offset=(0.0, 0.0),
+                  profiles=None):
         captured["resolution"] = resolution
         captured["corner_cos"] = corner_cos
         return iter(())
@@ -391,6 +392,48 @@ def test_marking_intrinsic_pieces_needs_mark_defects_on(tmp_path):
     assert summary.intrinsic_marked is False
 
 
+# Artwork touching the LEFT artboard edge only. Inverted, the material is
+# everything BUT that strip, so the left boundary carries no material and the
+# right one carries all of it -- the polarity-sensitive case, and the one that
+# caught the bug: welding off the inverted mask dropped 705 left-boundary
+# edges that no neighboring contour draws, exporting the rect open on one side.
+LEFT_EDGE_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" '
+                 'width="40" height="20">'
+                 '<rect x="0" y="0" width="2" height="20"/></svg>')
+
+
+def _write_left_edge_pattern(tmp_path):
+    p = tmp_path / "left_edge.svg"
+    p.write_text(LEFT_EDGE_SVG)
+    return str(p)
+
+
+def _pattern_group(text):
+    """Just the `pattern` layer, so polarity-dependent layers cannot mask a diff."""
+    assert 'id="pattern"' in text, "fixture must emit a pattern layer"
+    return text.split('id="pattern"', 1)[1].split("</g>", 1)[0]
+
+
+def test_inverting_polarity_leaves_the_exported_pattern_identical(tmp_path):
+    # README's promise, in bold: Invert Pattern changes scoring, not geometry.
+    # "A cutter cuts every contour regardless of which side you weed, so the
+    # SVG is the same file either way." The tile seam weld is the one place
+    # that could break it -- it asks a rasterized mask whether a neighboring
+    # repeat backs a boundary with material, and an inverted mask answers the
+    # opposite. Which side you weed does not change whether a neighbor draws a
+    # coincident contour, so the weld must read the tile AS DRAWN. Reinstate
+    # `invert=` on export_job's build_tile call and this test fails.
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_left_edge_pattern(tmp_path),
+              "pattern_repeats_x": 11}
+    a, b = str(tmp_path / "plain.svg"), str(tmp_path / "flipped.svg")
+    _drain(export_job.export_steps(_result(), {**common,
+                                               "pattern_invert": False}, a))
+    _drain(export_job.export_steps(_result(), {**common,
+                                               "pattern_invert": True}, b))
+    assert _pattern_group(open(a).read()) == _pattern_group(open(b).read())
+
+
 def test_rotation_moves_the_pattern(tmp_path):
     # A non-zero rotation must actually change the emitted geometry.
     base_params = {**NO_PATTERN, "use_pattern": True,
@@ -400,3 +443,55 @@ def test_rotation_moves_the_pattern(tmp_path):
     _drain(export_job.export_steps(
         _result(), {**base_params, "pattern_rotation": 7.5}, b))
     assert open(a).read() != open(b).read()
+
+
+def test_the_seam_warning_names_the_axis_and_the_height_it_cuts_at():
+    # The failure this exists for is invisible in the file: a straight line
+    # across every strip, exactly where the tile rows meet. The user needs the
+    # height so they can find it, and the percentage so they can judge it.
+    def warn(**fields):
+        return export_job.seam_warning(export_job.ExportSummary(
+            n_strips=1, pattern_empty=False, **fields))
+
+    assert warn() is None
+    assert warn(seam_horizontal=0.12) == (
+        "Pattern seam around the object is 12% broken; it shows on every "
+        "strip join.")
+    assert warn(seam_vertical=0.48, seam_height=97.1) == (
+        "Pattern does not repeat up the strip, and this Rise puts a tile "
+        "seam 97.1 mm up every one. Set Rise to 0 to move it onto the base "
+        "cut.")
+    assert warn(seam_vertical=0.48) == (
+        "Pattern is 48% broken where it would repeat up the strip; this Rise "
+        "keeps that seam out of the artwork.")
+
+
+UNTILED_UP = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+              'width="40" height="40">'
+              '<rect x="0" y="28" width="40" height="12"/>'
+              '<rect x="10" y="0" width="20" height="12"/></svg>')
+
+
+def _export_with(tmp_path, rise, name):
+    pat = tmp_path / "untiled.svg"
+    pat.write_text(UNTILED_UP)
+    params = dict(NO_PATTERN, use_pattern=True, pattern_svg=str(pat),
+                  pattern_repeats_x=1, pattern_rise=rise)
+    return _drain(export_job.export_steps(_result(), params,
+                                          str(tmp_path / name)))
+
+
+def test_the_export_reports_a_rise_that_seams_the_artwork(tmp_path):
+    # The reported bug, at the point where it reaches a file: artwork that
+    # does not repeat up the strip, exported at a rise that drags a tile-row
+    # boundary into the middle of every gore.
+    summary = _export_with(tmp_path, 30.0, "seamed.svg")
+    assert summary.seam_vertical > 0.0
+    assert summary.seam_height == pytest.approx(30.0)
+    assert "30.0 mm up every one" in export_job.seam_warning(summary)
+
+
+def test_a_rise_of_zero_puts_the_seam_on_the_base_cut_and_says_nothing(
+        tmp_path):
+    summary = _export_with(tmp_path, 0.0, "clean.svg")
+    assert summary.seam_height is None

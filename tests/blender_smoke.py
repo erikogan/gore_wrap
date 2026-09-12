@@ -230,8 +230,11 @@ def main():
           f"viewport colors set")
 
     check_non_finite_rejected(obj)
+    check_tiling_check(obj)
     check_optimize_placement(obj)
     check_advisor(obj)
+    check_alert_dialog_draws()
+    check_every_long_op_flushes_alerts()
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
     test_strip_count_and_angle_stay_in_step(bpy.context.scene.gore_wrap)
     test_a_pre_1_0_file_keeps_its_strip_count(bpy.context.scene.gore_wrap)
@@ -330,6 +333,54 @@ def test_advice_properties_exist(props):
     print("[smoke] advice properties ok")
 
 
+def check_tiling_check(obj):
+    """The tiling check runs as an operator, caches its verdict, and the panel
+    draws from the cache rather than measuring on every redraw."""
+    import bpy
+    from gore_wrap import pattern_fit
+    props = bpy.context.scene.gore_wrap
+    props.use_pattern = True
+    props.pattern_check_tiling = True
+
+    # A band running the full width joins itself perfectly around the object;
+    # the block hanging off the top edge has nothing to meet it at the bottom.
+    # So: repeats around, does not repeat up the strip.
+    untiled = os.path.join(tempfile.gettempdir(), "gorewrap_untiled.svg")
+    with open(untiled, "w") as fh:
+        fh.write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" '
+                 'width="40" height="40">'
+                 '<rect x="0" y="28" width="40" height="12"/>'
+                 '<rect x="10" y="0" width="20" height="12"/></svg>')
+
+    # Setting the path must not measure anything: that callback runs in the UI
+    # thread, and the whole point of the operator is to keep it out of there.
+    props.pattern_svg = untiled
+    assert not props.has_seam_check, "the property callback measured inline"
+
+    res = bpy.ops.gorewrap.check_tiling()
+    assert res == {"FINISHED"}, res
+    assert props.has_seam_check, "check did not record a verdict"
+    assert props.seam_stamp == bpy.path.abspath(untiled)
+    assert not props.seam_tiles_vertically, "untiled artwork passed as tiling"
+    assert props.seam_tiles_horizontally, "tiling artwork failed as untiled"
+    assert props.seam_vertical > pattern_fit.SEAM_MISMATCH_MIN
+
+    # Turning the automatic check off must not throw away an answer already
+    # measured: the setting governs whether Gore Wrap checks by itself.
+    props.pattern_check_tiling = False
+    assert props.has_seam_check, "turning the check off discarded its verdict"
+    props.pattern_check_tiling = True
+
+    # A new pattern file drops the cached verdict, so the panel cannot show
+    # one pattern's numbers against another's artwork.
+    props.pattern_svg = _write_temp_pattern()
+    assert not props.has_seam_check, "stale verdict survived a pattern change"
+
+    for area in bpy.context.screen.areas if bpy.context.screen else []:
+        area.tag_redraw()
+    print("[smoke] tiling check ok: untiled artwork flagged, cache invalidated")
+
+
 def check_optimize_placement(obj):
     """Optimize writes a placement, and the panel draws in both modes."""
     import bpy
@@ -346,6 +397,10 @@ def check_optimize_placement(obj):
     assert res == {"FINISHED"}, res
     assert props.has_pattern_fit, "optimize did not record a placement"
     assert props.pattern_fit_stamp, "optimize did not record a stamp"
+    # Optimize measures the tiling on its way in, so the panel has a verdict
+    # even for a user who never pressed Check.
+    assert props.has_seam_check, "optimize did not record a tiling verdict"
+    assert props.seam_stamp == bpy.path.abspath(props.pattern_svg)
 
     # Changing a dependency must invalidate the stamp.
     from gore_wrap import operators
@@ -521,6 +576,74 @@ class _StubPanel:
         if self._cls is not None:
             return getattr(self._cls, name)
         raise AttributeError(name)
+
+
+def check_alert_dialog_draws():
+    """Every collected warning reaches the dialog, with one icon per warning.
+
+    The dialog is the whole point of collecting them: self.report leaves a
+    warning in the status bar for a second or two and in an Info editor most
+    workspaces do not show, which is how "this file is not safe to cut" gets
+    missed. Headless there is no window to open a dialog in, so this asserts
+    the layout the draw should have -- the same approach, and the same stubs,
+    as check_advice_dialog_draws.
+
+    That the operators do not TRY to open one headlessly is asserted by this
+    script completing at all: _flush_alerts is skipped when there is no
+    window, and both Optimize and Export raise real warnings on this scan.
+    """
+    from gore_wrap import alerts, operators
+    dialog = operators.GOREWRAP_OT_alert
+
+    box = alerts.Alerts()
+    box.warn(None)                      # a builder with nothing to say
+    box.warn("Pattern seam around the object is 50% broken; it shows on "
+             "every strip join.")
+    box.warn("Exported with a 'defects' layer - those rectangles are "
+             "cuttable. Hide or delete that layer before cutting.")
+    assert len(box.messages) == 2, box.messages
+
+    layout = _StubLayout()
+    panel = _StubPanel(layout, dialog)
+    panel.messages = "\n".join(box.messages)
+    dialog.draw(panel, bpy.context)
+
+    labels = [kwargs for kind, kwargs in layout.calls if kind == "label"]
+    expected = alerts.dialog_lines(box.messages)
+    assert len(labels) == len(expected), (len(labels), len(expected))
+    for kwargs, (text, first) in zip(labels, expected):
+        assert kwargs.get("text") == text, (kwargs, text)
+        # An icon only where a message starts: a warning wrapped over three
+        # lines must not read as three separate problems.
+        assert (kwargs.get("icon") == "ERROR") == first, (kwargs, text)
+    assert sum(1 for _text, first in expected if first) == 2
+    assert len(labels) > 2, "both warnings are long enough to wrap"
+    print(f"[smoke] alert dialog ok: {len(box.messages)} warnings, "
+          f"{len(labels)} lines")
+
+
+def check_every_long_op_flushes_alerts():
+    """Every _ModalJob must raise its dialog when the job succeeds.
+
+    Structural rather than behavioral because the warnings themselves are
+    hard to provoke on a synthetic scan -- the advisor finds workable
+    settings here, so its one WARNING never fires. What can be pinned is the
+    invariant: a long-running operator that collects warnings and never
+    flushes them swallows them silently, and that is exactly what a fifth
+    modal job added later would do by default.
+    """
+    import inspect
+    from gore_wrap import operators
+
+    jobs = [cls for cls in operators.classes
+            if issubclass(cls, operators._ModalJob)]
+    assert len(jobs) >= 4, f"expected the four long ops, found {len(jobs)}"
+    for cls in jobs:
+        source = inspect.getsource(cls._on_success)
+        assert "_flush_alerts" in source, (
+            f"{cls.__name__}._on_success collects warnings but never raises "
+            f"the dialog for them")
+    print(f"[smoke] alert flush ok: {len(jobs)} long ops all flush")
 
 
 def check_advice_dialog_draws(props):

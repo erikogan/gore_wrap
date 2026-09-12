@@ -11,8 +11,8 @@ import time
 import numpy as np
 import bpy
 
-from . import (geometry, pipeline, svg_export, pattern_warp, pattern_fit,
-               export_job, pattern_advise)
+from . import (alerts, geometry, pipeline, svg_export, pattern_warp,
+               pattern_fit, export_job, pattern_advise)
 
 PREVIEW_NAME = "GoreWrap Preview"
 MIN_VERTS = 500
@@ -409,9 +409,54 @@ class _ModalJob:
     _job_exceptions = ()
     _cancel_message = "Canceled."
 
+    @property
+    def _alerts(self):
+        """This run's collected warnings, created on first use.
+
+        Lazy rather than set up in _start, because execute() raises warnings
+        of its own before the job begins -- a stale placement, a too-narrow
+        apex -- and those belong in the same dialog as the ones the job
+        finds. A bpy Operator has no __init__ to build it in.
+        """
+        box = self.__dict__.get("_alert_box")
+        if box is None:
+            box = self.__dict__["_alert_box"] = alerts.Alerts()
+        return box
+
+    def _warn(self, text):
+        """Report a warning AND keep it for the dialog.
+
+        Both, not either: the report is the Info-log scrollback the user can
+        go back and re-read, and the dialog is what makes sure they saw it at
+        all. Skips a message that is None or empty, so a caller can pass a
+        builder's result straight through -- see alerts.Alerts.warn.
+        """
+        if not text:
+            return
+        self.report({"WARNING"}, text)
+        self._alerts.warn(text)
+
+    def _flush_alerts(self):
+        """Raise one dialog for everything this run warned about.
+
+        One dialog per run rather than one per warning: a run that trips three
+        of them should not make the user dismiss three popups.
+
+        Invoked as an operator rather than by calling invoke_props_dialog
+        here, because _on_success runs from inside modal() -- on the return
+        path of an event handler, where a dialog cannot be opened. Skipped
+        entirely with no window to open it in, which is the headless path
+        below and the smoke test.
+        """
+        if not self._alerts or self._headless:
+            return
+        bpy.ops.gorewrap.alert("INVOKE_DEFAULT",
+                               messages="\n".join(self._alerts.messages))
+
     def _start(self, context):
         self._timer = None
-        if bpy.app.background or context.window is None:
+        self._headless = bool(bpy.app.background) or context.window is None
+        if self._headless:
             try:
                 value = _run_to_completion(self._gen)
             except self._job_exceptions as exc:
@@ -470,6 +515,21 @@ class _ModalJob:
         raise NotImplementedError
 
 
+def _scaled(gen, lo, hi):
+    """Re-map a progress generator's fractions into [lo, hi], passing through
+    its return value.
+
+    Lets one operator run two jobs back to back behind a single progress bar,
+    instead of the bar snapping back to zero halfway.
+    """
+    try:
+        while True:
+            frac, label = next(gen)
+            yield lo + (hi - lo) * frac, label
+    except StopIteration as stop:
+        return stop.value
+
+
 class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
     bl_idname = "gorewrap.optimize_placement"
     bl_label = "Optimize Placement"
@@ -521,12 +581,26 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
         self._props = props
         self._obj = obj
         self._circ = result.dims.bottom_circumference
-        self._gen = pattern_fit.search_placement(
-            pattern, layout.placements, result.outlines, self._circ,
-            props.pattern_repeats_x, props.pattern_min_area,
-            props.pattern_min_width,
-            slide_vertically=props.pattern_slide_vertically,
-            top_inset=top_inset, invert=props.pattern_invert)
+        self._seam = None
+        self._band = pattern_fit.pattern_band_height(result.outlines, top_inset)
+        _W, _k, self._tile_h = pattern_warp._tile_metrics(
+            pattern, self._circ, props.pattern_repeats_x)
+        self._pattern_path = bpy.path.abspath(props.pattern_svg)
+
+        def job():
+            # The tiling check first, behind the same progress bar: the search
+            # needs its verdict to decide whether the rise can move freely, and
+            # measuring it here means the panel gets a fresh one too.
+            self._seam = yield from _scaled(
+                pattern_fit.seam_scores_steps(pattern), 0.0, 0.05)
+            return (yield from _scaled(pattern_fit.search_placement(
+                pattern, layout.placements, result.outlines, self._circ,
+                props.pattern_repeats_x, props.pattern_min_area,
+                props.pattern_min_width,
+                slide_vertically=props.pattern_slide_vertically,
+                top_inset=top_inset, invert=props.pattern_invert), 0.05, 1.0))
+
+        self._gen = job()
         if len(pattern.fill_colors) > 1:
             self.report({"INFO"},
                         f"{len(pattern.fill_colors)} fill colors found; all "
@@ -534,11 +608,10 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
         band = pattern_fit.narrow_apex_band(result.outlines,
                                             props.pattern_min_width, top_inset)
         if band > 0.0:
-            self.report({"WARNING"},
-                        f"The top {band:.1f} mm of every strip is narrower "
-                        f"than the {props.pattern_min_width:.2f} mm width "
-                        f"floor; defects there cannot be fixed by placement. "
-                        f"Consider Limit Pattern Height.")
+            self._warn(f"The top {band:.1f} mm of every strip is narrower "
+                       f"than the {props.pattern_min_width:.2f} mm width "
+                       f"floor; defects there cannot be fixed by placement. "
+                       f"Consider Limit Pattern Height.")
         return self._start(context)
 
     def _on_success(self, value):
@@ -560,7 +633,41 @@ class GOREWRAP_OT_optimize_placement(_ModalJob, bpy.types.Operator):
                     f"(was {baseline.defects}){extra} at "
                     f"{props.pattern_rotation:.1f} deg, "
                     f"rise {props.pattern_rise:.1f} mm")
+        self._report_seam()
+        self._flush_alerts()
         return {"FINISHED"}
+
+    def _report_seam(self):
+        """Cache the tiling verdict and say what it cost the search."""
+        props = self._props
+        seam = self._seam
+        if seam is None:
+            return
+        props.seam_vertical = seam.vertical.mismatch
+        props.seam_horizontal = seam.horizontal.mismatch
+        props.seam_tiles_vertically = seam.vertical.tiles
+        props.seam_tiles_horizontally = seam.horizontal.tiles
+        props.seam_stamp = self._pattern_path
+        props.has_seam_check = True
+        if seam.horizontal.flawed:
+            self._warn(f"Pattern seam around the object is "
+                       f"{seam.horizontal.percent:.0f}% broken; spinning "
+                       f"moves it but cannot close it.")
+        if seam.vertical.tiles:
+            return
+        if not props.pattern_slide_vertically:
+            return
+        if self._band >= self._tile_h:
+            self._warn(f"Pattern does not repeat up the strip, and Repeats "
+                       f"Around {props.pattern_repeats_x} makes the tile "
+                       f"shorter than the patterned band, so a seam crosses "
+                       f"the artwork at every rise. Lower Repeats Around.")
+        else:
+            self.report({"INFO"},
+                        f"Pattern does not repeat up the strip "
+                        f"({seam.vertical.percent:.0f}% broken), so Rise was "
+                        f"kept to 0 or {self._band:.1f}-{self._tile_h:.1f} mm "
+                        f"to keep the seam out of the artwork.")
 
 
 class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
@@ -610,9 +717,8 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
                 and props.has_pattern_fit
                 and props.pattern_fit_stamp != placement_stamp(props, obj))
         if stale:
-            self.report({"WARNING"},
-                        "Pattern placement is stale — settings changed since "
-                        "Optimize. Exporting with the stored placement.")
+            self._warn("Pattern placement is stale — settings changed since "
+                       "Optimize. Exporting with the stored placement.")
 
         params = {
             "seam_offset": props.seam_offset,
@@ -644,21 +750,70 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
 
     def _on_success(self, summary):
         self._report_summary(summary)
+        self._flush_alerts()
         return {"FINISHED"}
 
     def _report_summary(self, summary):
         if summary is not None and summary.pattern_empty:
-            self.report({"WARNING"},
-                        "Pattern produced no geometry; exported outlines only.")
+            self._warn(
+                "Pattern produced no geometry; exported outlines only.")
         # Keyed off what the export actually wrote, not off the Mark Defects
         # settings; the message itself lives in export_job so it is testable
         # without Blender.
-        warning = (export_job.cuttable_layer_warning(summary)
+        # _warn ignores a None, so neither builder needs a guard here.
+        self._warn(export_job.cuttable_layer_warning(summary)
                    if summary is not None else None)
-        if warning:
-            self.report({"WARNING"}, warning)
+        self._warn(export_job.seam_warning(summary))
         n = summary.n_strips if summary is not None else 0
         self.report({"INFO"}, f"Exported {n} strips to {self.filepath}")
+
+
+class GOREWRAP_OT_check_tiling(_ModalJob, bpy.types.Operator):
+    bl_idname = "gorewrap.check_tiling"
+    bl_label = "Check Tiling"
+    bl_description = ("Measure how well the pattern joins itself where it "
+                      "repeats, around the object and up the strip")
+    bl_options = {"REGISTER"}
+
+    _job_exceptions = (pattern_warp.PatternError,)
+    _cancel_message = "Tiling check canceled."
+
+    def execute(self, context):
+        props = context.scene.gore_wrap
+        if not props.pattern_svg:
+            self.report({"ERROR"}, "Choose a pattern SVG first.")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(props.pattern_svg)
+        try:
+            pattern = pattern_warp.load_pattern(path)
+        except pattern_warp.PatternError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        self._props = props
+        self._stamp = path
+        self._gen = pattern_fit.seam_scores_steps(pattern)
+        return self._start(context)
+
+    def _on_success(self, scores):
+        props = self._props
+        props.seam_vertical = scores.vertical.mismatch
+        props.seam_horizontal = scores.horizontal.mismatch
+        props.seam_tiles_vertically = scores.vertical.tiles
+        props.seam_tiles_horizontally = scores.horizontal.tiles
+        props.seam_stamp = self._stamp
+        props.has_seam_check = True
+        broken = [f"{axis} {sc.percent:.0f}%"
+                  for axis, sc in (("around", scores.horizontal),
+                                   ("up the strip", scores.vertical))
+                  if sc.flawed]
+        if broken:
+            self._warn("Pattern seam does not close: " + ", ".join(broken)
+                       + " of it is broken.")
+        else:
+            self.report({"INFO"}, "Pattern tiles cleanly both ways.")
+        self._flush_alerts()
+        return {"FINISHED"}
 
 
 class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
@@ -728,14 +883,19 @@ class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
                         f"defects, against {current.defects_screened} now")
         elif best is not None:
             # The current settings themselves failed to lay out, but other
-            # candidates did -- report the best of those rather than telling
-            # the user nothing was found when a full table of workable rows
-            # is sitting right below.
-            self.report({"INFO"},
-                        f"Best: {best.label} at {best.defects_screened} "
-                        f"defects. Current settings did not fit the mat.")
+            # candidates did -- so name the best of those rather than telling
+            # the user nothing was found when a full table of workable rows is
+            # sitting right below.
+            #
+            # A warning and not a note, even though there is a way forward:
+            # what it is reporting is that the settings currently in the panel
+            # cannot be exported at all. That is worth interrupting for, and
+            # the remedy costs the user a row from the table.
+            self._warn(f"Best: {best.label} at {best.defects_screened} "
+                       f"defects. Current settings did not fit the mat.")
         else:
-            self.report({"WARNING"}, "No workable settings found.")
+            self._warn("No workable settings found.")
+        self._flush_alerts()
         return {"FINISHED"}
 
 
@@ -782,6 +942,43 @@ class GOREWRAP_OT_apply_advice(bpy.types.Operator):
                     f"Applied {row.label}. Run Optimize Placement to place "
                     f"the pattern for these settings.")
         return {"FINISHED"}
+
+
+class GOREWRAP_OT_alert(bpy.types.Operator):
+    """One dialog listing everything a run warned about.
+
+    INTERNAL because it is never something to invoke from a menu or a
+    keybinding: it exists so _ModalJob._flush_alerts has an operator to call,
+    which is the only way to open a dialog from inside modal()'s return path.
+
+    The messages arrive newline-joined rather than as a collection property
+    because they are single-line strings by construction -- every builder
+    that feeds this returns one sentence -- and a StringProperty survives the
+    INVOKE_DEFAULT hop without needing anything registered to hold it.
+    """
+
+    bl_idname = "gorewrap.alert"
+    bl_label = "Gore Wrap"
+    bl_description = "Show what the last run warned about"
+    bl_options = {"INTERNAL"}
+
+    messages: bpy.props.StringProperty(default="", options={"HIDDEN"})
+
+    def execute(self, context):
+        return {"FINISHED"}      # the dialog is the whole point; OK just closes
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(
+            self, width=520, title="Gore Wrap", confirm_text="OK")
+
+    def draw(self, context):
+        # align=True so the wrapped lines of one warning sit tight against
+        # each other, which is what makes them read as one paragraph rather
+        # than as a list.
+        col = self.layout.column(align=True)
+        texts = [m for m in self.messages.split("\n") if m]
+        for text, first in alerts.dialog_lines(texts):
+            col.label(text=text, icon="ERROR" if first else "BLANK1")
 
 
 class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
@@ -834,6 +1031,7 @@ class GOREWRAP_OT_show_advice_table(bpy.types.Operator):
 
 
 classes = (GOREWRAP_OT_preview, GOREWRAP_OT_apply_scale,
-           GOREWRAP_OT_optimize_placement, GOREWRAP_OT_advise_settings,
-           GOREWRAP_OT_apply_advice, GOREWRAP_OT_show_advice_table,
+           GOREWRAP_OT_check_tiling, GOREWRAP_OT_optimize_placement,
+           GOREWRAP_OT_advise_settings, GOREWRAP_OT_apply_advice,
+           GOREWRAP_OT_show_advice_table, GOREWRAP_OT_alert,
            GOREWRAP_OT_export)
