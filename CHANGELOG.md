@@ -10,7 +10,7 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
-## 1.0.1 — 2026-09-11
+## 1.0.1 — 2026-09-12
 
 **Seams the search could not see.** Optimize Placement with Slide Vertically on
 could return a Rise that dragged a tile-row boundary into the middle of every
@@ -21,7 +21,9 @@ measures how well a pattern joins itself where it repeats — around the object
 and up the strip — reports each seam as a percentage, and keeps the search away
 from rises that put a boundary inside the artwork. It also stops the exporter
 cutting along the join between two repeats of the pattern wherever the artwork
-runs straight through it.
+runs straight through it. Warnings from a long run no longer flash past in the
+status bar: anything Optimize Placement, Export or Check Tiling wants to tell
+you is collected into one dialog you have to dismiss.
 
 ### Added
 
@@ -52,6 +54,15 @@ runs straight through it.
     implying a safety it cannot deliver.
 - Export warns when the Rise in force puts a tile seam inside the artwork, and
   names the height so the line can be found in the file.
+- **Warnings from a long run are shown in a dialog.** Optimize Placement,
+  Export and Check Tiling collect everything they warn about and raise one
+  dialog at the end. The status-bar report and the Info-log row are still
+  there — the dialog is in addition to them, not instead — but a warning that
+  changes whether the file is safe to cut no longer depends on the user
+  happening to read the status bar in the second or two before it clears.
+  - One dialog per run rather than one per warning, listing them in the order
+    they were raised. Warnings raised before the job starts, such as a stale
+    placement, are in the same dialog as what the job itself found.
 - `iter_warp_gores` gained a `profiles` argument — the tile's four boundary
   material profiles, read off the scorer's own tile mask by the new
   `pattern_fit.edge_profiles`/`EdgeProfiles`; omitted, tiling behaves as it did
@@ -76,6 +87,18 @@ runs straight through it.
   - Only the stretches where the artwork is continuous across the join are
     suppressed. Where a motif ends at the join with nothing to meet it, that
     is a real edge and is still cut.
+  - The test for whether an edge lies on a join reaches further outward than
+    inward, which is what tells the two apart. Artwork overshooting its
+    artboard — measured at up to 0.52 px on the sample patterns — runs into
+    the next repeat and overlaps it, so the join really is drawn twice and
+    one of them is this rule's to suppress. An edge sitting *inside* the
+    boundary is ordinary interior artwork, and dropping its cut would leave a
+    hole. A tolerance that reached equally in both directions could not
+    distinguish them, and on a small viewBox it swallowed genuine interior
+    edges: a 10 × 10 artboard at 11 repeats welded away an edge 0.4 px in,
+    opening a 0.91 mm gap. The inward reach is now bounded in millimeters, by
+    the sampler's own error, so it no longer grows just because a pattern
+    pixel is worth more millimeters.
 
 ## 1.0.0 — 2026-09-09
 
