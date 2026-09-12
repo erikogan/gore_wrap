@@ -234,6 +234,7 @@ def main():
     check_optimize_placement(obj)
     check_advisor(obj)
     check_alert_dialog_draws()
+    check_every_long_op_flushes_alerts()
     test_placement_properties_exist(bpy.context.scene.gore_wrap)
     test_strip_count_and_angle_stay_in_step(bpy.context.scene.gore_wrap)
     test_a_pre_1_0_file_keeps_its_strip_count(bpy.context.scene.gore_wrap)
@@ -619,6 +620,30 @@ def check_alert_dialog_draws():
     assert len(labels) > 2, "both warnings are long enough to wrap"
     print(f"[smoke] alert dialog ok: {len(box.messages)} warnings, "
           f"{len(labels)} lines")
+
+
+def check_every_long_op_flushes_alerts():
+    """Every _ModalJob must raise its dialog when the job succeeds.
+
+    Structural rather than behavioral because the warnings themselves are
+    hard to provoke on a synthetic scan -- the advisor finds workable
+    settings here, so its one WARNING never fires. What can be pinned is the
+    invariant: a long-running operator that collects warnings and never
+    flushes them swallows them silently, and that is exactly what a fifth
+    modal job added later would do by default.
+    """
+    import inspect
+    from gore_wrap import operators
+
+    jobs = [cls for cls in operators.classes
+            if issubclass(cls, operators._ModalJob)]
+    assert len(jobs) >= 4, f"expected the four long ops, found {len(jobs)}"
+    for cls in jobs:
+        source = inspect.getsource(cls._on_success)
+        assert "_flush_alerts" in source, (
+            f"{cls.__name__}._on_success collects warnings but never raises "
+            f"the dialog for them")
+    print(f"[smoke] alert flush ok: {len(jobs)} long ops all flush")
 
 
 def check_advice_dialog_draws(props):

@@ -890,7 +890,8 @@ class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
                         f"Best: {best.label} at {best.defects_screened} "
                         f"defects. Current settings did not fit the mat.")
         else:
-            self.report({"WARNING"}, "No workable settings found.")
+            self._warn("No workable settings found.")
+        self._flush_alerts()
         return {"FINISHED"}
 
 
