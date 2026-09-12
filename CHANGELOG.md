@@ -55,14 +55,19 @@ you is collected into one dialog you have to dismiss.
 - Export warns when the Rise in force puts a tile seam inside the artwork, and
   names the height so the line can be found in the file.
 - **Warnings from a long run are shown in a dialog.** Optimize Placement,
-  Export and Check Tiling collect everything they warn about and raise one
-  dialog at the end. The status-bar report and the Info-log row are still
-  there — the dialog is in addition to them, not instead — but a warning that
-  changes whether the file is safe to cut no longer depends on the user
-  happening to read the status bar in the second or two before it clears.
+  Export, Check Tiling and the Placement Advisor collect everything they warn
+  about and raise one dialog at the end. The status-bar report and the
+  Info-log row are still there — the dialog is in addition to them, not
+  instead — but a warning that changes whether the file is safe to cut no
+  longer depends on the user happening to read the status bar in the second
+  or two before it clears.
   - One dialog per run rather than one per warning, listing them in the order
     they were raised. Warnings raised before the job starts, such as a stale
     placement, are in the same dialog as what the job itself found.
+- The advisor now warns, rather than notes, when the settings in the panel are
+  the ones that will not fit the mat. There is a way forward — pick any
+  workable row from the table — but what it is reporting is that the current
+  settings cannot be exported at all, which is worth interrupting for.
 - `iter_warp_gores` gained a `profiles` argument — the tile's four boundary
   material profiles, read off the scorer's own tile mask by the new
   `pattern_fit.edge_profiles`/`EdgeProfiles`; omitted, tiling behaves as it did

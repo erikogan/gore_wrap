@@ -883,12 +883,16 @@ class GOREWRAP_OT_advise_settings(_ModalJob, bpy.types.Operator):
                         f"defects, against {current.defects_screened} now")
         elif best is not None:
             # The current settings themselves failed to lay out, but other
-            # candidates did -- report the best of those rather than telling
-            # the user nothing was found when a full table of workable rows
-            # is sitting right below.
-            self.report({"INFO"},
-                        f"Best: {best.label} at {best.defects_screened} "
-                        f"defects. Current settings did not fit the mat.")
+            # candidates did -- so name the best of those rather than telling
+            # the user nothing was found when a full table of workable rows is
+            # sitting right below.
+            #
+            # A warning and not a note, even though there is a way forward:
+            # what it is reporting is that the settings currently in the panel
+            # cannot be exported at all. That is worth interrupting for, and
+            # the remedy costs the user a row from the table.
+            self._warn(f"Best: {best.label} at {best.defects_screened} "
+                       f"defects. Current settings did not fit the mat.")
         else:
             self._warn("No workable settings found.")
         self._flush_alerts()
