@@ -368,6 +368,41 @@ def test_an_unbacked_tile_boundary_is_still_cut(tmp_path):
     assert [len(a) for a in before] == [len(b) for b in after]
 
 
+# A 10 x 10 artboard, so one pattern px is 2.28 mm at repeats 11 -- against
+# the 0.08 mm it is on SIMPLE's 300 px viewBox. The rect's right side stops at
+# 9.3, an interior edge 0.7 px (1.6 mm) short of the tile boundary, and it is
+# inset vertically so the row boundaries carry nothing either. Nothing here is
+# a cropped artboard edge except the left one, which the right profile does not
+# back, so the weld must change nothing at all.
+COARSE_ARTBOARD_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" \
+width="10" height="10"><rect x="0" y="2" width="9.3" height="6"/></svg>'''
+
+
+def test_a_coarse_artboards_interior_edge_is_not_welded_away(tmp_path):
+    # The seam tolerance is quoted in pattern px, which is not a physical size.
+    # At a flat 1.0 px this artboard welded 301 long edges away -- every one of
+    # them a lone drop, since the right boundary carries no material for a
+    # neighbor to draw, so the rect came out open down a 1.6 mm-inset line.
+    layout, outlines = _one_gore_layout()
+    pattern = pattern_warp.load_pattern(_write(tmp_path, COARSE_ARTBOARD_SVG))
+    circ = 2 * np.pi * 40.0
+    tile = pattern_fit.build_tile(pattern, circ, 11, 0.15)
+    profiles = pattern_fit.edge_profiles(tile, pattern)
+    assert not profiles.right.any(), "fixture must leave the right boundary bare"
+
+    def emit(**kw):
+        return [(i, bool(closed), np.asarray(cubics, dtype=float))
+                for i, sp in pattern_warp.iter_warp_gores(
+                    pattern, layout.placements, outlines, circ, 11, 0.05, **kw)
+                for cubics, closed in sp]
+
+    plain, welded = emit(), emit(profiles=profiles)
+    assert len(plain) > 0, "fixture must emit something to compare"
+    assert [(i, c) for i, c, _p in plain] == [(i, c) for i, c, _p in welded]
+    for (_i, _c, a), (_j, _d, b) in zip(plain, welded):
+        assert np.array_equal(a, b)
+
+
 def test_boundary_runs_opens_a_run_cut_along_the_clip_rect():
     # A square (kept off y=0 so only the x_hi clip is under test) straddling
     # the right clip edge: clip_to_rect_flagged bakes the x=8 edge it was cut
@@ -1035,11 +1070,12 @@ _TEST_PX_WIDTH = 40.0
 _TEST_PX_HEIGHT = 20.0
 
 
-def _profiles(**covered):
+def _profiles(px_width=_TEST_PX_WIDTH, px_height=_TEST_PX_HEIGHT, **covered):
     """EdgeProfiles whose named sides carry material over the given spans.
 
     `_profiles(left=[(0.0, 10.0)])` gives a left edge that is material from
-    pattern y 0 to 10 and background below it, every other side blank.
+    pattern y 0 to 10 and background below it, every other side blank. The
+    artboard size is overridable because the seam tolerance is scaled by it.
     """
     def build(length, spans):
         arr = np.zeros(int(round(length / _PROFILE_PITCH)), dtype=bool)
@@ -1048,13 +1084,13 @@ def _profiles(**covered):
         return arr
 
     return pattern_fit.EdgeProfiles(
-        left=build(_TEST_PX_HEIGHT, covered.get("left", [])),
-        right=build(_TEST_PX_HEIGHT, covered.get("right", [])),
-        bottom=build(_TEST_PX_WIDTH, covered.get("bottom", [])),
-        top=build(_TEST_PX_WIDTH, covered.get("top", [])),
+        left=build(px_height, covered.get("left", [])),
+        right=build(px_height, covered.get("right", [])),
+        bottom=build(px_width, covered.get("bottom", [])),
+        top=build(px_width, covered.get("top", [])),
         pitch=_PROFILE_PITCH,
-        px_width=_TEST_PX_WIDTH,
-        px_height=_TEST_PX_HEIGHT)
+        px_width=px_width,
+        px_height=px_height)
 
 
 def _placement(dx=0.0, dy=0.0, k=0.5, tile_h=10.0):
@@ -1136,6 +1172,77 @@ def test_subdivision_is_a_no_op_without_profiles():
     cmask = np.zeros(4, dtype=bool)
     pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, None)
     assert pts is cpts and mask is cmask
+
+
+def test_the_seam_tolerance_is_capped_not_flat():
+    # 1 pattern px is W / px_width mm, so the tolerance's PHYSICAL size is the
+    # artboard's business. The cap holds for every artboard from 20 px up;
+    # below that it falls back to a twentieth of the shorter side.
+    assert pattern_warp._seam_tol_px(_profiles()) == 1.0            # 40 x 20
+    assert pattern_warp._seam_tol_px(
+        _profiles(px_width=100.0, px_height=100.0)) == 1.0
+    assert pattern_warp._seam_tol_px(
+        _profiles(px_width=300.0, px_height=40.0)) == 1.0
+    assert pattern_warp._seam_tol_px(
+        _profiles(px_width=10.0, px_height=10.0)) == 0.5
+    assert pattern_warp._seam_tol_px(
+        _profiles(px_width=30.0, px_height=4.0)) == 0.2
+
+
+def test_an_edge_on_two_boundaries_at_once_keeps_both_splits():
+    # A short edge near the tile's pattern-(0, 0) corner lies within tolerance
+    # of the left boundary AND of the top boundary, so both sides subdivide it
+    # -- against different profiles, at different coordinates. Recording the
+    # second side's breaks used to overwrite the first's, silently losing
+    # splits the drop rule needs to make every edge wholly dropped or wholly
+    # kept. k = 0.5 and tile_h = 10, so px = 2 * mx and py = 20 - 2 * my: this
+    # edge runs pattern (0.2, 0.2) -> (0.8, 0.8).
+    tile = _placement()
+    cpts = np.array([[0.1, 9.9], [0.4, 9.6], [5.0, 5.0]])
+    cmask = np.zeros(3, dtype=bool)
+    # As a LEFT edge it consults `right` over py 0.2..0.8, which breaks at 0.5;
+    # as a TOP edge it consults `bottom` over px 0.2..0.8, breaking at 0.4.
+    profiles = _profiles(right=[(0.0, 0.5)], bottom=[(0.0, 0.4)])
+    pts, mask = pattern_warp._subdivide_seam_edges(cpts, cmask, tile, profiles)
+    assert len(pts) == 5, "both sides' breaks must survive"
+    # py = 0.5 is t = 0.5 along the edge and px = 0.4 is t = 1/3, so the two
+    # inserted points must come out in that order, not the order the sides
+    # happened to be visited in.
+    assert pts[1] == pytest.approx([0.2, 9.8])
+    assert pts[2] == pytest.approx([0.25, 9.75])
+    assert list(mask) == [False, False, False, False, False]
+
+
+def test_an_axis_too_narrow_to_tell_its_boundaries_apart_is_not_welded():
+    # With px_width = 1 and a 1 px tolerance, every point in the tile is
+    # within tolerance of x = 0 AND of x = px_width, so which boundary an edge
+    # lies on is not knowable -- and the weld's rule is to consult the
+    # OPPOSITE boundary's profile. Welding on a guess risks dropping an edge
+    # whose real neighbor draws nothing, so the axis is refused outright and
+    # keeps being cut as it was before 1.0.1. Unguarded, this edge was
+    # subdivided twice over (once per side) against two different profiles.
+    tile = _placement()
+    cpts = np.array([[0.15, 9.0], [0.15, 1.0], [5.0, 1.0], [5.0, 9.0]])
+    cmask = np.zeros(4, dtype=bool)
+    profiles = _profiles(px_width=1.0, left=[(0.0, 12.0)], right=[(0.0, 5.0)])
+    pts, _mask = pattern_warp._subdivide_seam_edges(
+        cpts, cmask, tile, profiles, tol_px=1.0)
+    assert len(pts) == len(cpts), "no split may be invented on an unreadable axis"
+    assert np.array_equal(pts, cpts)
+    assert not pattern_warp._seam_edge_drop(
+        cpts, tile, profiles, tol_px=1.0).any()
+
+
+def test_the_row_axis_still_welds_when_the_column_axis_is_unreadable():
+    # The refusal is per axis, not per tile: px_height = 20 against a 1 px
+    # tolerance is perfectly readable and must still weld.
+    tile = _placement()
+    # A horizontal edge on the tile's top boundary (pattern y = 0, i.e.
+    # master y = 10), running pattern x 0.2 -> 0.6 with px_width = 1.
+    cpts = np.array([[0.1, 10.0], [0.3, 10.0], [0.3, 5.0]])
+    profiles = _profiles(px_width=1.0, bottom=[(0.0, 1.0)])
+    drop = pattern_warp._seam_edge_drop(cpts, tile, profiles, tol_px=1.0)
+    assert list(drop) == [True, False, False]
 
 
 def test_subdividing_then_dropping_cuts_only_the_unbacked_half():

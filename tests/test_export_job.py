@@ -392,6 +392,48 @@ def test_marking_intrinsic_pieces_needs_mark_defects_on(tmp_path):
     assert summary.intrinsic_marked is False
 
 
+# Artwork touching the LEFT artboard edge only. Inverted, the material is
+# everything BUT that strip, so the left boundary carries no material and the
+# right one carries all of it -- the polarity-sensitive case, and the one that
+# caught the bug: welding off the inverted mask dropped 705 left-boundary
+# edges that no neighboring contour draws, exporting the rect open on one side.
+LEFT_EDGE_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" '
+                 'width="40" height="20">'
+                 '<rect x="0" y="0" width="2" height="20"/></svg>')
+
+
+def _write_left_edge_pattern(tmp_path):
+    p = tmp_path / "left_edge.svg"
+    p.write_text(LEFT_EDGE_SVG)
+    return str(p)
+
+
+def _pattern_group(text):
+    """Just the `pattern` layer, so polarity-dependent layers cannot mask a diff."""
+    assert 'id="pattern"' in text, "fixture must emit a pattern layer"
+    return text.split('id="pattern"', 1)[1].split("</g>", 1)[0]
+
+
+def test_inverting_polarity_leaves_the_exported_pattern_identical(tmp_path):
+    # README's promise, in bold: Invert Pattern changes scoring, not geometry.
+    # "A cutter cuts every contour regardless of which side you weed, so the
+    # SVG is the same file either way." The tile seam weld is the one place
+    # that could break it -- it asks a rasterized mask whether a neighboring
+    # repeat backs a boundary with material, and an inverted mask answers the
+    # opposite. Which side you weed does not change whether a neighbor draws a
+    # coincident contour, so the weld must read the tile AS DRAWN. Reinstate
+    # `invert=` on export_job's build_tile call and this test fails.
+    common = {**NO_PATTERN, "use_pattern": True,
+              "pattern_svg": _write_left_edge_pattern(tmp_path),
+              "pattern_repeats_x": 11}
+    a, b = str(tmp_path / "plain.svg"), str(tmp_path / "flipped.svg")
+    _drain(export_job.export_steps(_result(), {**common,
+                                               "pattern_invert": False}, a))
+    _drain(export_job.export_steps(_result(), {**common,
+                                               "pattern_invert": True}, b))
+    assert _pattern_group(open(a).read()) == _pattern_group(open(b).read())
+
+
 def test_rotation_moves_the_pattern(tmp_path):
     # A non-zero rotation must actually change the emitted geometry.
     base_params = {**NO_PATTERN, "use_pattern": True,

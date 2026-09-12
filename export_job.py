@@ -220,13 +220,23 @@ def export_steps(result, params, filepath):
             seam = None
         # The exporter must agree with the scorer about what counts as
         # material, or the search optimizes geometry the file does not
-        # contain -- so the profiles come off the scorer's own tile mask.
+        # contain -- so the profiles come off build_tile's own mask: the same
+        # rasterizer, at the same pitch and repeat count the scorer uses, so
+        # the two cannot drift apart about what counts as material.
+        #
+        # `pattern_invert` is deliberately NOT applied here, unlike every
+        # other build_tile call. The weld only ever SUPPRESSES contours the
+        # artwork already draws, and which side of a contour you weed does not
+        # change whether the neighboring repeat draws a coincident one. Reading
+        # the inverted mask would answer about the holes instead, dropping
+        # edges nothing else cuts -- a hole in the artwork rather than a
+        # duplicate line -- and would make the emitted geometry depend on a
+        # scoring-only setting that README promises cannot move it.
         px, _steps = pattern_fit.raster_pitch(params["pattern_min_area"],
                                               params["pattern_min_width"])
         try:
             tile_mask = pattern_fit.build_tile(
-                pattern, circ, params["pattern_repeats_x"], px,
-                invert=params["pattern_invert"])
+                pattern, circ, params["pattern_repeats_x"], px)
             profiles = pattern_fit.edge_profiles(tile_mask, pattern)
         except pattern_warp.PatternError:
             # Same contract as the defect layers: a stroke-only pattern has

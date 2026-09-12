@@ -52,6 +52,13 @@ runs straight through it.
     implying a safety it cannot deliver.
 - Export warns when the Rise in force puts a tile seam inside the artwork, and
   names the height so the line can be found in the file.
+- `iter_warp_gores` gained a `profiles` argument — the tile's four boundary
+  material profiles, read off the scorer's own tile mask by the new
+  `pattern_fit.edge_profiles`/`EdgeProfiles`; omitted, tiling behaves as it did
+  before. `_boundary_runs` now returns `(points, mask, runs)` rather than runs
+  alone, because subdividing a seam edge introduces points the caller's own
+  arrays do not have. `pattern_warp` also gained `TilePlacement`,
+  `AsymmetricGoreError` and `SEAM_EDGE_TOL_PX`.
 
 ### Fixed
 

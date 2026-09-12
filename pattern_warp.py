@@ -511,12 +511,38 @@ def _rect_edge_drop(cpts, x_lo, x_hi, y_hi, tol):
             | (on_ybase & on_ybase[nxt]) | (on_ytop & on_ytop[nxt]))
 
 
-# Pattern px. The artwork is only NOMINALLY on its artboard edge: measured
-# overhang on the sample patterns is up to 0.5 px on one side and 0.01 on
-# the other, and a cropped edge can sit a fraction short as easily as long.
+# Pattern px, and a CAP rather than a flat value -- see _seam_tol_px. The
+# artwork is only NOMINALLY on its artboard edge: measured overhang on the
+# sample patterns is up to 0.5 px on one side and 0.01 on the other, and a
+# cropped edge can sit a fraction short as easily as long.
 # This is deliberately NOT the 1e-6 mm the rect rule uses -- that governs
 # clip-generated points, which land on their bound by construction.
 SEAM_EDGE_TOL_PX = 1.0
+
+# Below a 20 px artboard the cap gives way to this fraction of the artboard's
+# SHORTER side. 1/20 is the smallest fraction that still reaches the cap at
+# 20 px (1/20 * 20 == 1.0), and smallest is what is wanted: every bit above
+# that widens the tolerance on exactly the coarse artboards it exists to
+# protect. So 40x20, 100x100 and 300x40 all still get the full 1.0 px, while
+# a 10x10 artboard -- where one px is already 2.28 mm at 11 repeats -- gets
+# 0.5 px.
+_SEAM_TOL_FRACTION = 1.0 / 20.0
+
+
+def _seam_tol_px(profiles):
+    """How near a tile boundary an edge must sit to count as lying on it.
+
+    SEAM_EDGE_TOL_PX measures in the pattern's OWN px, which is not a physical
+    size: one px is W/px_width mm, so the same 1.0 is 0.08 mm on a 300 px wide
+    artboard and 2.28 mm on a 10 px one. Bounding it by a fraction of the
+    artboard stops it becoming a large share of the artwork, which is what
+    turns a genuine interior edge merely running near the boundary into a
+    false seam edge -- dropped with nothing on the neighbor drawing it
+    instead, i.e. a hole rather than the duplicate line the weld removes.
+    """
+    return min(SEAM_EDGE_TOL_PX,
+               _SEAM_TOL_FRACTION * min(profiles.px_width, profiles.px_height))
+
 
 # Which boundary's profile backs which. A fragment's right-hand edge is
 # backed by the material on the next tile's left-hand edge, and so on.
@@ -548,28 +574,42 @@ def _seam_edge_flags(cpts, tile, profiles, tol_px):
     Returns `(on, across, nxt)`: `on[side]` is a bool per point saying it
     sits on that boundary; `across[side]` is the pattern coordinate that
     runs along that boundary (py for left/right, px for top/bottom); `nxt`
-    maps each point index to its successor, wrapping.
+    maps each point index to its successor, wrapping. An axis too narrow to
+    tell its own two boundaries apart contributes no sides at all -- see
+    below.
     """
     px, py = _pattern_coords(cpts, tile)
     nxt = np.roll(np.arange(len(cpts)), -1)
-    on = {
-        "left": np.isclose(px, 0.0, rtol=0.0, atol=tol_px),
-        "right": np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px),
-        "top": np.isclose(py, 0.0, rtol=0.0, atol=tol_px),
-        "bottom": np.isclose(py, profiles.px_height, rtol=0.0, atol=tol_px),
-    }
+    on = {}
+    # An axis no wider than 2 * tol cannot tell its two boundaries apart: one
+    # point satisfies both tests at once. The weld's whole argument is "consult
+    # the OPPOSITE boundary's profile", which needs to know WHICH boundary the
+    # edge is on, so there is nothing honest to do with such an axis -- guessing
+    # risks dropping an edge whose real neighbor draws nothing, and a hole in
+    # the artwork is worse than the duplicate line this rule removes. The axis
+    # is therefore not a seam axis, and that boundary keeps being cut twice as
+    # it was before 1.0.1. Both callers skip it together because both read this
+    # dict; _seam_tol_px makes it unreachable by default (2 * tol is at most a
+    # tenth of the shorter side), but tol_px is a parameter.
+    if profiles.px_width > 2.0 * tol_px:
+        on["left"] = np.isclose(px, 0.0, rtol=0.0, atol=tol_px)
+        on["right"] = np.isclose(px, profiles.px_width, rtol=0.0, atol=tol_px)
+    if profiles.px_height > 2.0 * tol_px:
+        on["top"] = np.isclose(py, 0.0, rtol=0.0, atol=tol_px)
+        on["bottom"] = np.isclose(py, profiles.px_height, rtol=0.0,
+                                  atol=tol_px)
     across = {"left": py, "right": py, "top": px, "bottom": px}
     return on, across, nxt
 
 
-def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
+def _seam_edge_drop(cpts, tile, profiles, tol_px=None):
     """Which edges lie on a tile boundary the neighboring tile backs.
 
     Returns a bool per edge i -> i+1 (wrapping), all False when `profiles`
-    is None. An edge qualifies only when BOTH endpoints sit on the SAME
-    boundary -- the same requirement, for the same reason, as the rect rule:
-    a corner can touch a boundary without either adjoining edge running
-    along it.
+    is None. `tol_px` defaults to _seam_tol_px(profiles). An edge qualifies
+    only when BOTH endpoints sit on the SAME boundary -- the same
+    requirement, for the same reason, as the rect rule: a corner can touch a
+    boundary without either adjoining edge running along it.
 
     Where the neighbor backs the boundary with material, the two fragments
     are one continuous piece and the cut would slice it apart. Where it does
@@ -579,6 +619,8 @@ def _seam_edge_drop(cpts, tile, profiles, tol_px=SEAM_EDGE_TOL_PX):
     drop = np.zeros(n, dtype=bool)
     if profiles is None:
         return drop
+    if tol_px is None:
+        tol_px = _seam_tol_px(profiles)
     on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
     for side, flags in on.items():
         edges = np.nonzero(flags & flags[nxt])[0]
@@ -608,8 +650,7 @@ def _coverage_breaks(profiles, side, lo, hi):
     return [v for v in out if lo + 1e-9 < v < hi - 1e-9]
 
 
-def _subdivide_seam_edges(cpts, cmask, tile, profiles,
-                          tol_px=SEAM_EDGE_TOL_PX):
+def _subdivide_seam_edges(cpts, cmask, tile, profiles, tol_px=None):
     """Insert points where a tile-boundary edge's backing starts or stops.
 
     After this every seam edge is backed along its whole length or none of
@@ -619,10 +660,12 @@ def _subdivide_seam_edges(cpts, cmask, tile, profiles,
     not a feature of the artwork.
 
     Returns the inputs unchanged when there is nothing to do, so the common
-    case allocates nothing.
+    case allocates nothing. `tol_px` defaults to _seam_tol_px(profiles).
     """
     if profiles is None:
         return cpts, cmask
+    if tol_px is None:
+        tol_px = _seam_tol_px(profiles)
     n = len(cpts)
     on, across, nxt = _seam_edge_flags(cpts, tile, profiles, tol_px)
     inserts = {}
@@ -634,21 +677,31 @@ def _subdivide_seam_edges(cpts, cmask, tile, profiles,
             breaks = _coverage_breaks(profiles, _OPPOSITE_EDGE[side], lo, hi)
             if not breaks:
                 continue
-            # Order the cuts along the edge's own direction, then place them
-            # by linear interpolation in master space -- the edge is straight
-            # in both spaces, so the parameter carries over exactly.
+            # Recorded as the edge's own parameter, and ACCUMULATED rather
+            # than assigned: a short edge near a tile CORNER can lie on two
+            # boundaries at once (within tol of x = 0 and of y = 0, say), and
+            # assigning threw one side's breaks away -- silently losing the
+            # very splits the drop rule then needs to be whole-edge.
             span = b - a
-            ts = sorted(((v - a) / span for v in breaks))
-            p0, p1 = cpts[i], cpts[nxt[i]]
-            inserts[int(i)] = [p0 + t * (p1 - p0) for t in ts]
+            inserts.setdefault(int(i), []).extend(
+                (v - a) / span for v in breaks)
     if not inserts:
         return cpts, cmask
     pts, mask = [], []
     for i in range(n):
         pts.append(cpts[i])
         mask.append(bool(cmask[i]))
-        for extra in inserts.get(i, ()):
-            pts.append(extra)
+        p0, p1 = cpts[i], cpts[nxt[i]]
+        # Sorted so the inserted points still run along the edge in order,
+        # which is what lets the run builder walk them. Two sides' breaks can
+        # land on the same point; emit it once rather than as a zero-length
+        # step for the bezier fit to choke on.
+        last = None
+        for t in sorted(inserts.get(i, ())):
+            if last is not None and t - last <= 1e-12:
+                continue
+            last = t
+            pts.append(p0 + t * (p1 - p0))
             mask.append(False)
     return np.array(pts, dtype=float), np.array(mask, dtype=bool)
 
@@ -716,7 +769,8 @@ def _boundary_runs(cpts, cmask, x_lo, x_hi, y_hi, closed,
     Artwork that is only *nominally* on a TILE boundary (e.g. an edge at
     39.9999 in a 40-unit viewBox) is not this tolerance's business at all --
     that is the seam rule below, which works in the pattern's own pixels at
-    the far looser `SEAM_EDGE_TOL_PX` precisely because artwork does not
+    the far looser `SEAM_EDGE_TOL_PX` (capped there, and scaled down on a
+    coarse artboard -- see `_seam_tol_px`) precisely because artwork does not
     land on its artboard edge to 1e-6.
 
     With `tile` and `profiles` supplied, edges lying on a TILE boundary are
@@ -865,7 +919,7 @@ def iter_warp_gores(pattern, placements, outlines, circumference, repeats_x,
             pattern, placements, outlines, circumference, repeats_x,
             resolution, corner_cos, top_inset, offset):
         subpaths = []
-        for cpts, wpts, cmask, closed, frame, tile in fragments:
+        for cpts, _wpts, cmask, closed, frame, tile in fragments:
             # clip_to_rect_flagged bakes the clip-rectangle edge it cut
             # against into the fragment's outline. Where another layer
             # already supplies that cut, drop it and emit the fragment as
