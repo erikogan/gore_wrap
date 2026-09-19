@@ -208,7 +208,11 @@ preview are untouched.
   so the platform coverage is unchanged.
 - **Harmless smoke-test teardown trace on Blender 4.5.** A post-PASS
   `unregister_class` trace can appear when a copy of the extension is also
-  installed on the machine. It is environmental and not from this code.
+  installed on the machine. It was first written off as environmental and not
+  from this code; it was later traced to the smoke test's own second copy
+  replacing the installed copy's classes, and fixed by running with
+  `--factory-startup` (see
+  [the spin-off doc](2026-07-31-gore-wrap-spinoff.md)).
   `[smoke] PASS` (exit 0) was verified on 4.5 LTS and 5.0.
 
 ## Scope / deferred
