@@ -2,6 +2,12 @@
 
 - **Date:** 2026-07-27
 - **Status:** Implemented (shipped as 0.6.0; designed 2026-07-26)
+- **Superseded by:**
+  [`2026-07-29-pattern-simplify-presets.md`](2026-07-29-pattern-simplify-presets.md)
+  — in part: the single `pattern_resolution` setting that drove both sampler
+  and fit (decision 4) and the fixed 5° corner threshold (decision 3) gave way
+  to Simplify Mode presets, a capped sampler tolerance and a configurable
+  corner angle; Cutter Resolution mode reproduces the 0.6.0 behavior.
 
 ## What was built
 
@@ -174,8 +180,10 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
   deleted. The formula is now checked only against the test-local copy of it
   inside `_dense_warp_gore`, and nothing asserts that pruning is still
   effective.
-- **No real-pattern timing was recorded.** The spec called for re-measuring
-  `First Pattern.svg`; the retained history holds no figure.
+- **No real-pattern timing was recorded at the time.** The spec called for
+  re-measuring `First Pattern.svg`. The only figure that survives is the 0.6.0
+  baseline (about 39k cubics, ~68 s at Repeats Around = 2) cited by
+  [the simplify-presets doc](2026-07-29-pattern-simplify-presets.md).
 
 ## Scope / deferred
 
