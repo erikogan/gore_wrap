@@ -2,6 +2,16 @@
 
 - **Date:** 2026-07-19
 - **Status:** Implemented (shipped as 0.4.0)
+- **Superseded by:**
+  [`2026-07-19-export-perf-pruning.md`](2026-07-19-export-perf-pruning.md) —
+  in part: the padded master field and `build_field` (decision 5, and the
+  `warp_into_gores(field, …)` signature) gave way to per-gore, on-demand tile
+  columns.
+- **Superseded by:**
+  [`2026-07-27-pattern-bezier-refit.md`](2026-07-27-pattern-bezier-refit.md) —
+  in part: fine-polyline output and the fixed "Curve Tolerance (mm)" property
+  (decision 1's trade-off) gave way to fitted cubic beziers and a "Curve
+  Resolution" property.
 
 ## What was built
 

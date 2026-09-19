@@ -2,6 +2,12 @@
 
 - **Date:** 2026-07-19
 - **Status:** Implemented (shipped as 0.5.1 pruning, 0.5.2 fast flatten)
+- **Superseded by:**
+  [`2026-07-27-pattern-bezier-refit.md`](2026-07-27-pattern-bezier-refit.md) —
+  in part: the pre-flattened sampling (`_sample_base_tile` and the
+  chord-length flatten, decisions 4–5) and the brute-force equivalence anchor
+  (decision 3) were removed when the warp moved to adaptive sampling;
+  per-gore pruning (decisions 1–2) still holds.
 
 ## What was built
 
