@@ -712,6 +712,22 @@ def test_defect_boxes_return_the_intrinsic_pieces_separately(tmp_path):
     assert len(intrinsic) == fs.intrinsic
 
 
+def test_no_piece_is_boxed_in_both_lists(tmp_path):
+    # The size tests above pin each list's length, but a piece counted in both
+    # lists, with another dropped from one of them, would leave both lengths
+    # right. defect_boxes returns only boxes, and a piece has one bounding box,
+    # so a piece in both lists shows up as the same box in both.
+    pattern, layout, result = _averaged_setup(12, tmp_path, svg=DOTS_SVG)
+    cut, intrinsic = pattern_fit.defect_boxes(
+        pattern, layout.placements, result.outlines,
+        result.dims.bottom_circumference, 4, 120.0, 0.6, top_inset=20.0)
+
+    assert cut and intrinsic, "an empty list would make this vacuous"
+    shared = ({tuple(b.ravel()) for b in cut}
+              & {tuple(b.ravel()) for b in intrinsic})
+    assert not shared
+
+
 def test_inverting_changes_what_the_scorer_counts(tmp_path):
     # Nine loose dots per tile; inverted they become one connected web, so the
     # two polarities cannot agree. Anything short of threading `invert` all the
