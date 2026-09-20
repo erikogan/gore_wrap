@@ -12,6 +12,12 @@
   in part: fine-polyline output and the fixed "Curve Tolerance (mm)" property
   (decision 1's trade-off) gave way to fitted cubic beziers and a "Curve
   Resolution" property.
+- **Superseded by:**
+  [`2026-09-06-pattern-placement-search.md`](2026-09-06-pattern-placement-search.md)
+  — in part: the accepted deviation that a pattern edge coinciding with the
+  gore outline cut is expected and needs no de-duplication no longer holds.
+  Those edges are now suppressed and the fragment is emitted as an open run,
+  leaving that cut to the `cuts` and `pattern-edge` layers.
 
 ## What was built
 

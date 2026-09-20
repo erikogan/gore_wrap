@@ -8,6 +8,12 @@
   and fit (decision 4) and the fixed 5° corner threshold (decision 3) gave way
   to Simplify Mode presets, a capped sampler tolerance and a configurable
   corner angle; Cutter Resolution mode reproduces the 0.6.0 behavior.
+- **Superseded by:**
+  [`2026-09-06-pattern-placement-search.md`](2026-09-06-pattern-placement-search.md)
+  — in part: decision 6's "the subpath's real `closed` flag rides in the
+  emitted tuple" became the *run's* flag. A run opened by a suppressed seam
+  edge is emitted `closed=False` even though its source subpath is closed;
+  every run is still bezier-fitted either way.
 
 ## What was built
 
