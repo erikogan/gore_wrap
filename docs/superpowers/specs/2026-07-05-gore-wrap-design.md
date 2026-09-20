@@ -9,35 +9,37 @@ Erik hand-makes roughly conical/cylindrical objects with rounded (roughly spheri
 tops and wants to cover them with adhesive vinyl cut on a cutting machine
 (24″×24″ mat).
 Qlone 3D scans of the objects exist but are far too dense to use directly. The scans
-must be simplified to the closest approximation that can be cut as plain strips that
-taper to a point, then exported as SVG.
+must be simplified to the closest approximation that can be cut as plain strips
+that taper to a point, then exported as SVG.
 
 ## Approach (approved 2026-07-05)
 
-**Radial-profile slicing.** Cut the mesh into horizontal bands, reduce each band to a
-radius, and unwrap gores analytically from the resulting profile r(z). Slicing plus
-averaging *is* the simplification — no decimation or UV unwrapping. Alternatives
-considered and rejected: decimate + UV unwrap (length distortion, noisy boundaries),
-developable-surface fitting (overkill for vinyl tolerance).
+**Radial-profile slicing.** Cut the mesh into horizontal bands, reduce each band
+to a radius, and unwrap gores analytically from the resulting profile r(z).
+Slicing plus averaging *is* the simplification — no decimation or UV unwrapping.
+Alternatives considered and rejected: decimate + UV unwrap (length distortion,
+noisy boundaries), developable-surface fitting (overkill for vinyl tolerance).
 
 ### Geometry pipeline
 
 1. **Input**: user pre-orients the scan Z-up and deletes obvious junk; the selected
    mesh is read in world space with modifiers applied. A bottom-crop slider discards
    everything below a chosen height.
-2. **Assisted centering**: ~150 horizontal bands; each band's points are fit with a
-   least-squares (Kåsa) circle and the axis is the median of the band centers. A
-   circle fit resists the uneven angular coverage typical of scans, which would pull
-   a plain centroid toward the densely sampled side and, in Fitted mode, show up as a
-   once-around wobble in gore width and height.
+2. **Assisted centering**: ~150 horizontal bands; each band's points are fit
+   with a least-squares (Kåsa) circle and the axis is the median of the band
+   centers. A circle fit resists the uneven angular coverage typical of scans,
+   which would pull a plain centroid toward the densely sampled side and, in
+   Fitted mode, show up as a once-around wobble in gore width and height.
 3. **Radius profile**: per band, mean distance from axis — over the full circle
    (*Averaged* mode) or per angular sector (*Fitted* mode, one profile per gore).
-   Gaussian smoothing along z; empty bands interpolated from neighbors (warn if >20%).
+   Gaussian smoothing along z; empty bands interpolated from neighbors (warn
+   if >20%).
 4. **Apex closure**: profile extended smoothly to r=0 at the mesh top so gores taper
    to a point.
-5. **Gore unwrap**: meridian arc length s accumulates √(dr²+dz²); strip half-width at
-   s is π·r/N plus half the signed seam offset (mm: + overlap, − gap, 0 butt).
-   Straight bottom edge; outline simplified with Douglas-Peucker (~0.3 mm).
+5. **Gore unwrap**: meridian arc length s accumulates √(dr²+dz²); strip
+   half-width at s is π·r/N plus half the signed seam offset (mm: + overlap,
+   − gap, 0 butt). Straight bottom edge; outline simplified with
+   Douglas-Peucker (~0.3 mm).
 6. **Scale**: panel shows derived height, max diameter, and bottom circumference
    (measured at the crop plane); typing a measured value for any one rescales all
    output uniformly.
@@ -49,26 +51,27 @@ faintly curved edges) introduces error well under vinyl tolerance for 15–30° 
 
 ### Strip parameters
 
-- Strip angle 5°–45° (default 24° → 15 strips); N snapped so N·angle = 360°, with a
-  live strip-count readout.
+- Strip angle 5°–45° (default 24° → 15 strips); N snapped so N·angle = 360°,
+  with a live strip-count readout.
 - Averaged vs Fitted mode chosen per run. Fitted strips are labeled 1…N.
 - Signed seam offset in mm.
 
-**Fitted mode uses a uniform envelope.** Every fitted gore shares one width (from the
-averaged base circumference ÷ N) and one height (the averaged meridian length); only
-the taper *contour* — where each side bulges up its height — follows the gore's own
-sector. This keeps fitted strips interchangeable and template-friendly. A per-sector
-radius that is merely scaled (which is what an off-center axis or an elliptical
-section produces) normalizes away, so Fitted mode reduces to Averaged on such shapes
-and only diverges where the silhouette genuinely differs between sides.
+**Fitted mode uses a uniform envelope.** Every fitted gore shares one width
+(from the averaged base circumference ÷ N) and one height (the averaged meridian
+length); only the taper *contour* — where each side bulges up its height —
+follows the gore's own sector. This keeps fitted strips interchangeable and
+template-friendly. A per-sector radius that is merely scaled (which is what an
+off-center axis or an elliptical section produces) normalizes away, so Fitted
+mode reduces to Averaged on such shapes and only diverges where the silhouette
+genuinely differs between sides.
 
-**Fitted registration.** Because fitted strips are sector-specific, the user needs to
-know where gore 1 goes. A **Start Angle** (degrees, CCW from +X seen from above)
-rotates which sector is gore 1, so it can be aimed at a landmark on the object. The
-Preview highlights **gore 1 green** and **gore 2 orange**, giving both the start and
-the winding direction; the numbered SVG labels then run in that order. Each fitted
-gore is left-right symmetric, so no strip needs flipping — only the start and
-direction matter.
+**Fitted registration.** Because fitted strips are sector-specific, the user
+needs to know where gore 1 goes. A **Start Angle** (degrees, CCW from +X seen
+from above) rotates which sector is gore 1, so it can be aimed at a landmark on
+the object. The Preview highlights **gore 1 green** and **gore 2 orange**,
+giving both the start and the winding direction; the numbered SVG labels then
+run in that order. Each fitted gore is left-right symmetric, so no strip needs
+flipping — only the start and direction matter.
 
 ### SVG export
 
