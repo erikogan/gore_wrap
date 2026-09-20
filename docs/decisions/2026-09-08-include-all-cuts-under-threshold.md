@@ -3,6 +3,10 @@
 - **Date:** 2026-09-08
 - **Status:** Implemented (shipped as 0.9.2; designed the same day, in
   conversation, with no spec or plan file)
+- **Superseded by:**
+  [`2026-09-20-defect-list-disjointness-test.md`](2026-09-20-defect-list-disjointness-test.md)
+  — in part: the known gap that no test asserts the two lists are disjoint no
+  longer holds; the rest of this doc still does.
 
 ## What was built
 
