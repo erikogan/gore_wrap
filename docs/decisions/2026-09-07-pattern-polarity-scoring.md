@@ -5,6 +5,11 @@
 - **Superseded by:** [`2026-09-08-invert-pattern.md`](2026-09-08-invert-pattern.md)
   — in part: invert is no longer deferred, and the unfilled-pattern error keeps
   its meaning under it; decision 8 and the invariants still hold.
+- **Superseded by:**
+  [`2026-09-08-include-all-cuts-under-threshold.md`](2026-09-08-include-all-cuts-under-threshold.md)
+  — in part: decision 10's premise that the export marks only cut-made pieces
+  gave way to a second, opt-in layer for the intrinsic ones; the `defects`
+  layer itself, its default-off toggle and its file-keyed warning still hold.
 
 ## What was built
 
