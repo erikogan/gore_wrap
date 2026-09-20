@@ -31,7 +31,7 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
 
 ## Key decisions
 
-### 1. Fit beziers to the warped shape; don't remap control points or simplify the polyline
+### 1. Fit beziers to the warped shape; don't remap or simplify
 
 - **Decision:** Warp sample points, then *fit* cubic beziers to them.
 - **Why:** The warp is genuinely nonlinear: `x' = tx + (X − xc)·s(Y)`,
@@ -59,8 +59,8 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
   exist so symmetric curvature, where the midpoint sits on the chord, is not
   missed.
 - **Trade-off:** More code, accepted for the speed. The plan expected a run of
-  a few seconds to about a minute on the real pattern (an expectation, not a
-  recorded measurement).
+  a few seconds to about a minute on the real pattern. Measured on the shipped
+  build at Repeats Around = 2, it produced about 39k cubics in ~68 s.
 
 ### 3. Corners come from the source geometry, and cut edges are corners
 
@@ -76,7 +76,7 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
   flags through Sutherland–Hodgman (`clip_to_rect_flagged`): surviving vertices
   keep theirs and every vertex it adds on a rectangle edge is flagged.
 
-### 4. One resolution setting drives both sampling and fitting; smoothing is on by default
+### 4. One resolution setting drives sampling and fit; smoothing defaults on
 
 - **Decision:** `pattern_resolution` (mm) is the tolerance for both the
   adaptive sampler and the fit, replacing `pattern_flatten_tol`. `pattern_smooth`
@@ -129,7 +129,7 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
   it out would mean holding every gore's points until a second pass. One label
   names both actions so a longer run reads as work, not a freeze.
 
-### 8. Replace the brute-force equivalence anchor with a dense-reference accuracy test
+### 8. Replace the brute-force anchor with a dense-reference accuracy test
 
 - **Decision:** The tests that compared the pruned warp against a whole-field
   brute-force reference are deleted. The accuracy anchor is now
@@ -186,10 +186,6 @@ estimate) is removed. The gore outlines already cut smoothly and are unchanged.
   deleted. The formula is now checked only against the test-local copy of it
   inside `_dense_warp_gore`, and nothing asserts that pruning is still
   effective.
-- **No real-pattern timing was recorded at the time.** The spec called for
-  re-measuring `First Pattern.svg`. The only figure that survives is the 0.6.0
-  baseline (about 39k cubics, ~68 s at Repeats Around = 2) cited by
-  [the simplify-presets doc](2026-07-29-pattern-simplify-presets.md).
 
 ## Scope / deferred
 

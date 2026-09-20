@@ -198,8 +198,7 @@ changes; only the spec and plan commits were made there.
 - **Deferred:** creating a git remote, and replacing the manifest's placeholder
   `website = "https://github.com/"`. No remote was created.
 - **Deferred:** adding a `LICENSE` file.
-- **Deferred:** moving `/tmp/gore_wrap` into `~/work`. Resolved since:
-  `glass` was abandoned, and this repository replaced it.
+- **Deferred:** moving `/tmp/gore_wrap` into `~/work`.
 - **Out of scope:** `glass` was left in place and otherwise untouched. The one
   exception was committing the spec and plan there first, so the clone carried
   them into this repository's history.

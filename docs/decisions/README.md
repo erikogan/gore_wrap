@@ -8,7 +8,7 @@ It is deliberately different from the other two artifacts under
 `docs/superpowers/`:
 
 | Artifact | Audience | Lifespan | Answers |
-|----------|----------|----------|---------|
+| -------- | -------- | -------- | ------- |
 | `superpowers/specs/` (design spec) | the implementer, before coding | throwaway once built | "what are we going to build?" |
 | `superpowers/plans/` (implementation plan) | the implementer, task-by-task | throwaway once built | "what are the exact steps?" |
 | `decisions/` (this) | a future engineer touching this area | **durable** | "what exists, and why is it shaped this way?" |
@@ -44,9 +44,10 @@ what applies; omit what doesn't.
 ```markdown
 - **Date:** YYYY-MM-DD
 - **Status:** Implemented / In review / Rolled out / Rolled back
-- **Superseded by:** [`YYYY-MM-DD-slug.md`](YYYY-MM-DD-slug.md) — one sentence on
-  what no longer holds. Add this to an older doc when a later one reverses a
-  decision in it; the rest of the older doc is left as written.
+- **Superseded by:** [`YYYY-MM-DD-slug.md`](YYYY-MM-DD-slug.md) — in part: one
+  sentence naming the decisions that no longer hold, and any that still do.
+  Add this to an older doc when a later one reverses a decision in it; the
+  rest of the older doc is left as written. See "Keeping older docs current".
 - **PR:** [org/repo#NNNN](https://github.com/…)
 - **Companion:** [org/other-repo#NNNN](https://github.com/…) — one sentence
   on how it relates. Use this when the feature spans more than one repo (its
@@ -150,16 +151,33 @@ intended as follow-up work, and what carried over unchanged from prior work:
   config (both previously deployed).
 ```
 
+## Keeping older docs current
+
+A decision doc describes the work as it shipped and is left that way. Two
+things can still change an older doc.
+
+**Pointers.** When a new doc reverses a decision in an older one, or removes
+the mechanism it describes, add a `Superseded by` line to the older doc's
+header, linking to the new doc, in the same commit. Say "in part:" when only
+some decisions are affected, and name which no longer hold and which still do.
+Use one bullet per superseding doc. A renamed signature or a reworded label is
+not a reversal. The older doc's body is left as written.
+
+**Corrections.** If an older doc stated something that was wrong when it was
+written, as opposed to something that later stopped being true, fix it in
+place, in timeless wording. A correction is not a pointer and has no forward
+link.
+
 ## Exemplar
 
-See [`2026-09-18-shared-skills-distribution.md`](2026-09-18-shared-skills-distribution.md),
-which uses every section above except `## Incidental fixes` — this being a
-greenfield repo, no bug in it could predate the work, so nothing qualified.
+See [`2026-07-31-gore-wrap-spinoff.md`](2026-07-31-gore-wrap-spinoff.md), which
+uses every section above.
 
 ## Naming
 
-`docs/decisions/YYYY-MM-DD-<feature-slug>.md` — dated when the doc is written.
-Files sit directly under `decisions/` here.
+`docs/decisions/YYYY-MM-DD-<feature-slug>.md` — the date is the header's
+`Date:`, so the filename and the header always agree. Files sit directly under
+`decisions/` here.
 
 The convention this template came from groups them under a team or
 product-area subdirectory (e.g. `voluntary_churn/`, `autotest-engagement/`),

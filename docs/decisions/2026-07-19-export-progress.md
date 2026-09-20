@@ -21,7 +21,7 @@ cancelable; making it faster was the next one.
 
 ## Key decisions
 
-### 1. Hand control back with a modal operator; a progress indicator alone is not enough
+### 1. Hand control back with a modal operator, not just a progress bar
 
 - **Decision:** `GOREWRAP_OT_export` runs the work in chunks across timer ticks
   as a modal operator.
@@ -71,7 +71,7 @@ cancelable; making it faster was the next one.
   `test_export_steps_no_file_if_abandoned_early` closes the generator after its
   first step and asserts nothing exists at the path.
 
-### 5. Keep geometry and validation in `execute()`; put only the slow tail in the generator
+### 5. Keep geometry and validation in `execute()`; generate only the slow tail
 
 - **Decision:** `build_gores`, `_store_readouts`, the implausible-dimensions
   check and the empty-`pattern_svg` check stay synchronous in `execute()`, with
