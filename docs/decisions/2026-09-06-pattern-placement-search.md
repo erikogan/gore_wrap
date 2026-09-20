@@ -2,6 +2,16 @@
 
 - **Date:** 2026-09-06
 - **Status:** Implemented (tagged `v0.9.0-without-polarity`; released inside 0.9.0)
+- **Superseded by:**
+  [`2026-09-07-pattern-polarity-scoring.md`](2026-09-07-pattern-polarity-scoring.md)
+  — in part: the contour-based metric was replaced by connected-component
+  scoring, so decision 4 (one Min Feature knob tested on area and effective
+  width) no longer holds, and decision 2's two-seam split became three when
+  `_gore_geometry` was lifted out for the scorer. Decision 5's intent — score
+  only what a cut created — still holds, but is now decided by adjacency to
+  the gore outline rather than by clip flags, and decision 12's cost
+  acceptance is moot with the clip-based scorer gone. Decisions 1, 3, 6, 7,
+  8, 9, 10 and 11 stand as written.
 
 ## What was built
 

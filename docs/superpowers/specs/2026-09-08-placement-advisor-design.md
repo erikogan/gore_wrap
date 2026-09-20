@@ -4,8 +4,9 @@ When Optimize Placement leaves defects behind, tell the user which settings
 would remove them. Hold the artwork fixed, sweep the settings that change the
 gores, and report what each change would buy and what it would cost.
 
-This is the "advisor" left as future work by
-[2026-09-06-pattern-polarity-scoring-design.md](2026-09-06-pattern-polarity-scoring-design.md).
+This is the "advisor" left as future work by the pattern polarity
+scoring work, recorded in
+[../../decisions/2026-09-07-pattern-polarity-scoring.md](../../decisions/2026-09-07-pattern-polarity-scoring.md).
 The region metric, the offset plumbing, the `_ModalJob` driver, the staleness
 model and the defects layer from that spec all stand unchanged.
 
