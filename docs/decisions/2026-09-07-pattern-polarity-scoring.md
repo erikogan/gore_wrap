@@ -2,6 +2,9 @@
 
 - **Date:** 2026-09-07
 - **Status:** Implemented (released inside 0.9.0; designed 2026-09-06)
+- **Superseded by:** [`2026-09-08-invert-pattern.md`](2026-09-08-invert-pattern.md)
+  — in part: invert is no longer deferred, and the unfilled-pattern error keeps
+  its meaning under it; decision 8 and the invariants still hold.
 
 ## What was built
 
