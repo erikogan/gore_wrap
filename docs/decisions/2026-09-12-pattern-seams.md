@@ -167,24 +167,63 @@ picture of the artwork the exported file did not contain.
   `_inward_tol_px` inward, the latter derived from `_SAMPLE_TOL_CAP`
   millimeters rather than from pattern pixels.
 - **Why:** the two cases the rule most needs to distinguish sit on opposite
-  sides of the boundary. Artwork *overshooting* its artboard runs on into the
-  neighboring tile and overlaps the neighbor's own copy — nothing clips a tile
-  to its own box, only to the gore frame — so both tiles draw a cut through one
-  continuous region and suppressing one is exactly the weld's job. An edge
+  sides of the boundary. Artwork *overshooting* its artboard — path geometry
+  running past the viewBox rectangle — carries on into the neighboring tile
+  and overlaps the neighbor's own copy, because nothing clips a tile to its
+  own box, only to the gore frame. Both tiles then draw a cut through one
+  continuous region, and suppressing one is exactly the weld's job. An edge
   sitting *inside* the boundary is the opposite: the neighbor draws its copy
   some distance off, so dropping the cut leaves a hole.
 - **Correction during build:** the design specified a symmetric
   `np.isclose(..., atol=SEAM_EDGE_TOL_PX)` at a flat 1.0 pattern px. A flat
   value is not a physical size — one px is `W / px_width` mm — so the same 1.0
   meant 0.08 mm on a 300 px artboard and 2.28 mm on a 10 px one. Scaling the
-  tolerance by a fraction of the artboard narrowed the window but could not
-  close this, because it tightened both halves at once: a 10 × 10 viewBox at
-  11 repeats still welded away an edge 0.4 px inside the boundary, opening a
-  0.91 mm hole. Only the sign separates them.
-- **Why the inward bound is physical:** the sampler's own error is the only
-  honest reason for the inward window to be wider than zero, and it must not
-  grow just because a pattern pixel is worth more millimeters.
-- **Measured (changelog):** overshoot on the sample patterns reaches 0.52 px.
+  tolerance by a fraction of the artboard (decision 10) narrowed the window but
+  could not close this, because it tightened both halves at once: a 10 × 10
+  viewBox at 11 repeats still welded away an edge 0.4 px inside the boundary,
+  opening a 0.91 mm hole. Only the sign separates them.
+- **How it was found:** by analysis, not from a field report, and reproduced
+  on a synthetic fixture by calling the drop rule directly. The defect is not
+  specific to small artboards — the same 0.4 px inset was dropped on a 300 px
+  artboard too, where it is a 0.03 mm hole nobody would see. What the artboard
+  controls is the physical size of the mistake. Reaching it with the sample
+  patterns would take a hand-authored small viewBox or a very low Repeats
+  Around.
+- **Why the inward bound is physical:** the weld runs on the sampled polyline,
+  before curve fitting, and that polyline's vertices sit up to
+  `_SAMPLE_TOL_CAP` (0.02 mm) off the true curve. The sampler's error is the
+  only honest reason for the inward window to be wider than zero, and it must
+  not grow just because a pattern pixel is worth more millimeters. The bound is
+  derived from the cap rather than given a constant of its own, never exceeds
+  `tol_px`, and falls back to `tol_px` when the scale is degenerate.
+- **Why keep `_SEAM_TOL_FRACTION`:** it still bounds the outward reach on a
+  small artboard. It no longer protects the interior; the inward bound does.
+- **Alternatives rejected:**
+  - *The cutter resolution as the tolerance* (`SIMPLIFY_PRESETS["CUTTER"]`,
+    0.00625 mm). A 0.5 px overshoot exceeds that whenever a tile is wider than
+    about 7 mm on a 560 px pattern — always, in practice — so the weld would
+    stop recognizing the overshoot it exists for. Nor does the simplify
+    tolerance bound a point's position at weld time, since fitting comes
+    later, and coupling emitted geometry to a user-facing simplify setting
+    would make the geometry move with that setting.
+  - *A third, millimeter term in the symmetric minimum* (0.1 mm was
+    proposed). It closed the small-artboard case but tightened both halves
+    again: once a pattern pixel is worth more than 0.2 mm — on the 560 px
+    sample pattern, any tile wider than about 112 mm, so low Repeats Around on
+    an ordinary object — it drops the reach below a 0.5 px overshoot. It
+    would also have changed four of the five values the capped-tolerance test
+    pins.
+  - *A tight tolerance, on the theory that overshoot is clipped onto the
+    boundary* the way clip-generated points are. There is no clip at the tile
+    box, so an overshooting edge sits wherever the artist drew it.
+- **Measured (build):** true curve extents against the viewBox, from the
+  curves' own bounding boxes. The control-point hull overstates overshoot, at
+  1–2 px, and must not be used for this. `First Pattern.svg`
+  (560.41 × 514.19) overshoots by 0.01 px on the left, 0.50 on the right, 0.01
+  at the top and 0.52 at the bottom; `monochrome-pattern-final.svg`
+  (487.5 × 487.5) lands exactly on three edges and overshoots the top by 0.01.
+  Neither falls short anywhere, which is why rejecting the inward side costs
+  nothing on real artwork.
 
 ### 9. Read the tile as drawn, not through Invert Pattern
 
@@ -204,19 +243,23 @@ picture of the artwork the exported file did not contain.
 
 ### 10. An axis too narrow to tell its boundaries apart is not a seam axis
 
-- **Decision:** an axis no wider than twice the tolerance stops being a seam
-  axis; it keeps being cut as it was before 1.0.1. The check lives in
+- **Decision:** an axis no wider than twice the *inward* reach stops being a
+  seam axis; it keeps being cut as it was before 1.0.1. The check lives in
   `_seam_edge_flags`, so the drop rule and the split rule skip it together.
 - **Why:** the weld's rule is to consult the *opposite* boundary's profile, and
   such an axis cannot tell its two boundaries apart. There is nothing honest to
-  do with it.
+  do with it. Only the inward reaches can overlap — the outward ones point off
+  opposite ends of the axis — so the inward reach is what bounds this.
+  `_seam_tol_px` cannot produce such an axis by itself; only an explicit
+  `tol_px` can.
 - **Correction during build:** `SEAM_EDGE_TOL_PX` became a cap rather than a
   flat value, bounded below by `_SEAM_TOL_FRACTION` — a twentieth of the
   artboard's shorter side, the smallest fraction that still reaches the cap at
   the 20 px smallest dimension in the fixture set, so all six warp snapshots
   stayed byte-identical. On a 10 × 10 viewBox at repeats 11, the flat value had
   welded away 301 long edges at a genuine interior edge 0.7 px (1.6 mm) short
-  of the seam, again all lone drops.
+  of the seam, again all lone drops. That narrowed the window without closing
+  it; decision 8 is what closed it.
 
 ### 11. Make the gore-symmetry assumption fail loudly
 
@@ -251,6 +294,10 @@ picture of the artwork the exported file did not contain.
   same tile mask. A second answer computed from the contours would be free to
   differ on fill rules, holes and grouping, and the search would go back to
   ranking placements the file does not contain.
+- **The inward reach stays physical and small.** It covers the sampler's
+  error and nothing more. Widening it in pattern pixels, or making the window
+  symmetric again, lets an interior edge near the boundary be dropped with
+  nothing drawing it — the hole decision 8 closed.
 - **Invert Pattern does not change exported geometry.** It reaches scoring, the
   defect layers and the placement comment only. The weld reads the tile as
   drawn.
@@ -272,6 +319,11 @@ picture of the artwork the exported file did not contain.
 - **The vertical constraint cannot help when the tile is shorter than the
   band.** Raising Repeats Around far enough puts a row boundary through the
   artwork at every rise. The operator reports it; nothing prevents it.
+- **The outward reach is still in pattern pixels.** An overshoot larger than
+  `tol_px` is not recognized and stays cut twice — a duplicate line, the safe
+  failure. The fraction rule makes this likelier on a small viewBox: a
+  10 × 10 artboard gets 0.5 px, less than the 0.52 px the sample patterns
+  overshoot by.
 - **`warp_into_gores` does not weld.** The convenience wrapper never gained a
   `profiles` argument, so anything going through it gets pre-1.0.1 tiling. It
   has no callers.
@@ -296,5 +348,5 @@ picture of the artwork the exported file did not contain.
   [the placement search doc](2026-09-06-pattern-placement-search.md)
   decision 9, which the weld extends rather than replaces.
 - **Out of this doc:** 1.0.1 also collected run warnings into a dialog and
-  raised the advisor's mat-fit note to a warning. Separate concern, no spec or
-  plan, not part of the seam work.
+  raised the advisor's mat-fit note to a warning — a separate concern, recorded
+  in [the run warning dialog doc](2026-09-12-run-warning-dialog.md).
