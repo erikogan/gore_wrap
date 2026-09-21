@@ -168,6 +168,13 @@ its inputs, so the staleness fingerprint gained a metric version.
 
 ## Accepted deviations / known gaps
 
+- **The measured defect counts came off pre-0.9.4 geometry.** The reference
+  scan still carried stray radial points that inflated its circumference to
+  395.733 mm against 383.137 clean; tile width is circumference divided by
+  repeats, so the artwork scaled with the error and every count moved. The
+  comparisons hold — each pair was measured on the same geometry, so the old
+  objective's loss to the new one is unaffected — but the magnitudes describe
+  a scan that no longer reconstructs that way.
 - **The margin term is not a calibrated risk model.** It is a shortfall from
   the erosion ladder's ceiling, squared — chosen because it is monotone,
   cheap, and zero exactly at full clearance, not because `max(0, M − q)²`
