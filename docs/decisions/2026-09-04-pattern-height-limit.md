@@ -2,6 +2,15 @@
 
 - **Date:** 2026-09-04
 - **Status:** Implemented (shipped as 0.8.0)
+- **Superseded by:**
+  [`2026-09-09-placement-advisor.md`](2026-09-09-placement-advisor.md)
+  — in part: the manifest floor moved to 4.5, which removes the mechanism
+  behind the "why feature-detect" reasoning. `separator(type="LINE")` is
+  now called directly and `_divider()`'s `UILayout.bl_rna` probe is gone,
+  so the 4.2 fallback path and the gap noting that 4.2 was never exercised
+  for the panel no longer apply. Everything else about the height limit —
+  the two measurement modes, the resolved inset, and the panel layout
+  reasoning — stands as written.
 
 ## What was built
 
@@ -37,7 +46,7 @@ with the longest labels moved above their widgets.
   - *Model height only:* mismatches a ruler laid on the flat pattern, which is
     what the user actually cuts.
 
-### 2. Resolve both modes to one meridian inset before anything downstream sees them
+### 2. Resolve both modes to one meridian inset up front
 
 - **Decision:** `resolve_top_inset(mode, offset, profile)` returns millimeters
   of meridian below the apex. `SURFACE` passes through; `HEIGHT` converts

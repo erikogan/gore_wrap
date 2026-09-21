@@ -327,11 +327,12 @@ before cutting.
   fingerprint entry, and the unfilled-pattern error inverts its meaning.
   Patterns can be inverted by hand meanwhile. (Deferred by Erik.)
 - **Deferred: the placement advisor.** Measuring which *settings* would help
-  when placement cannot — strip count, repeats, artwork scale. It needs
-  `build_gores` re-run per candidate, and a search on each, so it costs minutes
-  where Optimize costs seconds and needs its own progress model and a
-  trade-off table. Its own spec, and it depends on this metric being trusted
-  first.
+  when placement cannot — strip count, repeats (which sets artwork scale: the
+  tile is the circumference divided by the repeat count, so the two are one
+  knob), and the height limit. It needs `build_gores` re-run per candidate,
+  and a search on each, so it costs minutes where Optimize costs seconds and
+  needs its own progress model and a trade-off table. Its own spec, and it
+  depends on this metric being trusted first.
 - **Unchanged:** the offset plumbing through `iter_warp_gores`, the `_ModalJob`
   progress driver, the staleness fingerprint and its two acknowledged limits,
   and the seam-suppression fix that stops the pattern layer re-cutting the gore
