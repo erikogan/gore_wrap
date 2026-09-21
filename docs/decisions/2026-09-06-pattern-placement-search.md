@@ -12,6 +12,15 @@
   the gore outline rather than by clip flags, and decision 12's cost
   acceptance is moot with the clip-based scorer gone. Decisions 1, 3, 6, 7,
   8, 9, 10 and 11 stand as written.
+- **Superseded by:**
+  [`2026-09-08-placement-search-objective.md`](2026-09-08-placement-search-objective.md)
+  — in part: decision 6's 2-D grid is no longer square, and must contain the
+  1-D grid as its zero-rise row so that sliding vertically cannot return a
+  worse placement than spinning alone; and the "continuous sum drives the
+  search" half of decision 4 gives way to a lexicographic `(defects, margin)`
+  key, with the defect count leading. Decision 6's coarse-to-fine shape, its
+  `export_steps` generator contract and its refusal of a resolution knob all
+  still hold, as do decisions 1, 3, 7, 8, 9, 10 and 11.
 
 ## What was built
 
