@@ -31,9 +31,9 @@ to take a strip count rather than an angle.
   best two strip counts with the best two repeat counts.
 - **Why:** cost is the sum of the levers rather than their product. The
   crossing exists because the gains were measured to stack: against the
-  reference scan, 8 strips × repeats 1 was predicted at 14.5 by multiplying
-  the individual gains and measured 13, and 10 strips × repeats 1 was
-  predicted at 17.2 and measured 13. Never worse than the prediction and
+  reference scan, 8 strips × repeats 1 was predicted at 15.7 by multiplying
+  the individual gains and measured 12, and 10 strips × repeats 1 was
+  predicted at 18.1 and measured 16. Never worse than the prediction and
   sometimes much better, so the combinations have to be measured rather than
   inferred.
 - **Alternatives rejected:** a *joint grid* over all three levers — 13 × 4 × 4
@@ -51,10 +51,11 @@ to take a strip count rather than an angle.
   matches the table or beats it.
 - **Alternatives rejected:** a *full search per candidate*, which doubles the
   cost for a number the user gets anyway on applying the row; a *cheap
-  24-sample screen*, rejected because the measured defect-free set is only
-  about a tenth of the rotation period, so a quarter-resolution grid can miss
-  a good candidate's optimum entirely and rank it as bad — corrupting the one
-  comparison the feature exists to make.
+  24-sample screen*, rejected because the measured defect-free set is under a
+  tenth of the rotation period — 8 offsets of 96 on the monochrome pattern —
+  so a quarter-resolution grid can miss a good candidate's optimum entirely
+  and rank it as bad, corrupting the one comparison the feature exists to
+  make.
 
 ### 3. Three levers, because artwork scale *is* Repeats Around
 
@@ -83,7 +84,30 @@ to take a strip count rather than an angle.
   stance that the floors are the only dials.
 - **Why sweep every strip count rather than probing the extreme:** the trend
   is not monotone. On the reference scan 10 strips beat 9, 14 beat 13, and 16
-  beat 15.
+  beat 15. The inversions have a cause — parity. Even counts beat odd ones by
+  8–10% per seam, because with `repeats_x` even an even `N` shares a factor
+  with it and the seam-to-tile phase repeats favorably. That is a reason to
+  keep sweeping rather than to start predicting: the effect turns on
+  `gcd(n_strips, repeats_x)`, so it inverts for odd repeat counts, and it is
+  worth 10% against a lever worth 60%.
+- **Why the strip range is anchored to the user's current count:** defects are
+  very nearly proportional to seam count — dividing each row of the strip
+  sweep by its strip count gives a per-seam figure holding to a 6.3%
+  coefficient of variation. The per-seam constant carries everything
+  scan- and artwork-specific and cancels out of the ratio, so the *size* of
+  this lever is `1 − MIN_STRIPS / n_strips` and nothing else: 60% at 20
+  strips, 33% at 12, nothing at 8. Quadrupling the artwork density moved the
+  constant 4× and the ratio not at all, and six synthetic shapes spanning a
+  twentyfold range of aspect ratio all landed between 62% and 66%. A fixed
+  range would therefore offer most users a sweep whose useful part they had
+  already passed.
+- **Why keep the fit-error column when it stopped arguing against anything:**
+  fit error is the stated cost of fewer, wider strips, and on the reference
+  scan it spans 0.59 mm to 0.64 mm across the whole range — 0.05 mm, well
+  inside the 0.3 mm tolerance. It still climbs toward wider strips, so a scan
+  that genuinely will not fit says so here; it is simply not a reason to
+  decline the largest lever the advisor has. The README says as much rather
+  than leaving the reader to infer a trade-off that is not there.
 - **Alternatives rejected:** *per-lever checkboxes* (adds a way to hide the
   option that would have helped most); *editable min/max ranges* (an unbounded
   runtime the progress bar cannot promise anything about).
@@ -98,11 +122,18 @@ to take a strip count rather than an angle.
   for the same ordering.
 - **Correction during design:** an earlier reading had the vertical gain
   tracking `pattern_top / tile_h` cleanly enough to flag per row. Re-measured
-  against the corrected 2-D grid that relationship dissolved — two candidates
-  at the same 0.36 tile height gained 35.1% and 0.0% — so the per-row
-  prediction was dropped rather than restated. The gain is consistently
-  positive, which folds into decision 2's floor: sliding vertically is one
-  more reason a row's number is a floor.
+  against the corrected 2-D grid that relationship dissolved — the two
+  candidates at 0.37 tile gained 25.0% and 16.7% while the fully-tiled 1.48
+  case gained 0.8% — so the per-row prediction was dropped rather than
+  restated. The gain is consistently positive, which folds into decision 2's
+  floor: sliding vertically is one more reason a row's number is a floor.
+- **Why no per-row flag even though a relationship did turn up:** the gain
+  falls monotonically as the defect count rises — 25.0%, 16.7%, 12.9%, 6.2%,
+  1.2%, 0.8% against counts of 16, 36, 70, 81, 161 and 665. It reads sensibly,
+  since a placement with few defects left has proportionally more to gain from
+  another axis to move on. It is still not worth flagging: the quantity it
+  tracks is the defect count the row already displays, so a flag would restate
+  a number the reader can see, and one scan cannot calibrate a prediction.
 - **Alternatives rejected:** *mirroring the Slide Vertically toggle*, at 4.2×
   the runtime to reproduce a ranking already known to be correct.
 
@@ -116,9 +147,15 @@ to take a strip count rather than an angle.
   less pattern left to have defects in — so ranked on count alone the advisor
   would always recommend covering less of the object. Normalizing by covered
   fraction is what separates a real gain from an arithmetic one: on the
-  reference scan, running the pattern only 58% of the way up buys 7.6% and
+  reference scan, running the pattern only 58% of the way up buys 1.6% and
   costs 42% of the coverage. The lever stays because "this buys almost
   nothing" is worth telling someone who is currently running a height limit.
+- **The normalized column is not even monotone.** At 25 mm it is marginally
+  worse than no limit at all, and at 75 mm worse than the 50 mm the owner
+  already runs — flat noise in the low 240s with the current setting sitting
+  below it. So there is no depth at which cutting the pattern short buys
+  anything, which is a stronger statement than the lever merely paying
+  poorly.
 - **Alternatives rejected:** *normalizing to a defect rate* (invents a unit
   the user has never worked in and hides the absolute count they care about);
   *dropping the lever* (then nothing ever says it does not help).
@@ -129,10 +166,12 @@ to take a strip count rather than an angle.
   row's settings, clears `has_pattern_fit` and `pattern_fit_stamp`, and leaves
   the advice table intact.
 - **Why:** the output is a trade-off the user weighs, not a number the tool
-  acts on — two combinations tied for best on the reference scan at different
-  strip widths, and which is preferable is not the tool's call. Clearing the
-  placement is required because it was optimized for the settings just
-  replaced.
+  acts on. The two best combinations on the reference scan differ by 12
+  defects against 16 — but they cost 47.9 mm and 38.3 mm strips, and a user
+  whose mat is 40 mm wide cannot cut the winner. The rows are not comparable
+  on one axis, so naming a winner would be the tool deciding something it
+  cannot see. Clearing the placement is required because it was optimized for
+  the settings just replaced.
 - **Why the advice stamp omits the swept levers:** `advice_stamp` covers the
   scan, the pattern file, the floors, invert and the pipeline settings, but
   deliberately **not** `n_strips`/`strip_angle`, `pattern_repeats_x` or the
@@ -261,6 +300,17 @@ to take a strip count rather than an angle.
 
 ## Accepted deviations / known gaps
 
+- **Every figure here was re-measured after the radial outlier gate, and will
+  not reconcile with the investigation that prompted this work.** The gate
+  landed in 0.9.4, mid-build, and moved the reference scan's bottom
+  circumference by 3.3%; tile width is circumference divided by repeats, so
+  the whole calibration was re-run on clean geometry rather than shipped as
+  taken. The design survived unchanged — the ranking of the levers, and the
+  case for each one, held — but several of the numbers behind it moved, and
+  two arguments had to be re-made on different grounds (see decisions 4 and
+  7). Figures recorded against pre-0.9.4 geometry, including those in the
+  0.9.3 search-objective work, are left as they were measured and do not
+  compare to these.
 - **The floors are still uncalibrated.** Every figure here is measured against
   10 mm² and 0.6 mm, which remain estimates awaiting a blast calibration. The
   advisor reports rankings, which are far more robust to a floor change than

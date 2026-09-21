@@ -19,8 +19,9 @@
 > the same split this document found. What the corruption does mean is that
 > individual counts here are unreliable in an unknown direction, and that the
 > deformed gore was contributing seam slivers of its own that 0.9.4 removed at
-> the source. See `../specs/2026-09-08-placement-advisor-design.md` for figures
-> re-measured on clean geometry.
+> the source. See
+> [`../../decisions/2026-09-09-placement-advisor.md`](../../decisions/2026-09-09-placement-advisor.md)
+> for figures re-measured on clean geometry.
 >
 > It is kept as written because it is the record of what was known at the time,
 > and because the 0.9.4 fix was found by re-measuring exactly these numbers.
