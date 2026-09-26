@@ -26,7 +26,7 @@ import numpy as np
 
 from . import raster
 from .pattern_warp import (PatternError, _gore_geometry, _subpath_geometry,
-                           _tile_metrics)
+                           _tile_metrics, _MIN_FRAGMENT_MM)
 from .svg_export import _edge_profiles
 
 PX_MIN = 0.05        # mm; a floor on cost
@@ -832,6 +832,67 @@ def defect_boxes(pattern, placements, outlines, circumference, repeats_x,
                 y_lo = geom.base_y - (rows.max() + 1.0) * px
                 target.append(np.array([[x0, y_lo], [x1, y_hi]]))
     return boxes, intrinsic
+
+
+def _gore_top_edge_segments(geom, tile, offset=(0.0, 0.0)):
+    """One gore's share of the polarity-split pattern-edge cut.
+
+    Segments are the contiguous BACKGROUND runs along the boundary row
+    `geom.pattern_top` -- spans that are material are left uncut, since
+    above the limit nothing is sampled at all and the strip is
+    unconditionally solid resist there, so a material span is already
+    continuous with it. `tile` must already carry the polarity to score
+    (build_tile's own `invert`, or its mask complemented by the caller);
+    this function reads it as given.
+
+    Mirrors defect_boxes's per-gore coordinate math (final SVG mm, tx/hw0/
+    base_y), but samples one row instead of a full grid.
+    """
+    my = geom.pattern_top
+    px = tile.px
+    nx = max(1, int(np.ceil(2.0 * geom.hw0 / px)))
+    fx = (np.arange(nx) + 0.5) * px - geom.hw0
+    half = float(geom.right_x(my))
+    inside = np.abs(fx) <= half
+    safe = max(half, 1e-9)
+    mx = geom.xc + fx * (geom.hw0 / safe)
+
+    phi_x, phi_y = offset
+    ny_t, nx_t = tile.mask.shape
+    ix = (((mx - phi_x) % tile.W) / px).astype(np.int64) % nx_t
+    iy = int(((my - phi_y) % tile.tile_h) / px) % ny_t
+    background = inside & ~tile.mask[iy, ix]
+
+    final_y = geom.base_y - my
+    segments = []
+    idx = np.flatnonzero(background)
+    if idx.size == 0:
+        return segments
+    splits = np.flatnonzero(np.diff(idx) > 1) + 1
+    for run in np.split(idx, splits):
+        x0 = geom.tx + float(run[0]) * px - geom.hw0
+        x1 = geom.tx + float(run[-1] + 1) * px - geom.hw0
+        if x1 - x0 < _MIN_FRAGMENT_MM:
+            continue
+        segments.append(np.array([[x0, final_y], [x1, final_y]]))
+    return segments
+
+
+def top_edge_segments(placements, outlines, circumference, top_inset, tile,
+                      offset=(0.0, 0.0)):
+    """Cut segments closing off a height-limited pattern, split by polarity.
+
+    One call's worth for every gore; see _gore_top_edge_segments for the
+    per-gore math. Degenerate gores (_gore_geometry yields None) contribute
+    nothing, the same contract pattern_warp.top_edge_line has.
+    """
+    segments = []
+    for _i, geom in _gore_geometry(placements, outlines, circumference,
+                                   top_inset):
+        if geom is None:
+            continue
+        segments.extend(_gore_top_edge_segments(geom, tile, offset))
+    return segments
 
 
 METRIC_VERSION = 2

@@ -1196,3 +1196,86 @@ def test_edge_profiles_top_bottom_are_read_in_pattern_coordinates(tmp_path):
     assert not prof.top[-frac:].any(), "top edge empty near x=px_width"
     assert prof.bottom[-frac:].all(), "bottom edge carries material near x=px_width"
     assert not prof.bottom[:frac].any(), "bottom edge empty near x=0"
+
+
+def _flat_geom(hw0=20.0, pattern_top=10.0, tx=0.0, base_y=50.0, xc=0.0):
+    # A degenerate, constant-width "gore" -- right_x is the same at every
+    # height -- so the master/final mapping in _gore_top_edge_segments is
+    # the identity and hand-computed expectations are exact.
+    return pattern_warp.GoreGeometry(
+        warp=None, tx=tx, base_y=base_y, xc=xc, hw0=hw0,
+        right_x=lambda y: np.full_like(np.asarray(y, dtype=float), hw0),
+        pattern_top=pattern_top)
+
+
+def test_gore_top_edge_segments_covers_a_fully_background_row():
+    # No material anywhere in the tile: today's plain full-width line is
+    # exactly right here, and the new function must still produce it.
+    geom = _flat_geom()
+    tile = pattern_fit.TileMask(mask=np.zeros((4, 4), dtype=bool),
+                               px=10.0, W=40.0, tile_h=40.0)
+    segs = pattern_fit._gore_top_edge_segments(geom, tile)
+    assert len(segs) == 1
+    (x0, y0), (x1, y1) = segs[0]
+    assert y0 == y1 == pytest.approx(geom.base_y - geom.pattern_top)
+    assert x0 == pytest.approx(geom.tx - geom.hw0)
+    assert x1 == pytest.approx(geom.tx + geom.hw0)
+
+
+def test_gore_top_edge_segments_is_empty_over_material():
+    # This is the bug this feature exists to fix: a row that is material
+    # everywhere needs no cut at all, since it is already continuous with
+    # the solid, uncut strip above the limit.
+    geom = _flat_geom()
+    tile = pattern_fit.TileMask(mask=np.ones((4, 4), dtype=bool),
+                               px=10.0, W=40.0, tile_h=40.0)
+    assert pattern_fit._gore_top_edge_segments(geom, tile) == []
+
+
+def test_gore_top_edge_segments_leaves_a_middle_material_span_uncut():
+    # hw0=20, px=10 -> 4 columns, fx = [-15, -5, 5, 15]. With W == 2*hw0 the
+    # modulo lookup wraps: fx -> ix is [2, 3, 0, 1] in physical column order.
+    # Marking mask[1, 3] and mask[1, 0] material puts the material at
+    # PHYSICAL columns 1 and 2 (the middle), background at the two outer
+    # columns -- two separate segments, one per edge, nothing cut through
+    # the middle.
+    geom = _flat_geom()
+    mask = np.zeros((4, 4), dtype=bool)
+    mask[1, 3] = True
+    mask[1, 0] = True
+    tile = pattern_fit.TileMask(mask=mask, px=10.0, W=40.0, tile_h=40.0)
+    segs = pattern_fit._gore_top_edge_segments(geom, tile)
+    assert len(segs) == 2
+    xs = sorted((float(s[0, 0]), float(s[1, 0])) for s in segs)
+    assert xs[0] == pytest.approx((-20.0, -10.0))
+    assert xs[1] == pytest.approx((10.0, 20.0))
+
+
+def test_gore_top_edge_segments_covers_only_the_background_half():
+    # Material at physical columns 2-3 (the right half of the gore), via
+    # ix = [2, 3, 0, 1] as above: mask[1, 0] and mask[1, 1] are material.
+    # Background is the left half only -- the segment must not span the
+    # full width the way the old plain line always did.
+    geom = _flat_geom()
+    mask = np.zeros((4, 4), dtype=bool)
+    mask[1, 0] = True
+    mask[1, 1] = True
+    tile = pattern_fit.TileMask(mask=mask, px=10.0, W=40.0, tile_h=40.0)
+    segs = pattern_fit._gore_top_edge_segments(geom, tile)
+    assert len(segs) == 1
+    (x0, y0), (x1, y1) = segs[0]
+    assert (float(x0), float(x1)) == pytest.approx((-20.0, 0.0))
+
+
+def test_top_edge_segments_skips_degenerate_gores(tmp_path):
+    # The driver must not choke on a gore _gore_geometry reports as None
+    # (top_inset at or past the apex) -- same contract top_edge_line has.
+    pattern, layout, result = _averaged_setup(12, tmp_path)
+    circ = result.dims.bottom_circumference
+    px, _steps = pattern_fit.raster_pitch(10.0, 0.6)
+    tile = pattern_fit.build_tile(pattern, circ, 4, px)
+    segs = pattern_fit.top_edge_segments(
+        layout.placements, result.outlines, circ, 20.0, tile)
+    assert isinstance(segs, list)
+    for seg in segs:
+        assert seg.shape == (2, 2)
