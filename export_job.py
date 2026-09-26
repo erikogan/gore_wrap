@@ -17,29 +17,50 @@ from . import __version__ as _VERSION
 
 def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
                       repeats_x, defects, intrinsic, counts_current,
-                      invert=False):
-    """One-line provenance for the SVG: which placement produced this file.
+                      invert=False, limit_top=False, top_offset=0.0,
+                      top_mode="SURFACE", edge_by_polarity=True,
+                      smooth=True, simplify_mode="VISUAL",
+                      simplify_tol=0.1, corner_angle=30.0):
+    """One-line provenance for the SVG: which settings produced this file.
 
-    Numbers and the version only -- no user-supplied strings. A filename would
-    have to be sanitized into a structural position, and dropping it removes
-    that whole class of problem for a little reproducibility.
+    Numbers, enum names, and the version only -- no user-supplied strings. A
+    filename would have to be sanitized into a structural position, and
+    dropping it removes that whole class of problem for a little
+    reproducibility.
 
     The polarity clause is the one thing here that the geometry cannot tell
-    you: a cutter cuts every contour regardless of which side is weeded, so
-    the two polarities produce the same paths and this comment is the file's
-    only record of which side the placement was scored for.
+    you on its own: a cutter cuts every contour regardless of which side is
+    weeded, so the two polarities produce the same cut paths and this
+    comment is the file's only record of which side the placement was
+    scored for. `edge_by_polarity` is the one exception to that: when it is
+    on (the default), Invert Pattern DOES change the exported pattern-edge
+    geometry, and the clause here is exception-only (silent when on) the
+    same way `invert` itself is silent when off.
 
-    `defects`/`intrinsic` are only as fresh as the last Optimize run -- if the
-    user never ran it, or ran it and then hand-edited rotation, rise or either
-    floor (the case the panel calls "Placement is stale"), those counts
-    describe a placement that is not the one in this file. Every other clause
-    here is true by construction; these two are not, so when `counts_current`
-    is false the counts clause is omitted entirely rather than shipping a
-    number nobody measured against this placement.
+    `defects`/`intrinsic` are only as fresh as the last Optimize run -- if
+    the user never ran it, or ran it and then hand-edited rotation, rise or
+    either floor (the case the panel calls "Placement is stale"), those
+    counts describe a placement that is not the one in this file. Every
+    other clause here is true by construction; these two are not, so when
+    `counts_current` is false the counts clause is omitted entirely rather
+    than shipping a number nobody measured against this placement.
     """
     base = (f"Gore Wrap {_VERSION} | placement: rotation {rotation_deg:.3f} "
             f"deg, rise {rise_mm:.3f} mm | floors {area_floor:.1f} mm2 / "
             f"{width_floor:.2f} mm, repeats {repeats_x}")
+    if limit_top:
+        mode_word = "surface" if top_mode == "SURFACE" else "height"
+        base += f" | limit {top_offset:.3f} mm ({mode_word})"
+        if not edge_by_polarity:
+            base += ", plain edge"
+    if smooth:
+        if simplify_mode == "CUSTOM":
+            base += (f" | fit curves (custom {simplify_tol:.3f} mm / "
+                     f"{corner_angle:.1f} deg)")
+        else:
+            base += f" | fit curves ({simplify_mode.lower()})"
+    else:
+        base += " | fit polyline"
     if invert:
         base += " | polarity inverted"
     if not counts_current:
@@ -247,15 +268,21 @@ def export_steps(result, params, filepath):
         yield 0.10, "Preparing pattern…"
         offset = (circ * params["pattern_rotation"] / 360.0,
                   params["pattern_rise"])
-        comment = placement_comment(params["pattern_rotation"],
-                                    params["pattern_rise"],
-                                    params["pattern_min_area"],
-                                    params["pattern_min_width"],
-                                    params["pattern_repeats_x"],
-                                    params["pattern_defects"],
-                                    params["pattern_defects_intrinsic"],
-                                    params["pattern_counts_current"],
-                                    params["pattern_invert"])
+        comment = placement_comment(
+            params["pattern_rotation"], params["pattern_rise"],
+            params["pattern_min_area"], params["pattern_min_width"],
+            params["pattern_repeats_x"], params["pattern_defects"],
+            params["pattern_defects_intrinsic"],
+            params["pattern_counts_current"],
+            invert=params["pattern_invert"],
+            limit_top=params["pattern_limit_top"],
+            top_offset=params["pattern_top_offset"],
+            top_mode=params["pattern_top_mode"],
+            edge_by_polarity=params["pattern_edge_by_polarity"],
+            smooth=params["pattern_smooth"],
+            simplify_mode=params["pattern_simplify_mode"],
+            simplify_tol=params["pattern_simplify_tol"],
+            corner_angle=params["pattern_corner_angle"])
         n = len(layout.placements)
         pattern_polys = []
         top_inset = 0.0

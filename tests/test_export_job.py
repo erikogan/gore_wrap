@@ -287,6 +287,67 @@ def test_placement_comment_says_nothing_when_not_inverted(tmp_path):
     assert "inverted" not in _comment(open(out).read())
 
 
+def test_placement_comment_records_the_height_limit(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="SURFACE")
+    assert "limit 8.000 mm (surface)" in comment
+
+
+def test_placement_comment_omits_the_limit_clause_when_off(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, limit_top=False)
+    assert "limit" not in comment
+
+
+def test_placement_comment_notes_a_plain_edge(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="HEIGHT",
+        edge_by_polarity=False)
+    assert "limit 8.000 mm (height), plain edge" in comment
+
+
+def test_placement_comment_says_nothing_about_the_edge_when_split(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="HEIGHT",
+        edge_by_polarity=True)
+    assert "plain edge" not in comment
+
+
+def test_placement_comment_records_polyline_fit(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=False)
+    assert "fit polyline" in comment
+
+
+def test_placement_comment_records_a_simplify_preset(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=True,
+        simplify_mode="CUTTER")
+    assert "fit curves (cutter)" in comment
+
+
+def test_placement_comment_records_custom_fit_numbers(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=True,
+        simplify_mode="CUSTOM", simplify_tol=0.1, corner_angle=30.0)
+    assert "fit curves (custom 0.100 mm / 30.0 deg)" in comment
+
+
+def test_placement_comment_clause_order(tmp_path):
+    comment = export_job.placement_comment(
+        12.0, 3.5, 10.0, 0.6, 12, 6, 2, True, invert=True, limit_top=True,
+        top_offset=8.0, top_mode="SURFACE", edge_by_polarity=False,
+        smooth=True, simplify_mode="CUSTOM", simplify_tol=0.1,
+        corner_angle=30.0)
+    for a, b in [("repeats 12", "limit"), ("limit", "fit"),
+                ("fit", "polarity inverted"),
+                ("polarity inverted", "6 defects")]:
+        assert comment.index(a) < comment.index(b)
+
+
 def test_the_defects_layer_follows_the_inverted_polarity(tmp_path):
     # Everything but the polarity is held fixed, so the two layers can only
     # differ if `pattern_invert` actually reaches defect_boxes().
