@@ -10,7 +10,7 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
-## 1.0.2 — 2026-09-26
+## 1.1.0 — 2026-09-26
 
 **The height-limit cut no longer severs material it should leave alone.**
 With Limit Pattern Height on, the straight cut closing off the pattern used
