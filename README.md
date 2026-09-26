@@ -304,7 +304,7 @@ measures: with it on, the search protects the ground between the shapes
 instead of the shapes themselves, and
 [**Mark Defects in Export**](#mark-defects-in-export) boxes pieces of that
 ground. The exception is
-[**Split Edge by Polarity**](#limit-pattern-height): with
+[**Split Edge by Polarity**](#split-edge-by-polarity): with
 [**Limit Pattern Height**](#limit-pattern-height) on, this setting decides
 which spans of that boundary cut are drawn. The SVG's provenance comment
 records the polarity either way, so a file can be read back later and weeded
@@ -321,7 +321,9 @@ says.
 
 Stop the pattern short of the top instead of filling the whole gore, closing it
 off with a straight cut parallel to the bottom. The cuts go in their own
-`pattern-edge` layer, one per strip.
+`pattern-edge` layer — one spanning each strip, or, with
+[**Split Edge by Polarity**](#split-edge-by-polarity) on, one per background
+span.
 
 **Set this before [Placement](#placement)** — it materially changes what the
 search optimizes. With no limit the pattern runs all the way to the apex, where
