@@ -17,29 +17,50 @@ from . import __version__ as _VERSION
 
 def placement_comment(rotation_deg, rise_mm, area_floor, width_floor,
                       repeats_x, defects, intrinsic, counts_current,
-                      invert=False):
-    """One-line provenance for the SVG: which placement produced this file.
+                      invert=False, limit_top=False, top_offset=0.0,
+                      top_mode="SURFACE", edge_by_polarity=True,
+                      smooth=True, simplify_mode="VISUAL",
+                      simplify_tol=0.1, corner_angle=30.0):
+    """One-line provenance for the SVG: which settings produced this file.
 
-    Numbers and the version only -- no user-supplied strings. A filename would
-    have to be sanitized into a structural position, and dropping it removes
-    that whole class of problem for a little reproducibility.
+    Numbers, enum names, and the version only -- no user-supplied strings. A
+    filename would have to be sanitized into a structural position, and
+    dropping it removes that whole class of problem for a little
+    reproducibility.
 
     The polarity clause is the one thing here that the geometry cannot tell
-    you: a cutter cuts every contour regardless of which side is weeded, so
-    the two polarities produce the same paths and this comment is the file's
-    only record of which side the placement was scored for.
+    you on its own: a cutter cuts every contour regardless of which side is
+    weeded, so the two polarities produce the same cut paths and this
+    comment is the file's only record of which side the placement was
+    scored for. `edge_by_polarity` is the one exception to that: when it is
+    on (the default), Invert Pattern DOES change the exported pattern-edge
+    geometry, and the clause here is exception-only (silent when on) the
+    same way `invert` itself is silent when off.
 
-    `defects`/`intrinsic` are only as fresh as the last Optimize run -- if the
-    user never ran it, or ran it and then hand-edited rotation, rise or either
-    floor (the case the panel calls "Placement is stale"), those counts
-    describe a placement that is not the one in this file. Every other clause
-    here is true by construction; these two are not, so when `counts_current`
-    is false the counts clause is omitted entirely rather than shipping a
-    number nobody measured against this placement.
+    `defects`/`intrinsic` are only as fresh as the last Optimize run -- if
+    the user never ran it, or ran it and then hand-edited rotation, rise or
+    either floor (the case the panel calls "Placement is stale"), those
+    counts describe a placement that is not the one in this file. Every
+    other clause here is true by construction; these two are not, so when
+    `counts_current` is false the counts clause is omitted entirely rather
+    than shipping a number nobody measured against this placement.
     """
     base = (f"Gore Wrap {_VERSION} | placement: rotation {rotation_deg:.3f} "
             f"deg, rise {rise_mm:.3f} mm | floors {area_floor:.1f} mm2 / "
             f"{width_floor:.2f} mm, repeats {repeats_x}")
+    if limit_top:
+        mode_word = "surface" if top_mode == "SURFACE" else "height"
+        base += f" | limit {top_offset:.3f} mm ({mode_word})"
+        if not edge_by_polarity:
+            base += ", plain edge"
+    if smooth:
+        if simplify_mode == "CUSTOM":
+            base += (f" | fit curves (custom {simplify_tol:.3f} mm / "
+                     f"{corner_angle:.1f} deg)")
+        else:
+            base += f" | fit curves ({simplify_mode.lower()})"
+    else:
+        base += " | fit polyline"
     if invert:
         base += " | polarity inverted"
     if not counts_current:
@@ -178,7 +199,8 @@ def export_steps(result, params, filepath):
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
-    pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
+    pattern_limit_top, pattern_top_offset, pattern_top_mode,
+    pattern_edge_by_polarity, pattern_rotation,
     pattern_rise, pattern_min_area, pattern_min_width, pattern_invert,
     pattern_mark_defects, pattern_mark_intrinsic, pattern_defects,
     pattern_defects_intrinsic, pattern_counts_current.
@@ -246,15 +268,27 @@ def export_steps(result, params, filepath):
         yield 0.10, "Preparing pattern…"
         offset = (circ * params["pattern_rotation"] / 360.0,
                   params["pattern_rise"])
-        comment = placement_comment(params["pattern_rotation"],
-                                    params["pattern_rise"],
-                                    params["pattern_min_area"],
-                                    params["pattern_min_width"],
-                                    params["pattern_repeats_x"],
-                                    params["pattern_defects"],
-                                    params["pattern_defects_intrinsic"],
-                                    params["pattern_counts_current"],
-                                    params["pattern_invert"])
+        # Whether the top edge actually gets split: the raw setting is only
+        # half the story, since a stroke-only pattern leaves profiles None
+        # and forces the plain-line fallback below regardless of the
+        # setting. Computed once so the comment and the edge_lines branch
+        # can never disagree about which behavior the file actually got.
+        split_edge = profiles is not None and params["pattern_edge_by_polarity"]
+        comment = placement_comment(
+            params["pattern_rotation"], params["pattern_rise"],
+            params["pattern_min_area"], params["pattern_min_width"],
+            params["pattern_repeats_x"], params["pattern_defects"],
+            params["pattern_defects_intrinsic"],
+            params["pattern_counts_current"],
+            invert=params["pattern_invert"],
+            limit_top=params["pattern_limit_top"],
+            top_offset=params["pattern_top_offset"],
+            top_mode=params["pattern_top_mode"],
+            edge_by_polarity=split_edge,
+            smooth=params["pattern_smooth"],
+            simplify_mode=params["pattern_simplify_mode"],
+            simplify_tol=params["pattern_simplify_tol"],
+            corner_angle=params["pattern_corner_angle"])
         n = len(layout.placements)
         pattern_polys = []
         top_inset = 0.0
@@ -262,11 +296,29 @@ def export_steps(result, params, filepath):
             top_inset = resolve_top_inset(params["pattern_top_mode"],
                                           params["pattern_top_offset"],
                                           result.profile)
-            edge_lines = [line for line in (
-                pattern_warp.top_edge_line(poly, outline, top_inset)
-                for (_i, poly), outline in zip(layout.placements,
-                                               result.outlines))
-                if line is not None] or None
+            if split_edge:
+                # tile_mask is bound here: profiles is only ever set right
+                # after tile_mask, in the same try block above, so one
+                # existing implies the other. Reuse its array rather than
+                # re-rasterizing -- complementing is the only difference
+                # invert makes, and the seam-suppression profiles above must
+                # stay uninverted (2026-09-07-pattern-polarity-scoring.md
+                # decision 8), so this is a second TileMask, never a
+                # mutation of that one.
+                edge_mask = (~tile_mask.mask if params["pattern_invert"]
+                            else tile_mask.mask)
+                edge_tile = pattern_fit.TileMask(
+                    mask=edge_mask, px=tile_mask.px, W=tile_mask.W,
+                    tile_h=tile_mask.tile_h)
+                edge_lines = pattern_fit.top_edge_segments(
+                    layout.placements, result.outlines, circ, top_inset,
+                    edge_tile, offset=offset) or None
+            else:
+                edge_lines = [line for line in (
+                    pattern_warp.top_edge_line(poly, outline, top_inset)
+                    for (_i, poly), outline in zip(layout.placements,
+                                                   result.outlines))
+                    if line is not None] or None
         if params["pattern_smooth"]:
             resolution, corner_cos = resolve_simplify(
                 params["pattern_simplify_mode"],

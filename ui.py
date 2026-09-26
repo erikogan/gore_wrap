@@ -93,6 +93,7 @@ class GOREWRAP_PT_panel(bpy.types.Panel):
             if props.pattern_limit_top:
                 _labeled(col, props, "pattern_top_offset")
                 _labeled(col, props, "pattern_top_mode")
+                col.prop(props, "pattern_edge_by_polarity")
                 if (props.has_preview
                         and props.pattern_top_mode == "HEIGHT"
                         and props.pattern_top_offset >= props.derived_height):

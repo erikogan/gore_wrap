@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pytest
 
-from gore_wrap import export_job, geometry, pipeline, pattern_warp, svg_export
+from gore_wrap import export_job, geometry, pattern_fit, pipeline, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
@@ -15,7 +15,7 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_top_mode="SURFACE",
                   pattern_rotation=0.0, pattern_rise=0.0,
                   pattern_min_area=10.0, pattern_min_width=0.6,
-                  pattern_invert=False,
+                  pattern_invert=False, pattern_edge_by_polarity=True,
                   pattern_mark_defects=False, pattern_mark_intrinsic=False,
                   pattern_defects=0,
                   pattern_defects_intrinsic=0, pattern_counts_current=True)
@@ -200,7 +200,7 @@ def _limited(tmp_path, **over):
 
 def test_export_steps_writes_one_edge_cut_per_strip(tmp_path):
     out = str(tmp_path / "g.svg")
-    summary = _drain(export_job.export_steps(_result(), _limited(tmp_path), out))
+    summary = _drain(export_job.export_steps(_result(), _limited(tmp_path, pattern_edge_by_polarity=False), out))
     body = open(out).read()
     edge = body.split('<g id="pattern-edge"')[1].split("</g>")[0]
     assert edge.count("<path") == summary.n_strips
@@ -218,6 +218,34 @@ def test_export_steps_limit_past_the_apex_leaves_no_pattern(tmp_path):
         _result(), _limited(tmp_path, pattern_top_offset=1000.0),
         str(tmp_path / "g.svg")))
     assert summary.pattern_empty is True
+
+
+def test_stroke_only_pattern_falls_back_to_plain_edge_when_split_is_on(tmp_path):
+    # profiles is None for a stroke-only pattern (PatternError caught), so
+    # the edge_lines branch in export_steps takes the plain-line path even
+    # though pattern_edge_by_polarity is on. The export must still succeed
+    # and write the exact same plain, one-cut-per-strip edge geometry as the
+    # non-split fallback (the setting off), and -- now that Fix 3 hoists the
+    # effective flag above the comment -- the provenance comment must say so
+    # with the ", plain edge" note, since the file's actual behavior fell
+    # back to plain even though the raw setting was on.
+    reference_out = str(tmp_path / "reference.svg")
+    _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_edge_by_polarity=False),
+        reference_out))
+    reference_edge = open(reference_out).read().split(
+        '<g id="pattern-edge"')[1].split("</g>")[0]
+
+    out = str(tmp_path / "stroke.svg")
+    params = _limited(tmp_path, pattern_edge_by_polarity=True,
+                      pattern_svg=_write_stroke_only_pattern(tmp_path))
+    summary = _drain(export_job.export_steps(_result(), params, out))
+    body = open(out).read()
+    edge = body.split('<g id="pattern-edge"')[1].split("</g>")[0]
+
+    assert edge.count("<path") == summary.n_strips
+    assert edge == reference_edge, "stroke-only fallback edge geometry differs"
+    assert "plain edge" in _comment(body)
 
 
 # --- placement comment -------------------------------------------------------
@@ -285,6 +313,67 @@ def test_placement_comment_says_nothing_when_not_inverted(tmp_path):
     out = str(tmp_path / "out.svg")
     _drain(export_job.export_steps(_result(), params, out))
     assert "inverted" not in _comment(open(out).read())
+
+
+def test_placement_comment_records_the_height_limit(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="SURFACE")
+    assert "limit 8.000 mm (surface)" in comment
+
+
+def test_placement_comment_omits_the_limit_clause_when_off(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, limit_top=False)
+    assert "limit" not in comment
+
+
+def test_placement_comment_notes_a_plain_edge(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="HEIGHT",
+        edge_by_polarity=False)
+    assert "limit 8.000 mm (height), plain edge" in comment
+
+
+def test_placement_comment_says_nothing_about_the_edge_when_split(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False,
+        limit_top=True, top_offset=8.0, top_mode="HEIGHT",
+        edge_by_polarity=True)
+    assert "plain edge" not in comment
+
+
+def test_placement_comment_records_polyline_fit(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=False)
+    assert "fit polyline" in comment
+
+
+def test_placement_comment_records_a_simplify_preset(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=True,
+        simplify_mode="CUTTER")
+    assert "fit curves (cutter)" in comment
+
+
+def test_placement_comment_records_custom_fit_numbers(tmp_path):
+    comment = export_job.placement_comment(
+        0.0, 0.0, 10.0, 0.6, 12, 0, 0, False, smooth=True,
+        simplify_mode="CUSTOM", simplify_tol=0.1, corner_angle=30.0)
+    assert "fit curves (custom 0.100 mm / 30.0 deg)" in comment
+
+
+def test_placement_comment_clause_order(tmp_path):
+    comment = export_job.placement_comment(
+        12.0, 3.5, 10.0, 0.6, 12, 6, 2, True, invert=True, limit_top=True,
+        top_offset=8.0, top_mode="SURFACE", edge_by_polarity=False,
+        smooth=True, simplify_mode="CUSTOM", simplify_tol=0.1,
+        corner_angle=30.0)
+    for a, b in [("repeats 12", "limit"), ("limit", "fit"),
+                ("fit", "polarity inverted"),
+                ("polarity inverted", "6 defects")]:
+        assert comment.index(a) < comment.index(b)
 
 
 def test_the_defects_layer_follows_the_inverted_polarity(tmp_path):
@@ -495,3 +584,56 @@ def test_a_rise_of_zero_puts_the_seam_on_the_base_cut_and_says_nothing(
         tmp_path):
     summary = _export_with(tmp_path, 0.0, "clean.svg")
     assert summary.seam_height is None
+
+
+def test_edge_by_polarity_on_calls_top_edge_segments(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_segments(placements, outlines, circumference, top_inset, tile,
+                      offset=(0.0, 0.0)):
+        calls.append((top_inset, tile.mask.shape))
+        return [np.array([[1.0, 2.0], [3.0, 2.0]])]
+
+    monkeypatch.setattr(pattern_fit, "top_edge_segments", fake_segments)
+    out = str(tmp_path / "g.svg")
+    _drain(export_job.export_steps(_result(), _limited(tmp_path), out))
+    assert calls, "top_edge_segments was not called with the default on"
+    edge = open(out).read().split('<g id="pattern-edge"')[1].split("</g>")[0]
+    assert "M 1.000 2.000 L 3.000 2.000" in edge
+
+
+def test_edge_by_polarity_off_never_calls_top_edge_segments(tmp_path,
+                                                             monkeypatch):
+    calls = []
+    monkeypatch.setattr(pattern_fit, "top_edge_segments",
+                        lambda *a, **k: calls.append(1) or [])
+    out = str(tmp_path / "g.svg")
+    summary = _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_edge_by_polarity=False), out))
+    assert not calls, "top_edge_segments must not run when the flag is off"
+    edge = open(out).read().split('<g id="pattern-edge"')[1].split("</g>")[0]
+    assert edge.count("<path") == summary.n_strips, (
+        "the plain-line fallback must still draw exactly one segment per "
+        "strip")
+
+
+def test_edge_tile_is_complemented_when_inverted(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_segments(placements, outlines, circumference, top_inset, tile,
+                      offset=(0.0, 0.0)):
+        captured["mask"] = tile.mask.copy()
+        return []
+
+    monkeypatch.setattr(pattern_fit, "top_edge_segments", fake_segments)
+    params = _limited(tmp_path, pattern_invert=True)
+    result = _result()
+    _drain(export_job.export_steps(result, params, str(tmp_path / "g.svg")))
+
+    pattern = pattern_warp.load_pattern(params["pattern_svg"])
+    px, _steps = pattern_fit.raster_pitch(params["pattern_min_area"],
+                                          params["pattern_min_width"])
+    expected = pattern_fit.build_tile(
+        pattern, result.dims.bottom_circumference,
+        params["pattern_repeats_x"], px, invert=True)
+    assert np.array_equal(captured["mask"], expected.mask)

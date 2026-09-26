@@ -297,14 +297,18 @@ everything around them as the material — for artwork drawn as its own negative
 where the shapes are what you want cut away rather than what you want left
 behind.
 
-**This does not change the exported geometry.** A cutter cuts every contour
-regardless of which side you weed, so the SVG is the same file either way. What
-changes is what [Placement](#placement) measures: with it on, the search
-protects the ground between the shapes instead of the shapes themselves, and
+**This does not change the exported cut geometry, with one exception.** A
+cutter cuts every contour regardless of which side you weed, so the SVG is
+the same file either way. What changes is what [Placement](#placement)
+measures: with it on, the search protects the ground between the shapes
+instead of the shapes themselves, and
 [**Mark Defects in Export**](#mark-defects-in-export) boxes pieces of that
-ground. Because the polarity leaves no trace in the geometry, the SVG's
-provenance comment records it, so a file can be read back later and weeded the
-way it was scored.
+ground. The exception is
+[**Split Edge by Polarity**](#split-edge-by-polarity): with
+[**Limit Pattern Height**](#limit-pattern-height) on, this setting decides
+which spans of that boundary cut are drawn. The SVG's provenance comment
+records the polarity either way, so a file can be read back later and weeded
+the way it was scored.
 
 Two consequences worth expecting. The pattern still has to be _filled_ — a
 stroke-only file has nothing to invert, and scoring rejects it in both
@@ -317,7 +321,9 @@ says.
 
 Stop the pattern short of the top instead of filling the whole gore, closing it
 off with a straight cut parallel to the bottom. The cuts go in their own
-`pattern-edge` layer, one per strip.
+`pattern-edge` layer — one spanning each strip, or, with
+[**Split Edge by Polarity**](#split-edge-by-polarity) on, one per background
+span.
 
 **Set this before [Placement](#placement)** — it materially changes what the
 search optimizes. With no limit the pattern runs all the way to the apex, where
@@ -343,6 +349,20 @@ How that distance is read.
 - **Model Height** — a vertical drop on the object, converted through the
   profile. A domed or flared top covers far more surface than height, so a
   small drop there can be a much larger distance on the pattern.
+
+#### Split Edge by Polarity
+
+Default on. The straight cut at the height limit is drawn only across the
+ground that will be weeded away — spans that are kept material stay uncut,
+since they continue unbroken into the untouched strip above the limit. Turn
+it off to get the plain cut spanning the full width regardless of polarity,
+the way every release before this one drew it.
+
+**With this on, the cut is no longer the same file with**
+[**Invert Pattern**](#invert-pattern) **on or off.** Which spans count as
+material flips with it, so this one boundary line moves. Every other cut in
+the file — the pattern itself, the gore outlines — stays exactly as
+described in Invert Pattern's own section: identical either way.
 
 ### Smooth to Curves
 
