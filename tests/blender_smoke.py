@@ -200,13 +200,59 @@ def main():
     groups = ET.parse(out_split).getroot().findall(f".//{{{SVG_NS}}}g")
     edge_g_split = next((g for g in groups if g.get("id") == "pattern-edge"),
                         None)
-    split_paths = edge_g_split.findall(f"{{{SVG_NS}}}path") if edge_g_split \
-        else []
+    assert edge_g_split is not None, \
+        "no pattern-edge layer in split height-limited export"
+    split_paths = edge_g_split.findall(f"{{{SVG_NS}}}path")
     assert _edge_length(split_paths) <= _edge_length(edge_paths) + 1e-6, (
         "polarity split cut MORE than the plain line -- should only ever "
         "cut a subset of it")
     print(f"[smoke] limited pattern (split edge) ok: {len(split_paths)} "
           f"edge cuts, {_edge_length(split_paths):.2f} mm total")
+
+    # The <= check above holds even if the split silently regressed to the
+    # old plain-line behavior (both sides would just be equal), because at
+    # offset 40.0 the boundary row happens to land fully in background for
+    # every strip. At offset 30.0 with this same circle pattern, the
+    # boundary row crosses the circle for some repeats, so a real split must
+    # produce a different path count or a strictly shorter total -- proving
+    # the split logic actually ran rather than merely never over-cutting.
+    props.pattern_top_offset = 30.0
+    props.pattern_edge_by_polarity = False
+    out_lim2 = os.path.join(tempfile.gettempdir(),
+                            "gorewrap_smoke_limited2.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_lim2)
+    assert res == {"FINISHED"}, res
+    groups = ET.parse(out_lim2).getroot().findall(f".//{{{SVG_NS}}}g")
+    edge_g2 = next((g for g in groups if g.get("id") == "pattern-edge"), None)
+    assert edge_g2 is not None, \
+        "no pattern-edge layer in second height-limited export"
+    edge_paths2 = edge_g2.findall(f"{{{SVG_NS}}}path")
+
+    props.pattern_edge_by_polarity = True
+    out_split2 = os.path.join(tempfile.gettempdir(),
+                              "gorewrap_smoke_limited2_split.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_split2)
+    assert res == {"FINISHED"}, res
+    groups = ET.parse(out_split2).getroot().findall(f".//{{{SVG_NS}}}g")
+    edge_g_split2 = next((g for g in groups if g.get("id") == "pattern-edge"),
+                        None)
+    assert edge_g_split2 is not None, \
+        "no pattern-edge layer in second split height-limited export"
+    split_paths2 = edge_g_split2.findall(f"{{{SVG_NS}}}path")
+
+    assert (len(split_paths2) != len(edge_paths2)
+            or _edge_length(split_paths2) < _edge_length(edge_paths2) - 1e-6), (
+        "split edge never actually diverged from the plain cut at an "
+        "offset where the boundary row crosses the pattern -- a regression "
+        "to the old plain-line behavior would still pass the <= check above")
+    print(f"[smoke] limited pattern (genuine split) ok: {len(edge_paths2)} "
+          f"plain -> {len(split_paths2)} split cuts, "
+          f"{_edge_length(edge_paths2):.2f} -> {_edge_length(split_paths2):.2f} mm")
+
+    # Restore the offset the checks below (preview shading etc.) expect.
+    props.pattern_top_offset = 40.0
 
     # The preview shades the part the pattern will not reach, in its own
     # material, split at the cut rather than at the nearest band.

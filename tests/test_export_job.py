@@ -220,6 +220,34 @@ def test_export_steps_limit_past_the_apex_leaves_no_pattern(tmp_path):
     assert summary.pattern_empty is True
 
 
+def test_stroke_only_pattern_falls_back_to_plain_edge_when_split_is_on(tmp_path):
+    # profiles is None for a stroke-only pattern (PatternError caught), so
+    # the edge_lines branch in export_steps takes the plain-line path even
+    # though pattern_edge_by_polarity is on. The export must still succeed
+    # and write the exact same plain, one-cut-per-strip edge geometry as the
+    # non-split fallback (the setting off), and -- now that Fix 3 hoists the
+    # effective flag above the comment -- the provenance comment must say so
+    # with the ", plain edge" note, since the file's actual behavior fell
+    # back to plain even though the raw setting was on.
+    reference_out = str(tmp_path / "reference.svg")
+    _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_edge_by_polarity=False),
+        reference_out))
+    reference_edge = open(reference_out).read().split(
+        '<g id="pattern-edge"')[1].split("</g>")[0]
+
+    out = str(tmp_path / "stroke.svg")
+    params = _limited(tmp_path, pattern_edge_by_polarity=True,
+                      pattern_svg=_write_stroke_only_pattern(tmp_path))
+    summary = _drain(export_job.export_steps(_result(), params, out))
+    body = open(out).read()
+    edge = body.split('<g id="pattern-edge"')[1].split("</g>")[0]
+
+    assert edge.count("<path") == summary.n_strips
+    assert edge == reference_edge, "stroke-only fallback edge geometry differs"
+    assert "plain edge" in _comment(body)
+
+
 # --- placement comment -------------------------------------------------------
 
 def test_export_writes_a_placement_comment(tmp_path):

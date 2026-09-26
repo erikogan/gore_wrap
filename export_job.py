@@ -268,6 +268,12 @@ def export_steps(result, params, filepath):
         yield 0.10, "Preparing pattern…"
         offset = (circ * params["pattern_rotation"] / 360.0,
                   params["pattern_rise"])
+        # Whether the top edge actually gets split: the raw setting is only
+        # half the story, since a stroke-only pattern leaves profiles None
+        # and forces the plain-line fallback below regardless of the
+        # setting. Computed once so the comment and the edge_lines branch
+        # can never disagree about which behavior the file actually got.
+        split_edge = profiles is not None and params["pattern_edge_by_polarity"]
         comment = placement_comment(
             params["pattern_rotation"], params["pattern_rise"],
             params["pattern_min_area"], params["pattern_min_width"],
@@ -278,7 +284,7 @@ def export_steps(result, params, filepath):
             limit_top=params["pattern_limit_top"],
             top_offset=params["pattern_top_offset"],
             top_mode=params["pattern_top_mode"],
-            edge_by_polarity=params["pattern_edge_by_polarity"],
+            edge_by_polarity=split_edge,
             smooth=params["pattern_smooth"],
             simplify_mode=params["pattern_simplify_mode"],
             simplify_tol=params["pattern_simplify_tol"],
@@ -290,7 +296,7 @@ def export_steps(result, params, filepath):
             top_inset = resolve_top_inset(params["pattern_top_mode"],
                                           params["pattern_top_offset"],
                                           result.profile)
-            if profiles is not None and params["pattern_edge_by_polarity"]:
+            if split_edge:
                 # tile_mask is bound here: profiles is only ever set right
                 # after tile_mask, in the same try block above, so one
                 # existing implies the other. Reuse its array rather than
