@@ -163,10 +163,14 @@ def main():
     print("[smoke] pattern export ok: pattern layer smoothed to curves")
 
     # Height-limited pattern: a straight cut per strip in its own layer, and
-    # nothing patterned above it.
+    # nothing patterned above it. Pinned with the split checkbox off, since
+    # that is the one case guaranteed to reproduce the historical count --
+    # the on/default case is checked separately below by an invariant that
+    # does not depend on this fixture's exact geometry.
     props.pattern_limit_top = True
     props.pattern_top_mode = "SURFACE"
     props.pattern_top_offset = 40.0
+    props.pattern_edge_by_polarity = False
     out_lim = os.path.join(tempfile.gettempdir(), "gorewrap_smoke_limited.svg")
     with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
         res = bpy.ops.gorewrap.export_svg(filepath=out_lim)
@@ -176,7 +180,33 @@ def main():
     assert edge_g is not None, "no pattern-edge layer in height-limited export"
     edge_paths = edge_g.findall(f"{{{SVG_NS}}}path")
     assert len(edge_paths) == 15, f"expected 15 edge cuts, got {len(edge_paths)}"
-    print(f"[smoke] limited pattern ok: {len(edge_paths)} edge cuts")
+    print(f"[smoke] limited pattern (plain edge) ok: {len(edge_paths)} edge cuts")
+
+    def _edge_length(paths):
+        total = 0.0
+        for p in paths:
+            tokens = p.get("d", "").split()
+            total += abs(float(tokens[4]) - float(tokens[1]))
+        return total
+
+    # Split by polarity (the default): must never cut MORE than the plain
+    # line did, since a split segment is always a subset of the full width.
+    props.pattern_edge_by_polarity = True
+    out_split = os.path.join(tempfile.gettempdir(),
+                             "gorewrap_smoke_limited_split.svg")
+    with bpy.context.temp_override(active_object=obj, selected_objects=[obj]):
+        res = bpy.ops.gorewrap.export_svg(filepath=out_split)
+    assert res == {"FINISHED"}, res
+    groups = ET.parse(out_split).getroot().findall(f".//{{{SVG_NS}}}g")
+    edge_g_split = next((g for g in groups if g.get("id") == "pattern-edge"),
+                        None)
+    split_paths = edge_g_split.findall(f"{{{SVG_NS}}}path") if edge_g_split \
+        else []
+    assert _edge_length(split_paths) <= _edge_length(edge_paths) + 1e-6, (
+        "polarity split cut MORE than the plain line -- should only ever "
+        "cut a subset of it")
+    print(f"[smoke] limited pattern (split edge) ok: {len(split_paths)} "
+          f"edge cuts, {_edge_length(split_paths):.2f} mm total")
 
     # The preview shades the part the pattern will not reach, in its own
     # material, split at the cut rather than at the nearest band.

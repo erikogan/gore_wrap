@@ -734,6 +734,7 @@ class GOREWRAP_OT_export(_ModalJob, bpy.types.Operator):
             "pattern_limit_top": props.pattern_limit_top,
             "pattern_top_offset": props.pattern_top_offset,
             "pattern_top_mode": props.pattern_top_mode,
+            "pattern_edge_by_polarity": props.pattern_edge_by_polarity,
             "pattern_rotation": props.pattern_rotation,
             "pattern_rise": props.pattern_rise,
             "pattern_min_area": props.pattern_min_area,

@@ -299,6 +299,16 @@ class GoreWrapProperties(bpy.types.PropertyGroup):
              "surface than height, and the cut follows accordingly"),
         ],
         default="SURFACE")
+    pattern_edge_by_polarity: bpy.props.BoolProperty(
+        name="Split Edge by Polarity",
+        description="Cut the height-limit boundary only across the ground "
+                    "that will be weeded away; spans that are kept material "
+                    "stay uncut, since they continue unbroken into the "
+                    "untouched strip above. This is the one case where "
+                    "Invert Pattern changes the exported geometry rather "
+                    "than only what Placement measures. Off draws the old "
+                    "plain cut across the full width",
+        default=True)
 
     scale_factor: bpy.props.FloatProperty(
         name="Scale Factor",
