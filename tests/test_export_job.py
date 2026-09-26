@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pytest
 
-from gore_wrap import export_job, geometry, pipeline, pattern_warp, svg_export
+from gore_wrap import export_job, geometry, pattern_fit, pipeline, pattern_warp, svg_export
 from tests.synthetic import cylinder_with_hemisphere
 
 NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
@@ -15,7 +15,7 @@ NO_PATTERN = dict(seam_offset=0.0, labels=False, use_pattern=False,
                   pattern_top_mode="SURFACE",
                   pattern_rotation=0.0, pattern_rise=0.0,
                   pattern_min_area=10.0, pattern_min_width=0.6,
-                  pattern_invert=False,
+                  pattern_invert=False, pattern_edge_by_polarity=True,
                   pattern_mark_defects=False, pattern_mark_intrinsic=False,
                   pattern_defects=0,
                   pattern_defects_intrinsic=0, pattern_counts_current=True)
@@ -200,7 +200,7 @@ def _limited(tmp_path, **over):
 
 def test_export_steps_writes_one_edge_cut_per_strip(tmp_path):
     out = str(tmp_path / "g.svg")
-    summary = _drain(export_job.export_steps(_result(), _limited(tmp_path), out))
+    summary = _drain(export_job.export_steps(_result(), _limited(tmp_path, pattern_edge_by_polarity=False), out))
     body = open(out).read()
     edge = body.split('<g id="pattern-edge"')[1].split("</g>")[0]
     assert edge.count("<path") == summary.n_strips
@@ -495,3 +495,56 @@ def test_a_rise_of_zero_puts_the_seam_on_the_base_cut_and_says_nothing(
         tmp_path):
     summary = _export_with(tmp_path, 0.0, "clean.svg")
     assert summary.seam_height is None
+
+
+def test_edge_by_polarity_on_calls_top_edge_segments(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_segments(placements, outlines, circumference, top_inset, tile,
+                      offset=(0.0, 0.0)):
+        calls.append((top_inset, tile.mask.shape))
+        return [np.array([[1.0, 2.0], [3.0, 2.0]])]
+
+    monkeypatch.setattr(pattern_fit, "top_edge_segments", fake_segments)
+    out = str(tmp_path / "g.svg")
+    _drain(export_job.export_steps(_result(), _limited(tmp_path), out))
+    assert calls, "top_edge_segments was not called with the default on"
+    edge = open(out).read().split('<g id="pattern-edge"')[1].split("</g>")[0]
+    assert "M 1.000 2.000 L 3.000 2.000" in edge
+
+
+def test_edge_by_polarity_off_never_calls_top_edge_segments(tmp_path,
+                                                             monkeypatch):
+    calls = []
+    monkeypatch.setattr(pattern_fit, "top_edge_segments",
+                        lambda *a, **k: calls.append(1) or [])
+    out = str(tmp_path / "g.svg")
+    summary = _drain(export_job.export_steps(
+        _result(), _limited(tmp_path, pattern_edge_by_polarity=False), out))
+    assert not calls, "top_edge_segments must not run when the flag is off"
+    edge = open(out).read().split('<g id="pattern-edge"')[1].split("</g>")[0]
+    assert edge.count("<path") == summary.n_strips, (
+        "the plain-line fallback must still draw exactly one segment per "
+        "strip")
+
+
+def test_edge_tile_is_complemented_when_inverted(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_segments(placements, outlines, circumference, top_inset, tile,
+                      offset=(0.0, 0.0)):
+        captured["mask"] = tile.mask.copy()
+        return []
+
+    monkeypatch.setattr(pattern_fit, "top_edge_segments", fake_segments)
+    params = _limited(tmp_path, pattern_invert=True)
+    result = _result()
+    _drain(export_job.export_steps(result, params, str(tmp_path / "g.svg")))
+
+    pattern = pattern_warp.load_pattern(params["pattern_svg"])
+    px, _steps = pattern_fit.raster_pitch(params["pattern_min_area"],
+                                          params["pattern_min_width"])
+    expected = pattern_fit.build_tile(
+        pattern, result.dims.bottom_circumference,
+        params["pattern_repeats_x"], px, invert=True)
+    assert np.array_equal(captured["mask"], expected.mask)

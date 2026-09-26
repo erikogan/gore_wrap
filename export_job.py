@@ -178,7 +178,8 @@ def export_steps(result, params, filepath):
     `result` is a pipeline.GoreResult; `params` is a dict with keys seam_offset,
     labels, use_pattern, pattern_svg, pattern_repeats_x, pattern_smooth,
     pattern_simplify_mode, pattern_simplify_tol, pattern_corner_angle,
-    pattern_limit_top, pattern_top_offset, pattern_top_mode, pattern_rotation,
+    pattern_limit_top, pattern_top_offset, pattern_top_mode,
+    pattern_edge_by_polarity, pattern_rotation,
     pattern_rise, pattern_min_area, pattern_min_width, pattern_invert,
     pattern_mark_defects, pattern_mark_intrinsic, pattern_defects,
     pattern_defects_intrinsic, pattern_counts_current.
@@ -262,11 +263,29 @@ def export_steps(result, params, filepath):
             top_inset = resolve_top_inset(params["pattern_top_mode"],
                                           params["pattern_top_offset"],
                                           result.profile)
-            edge_lines = [line for line in (
-                pattern_warp.top_edge_line(poly, outline, top_inset)
-                for (_i, poly), outline in zip(layout.placements,
-                                               result.outlines))
-                if line is not None] or None
+            if profiles is not None and params["pattern_edge_by_polarity"]:
+                # tile_mask is bound here: profiles is only ever set right
+                # after tile_mask, in the same try block above, so one
+                # existing implies the other. Reuse its array rather than
+                # re-rasterizing -- complementing is the only difference
+                # invert makes, and the seam-suppression profiles above must
+                # stay uninverted (2026-09-07-pattern-polarity-scoring.md
+                # decision 8), so this is a second TileMask, never a
+                # mutation of that one.
+                edge_mask = (~tile_mask.mask if params["pattern_invert"]
+                            else tile_mask.mask)
+                edge_tile = pattern_fit.TileMask(
+                    mask=edge_mask, px=tile_mask.px, W=tile_mask.W,
+                    tile_h=tile_mask.tile_h)
+                edge_lines = pattern_fit.top_edge_segments(
+                    layout.placements, result.outlines, circ, top_inset,
+                    edge_tile, offset=offset) or None
+            else:
+                edge_lines = [line for line in (
+                    pattern_warp.top_edge_line(poly, outline, top_inset)
+                    for (_i, poly), outline in zip(layout.placements,
+                                                   result.outlines))
+                    if line is not None] or None
         if params["pattern_smooth"]:
             resolution, corner_cos = resolve_simplify(
                 params["pattern_simplify_mode"],
