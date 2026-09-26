@@ -10,6 +10,32 @@ An entry opens with a plain paragraph summarizing the release. That paragraph
 is what the Blender Extensions Platform shows when the full entry is past the
 1024 characters its release notes allow — see `tools/release_notes.py`.
 
+## 1.0.2 — 2026-09-26
+
+**The height-limit cut no longer severs material it should leave alone.**
+With Limit Pattern Height on, the straight cut closing off the pattern used
+to span the full width of every strip with no idea what was underneath it —
+cutting straight through any shape that survives weeding right at the
+boundary, even though that material continues unbroken into the untouched
+strip above. The cut is now split by polarity: only the ground that will be
+weeded away gets a cut there. The SVG's provenance comment also now records
+the height-limit and curve-fitting settings alongside placement, so a file
+documents what would recreate it.
+
+### Added
+
+- **Split Edge by Polarity**, under Limit Pattern Height. Default on. Cuts
+  the height-limit boundary only across ground that will be weeded away;
+  spans that are kept material stay uncut. This is the one case where
+  **Invert Pattern** changes the exported geometry rather than only what
+  Placement measures. Off reproduces the plain, full-width cut every prior
+  release drew.
+- The provenance comment now records **Distance From Top**/**Measured**
+  (when Limit Pattern Height is on, with a note when the edge split above is
+  off) and **Smooth to Curves**/**Simplify Mode** (or the custom tolerance
+  and corner angle), alongside rotation, rise, the floors, repeats, and
+  polarity.
+
 ## 1.0.1 — 2026-09-12
 
 **Seams the search could not see.** Optimize Placement with Slide Vertically on
