@@ -869,9 +869,16 @@ def _gore_top_edge_segments(geom, tile, offset=(0.0, 0.0)):
     if idx.size == 0:
         return segments
     splits = np.flatnonzero(np.diff(idx) > 1) + 1
+    # A boundary pixel's CENTER can sit just inside `half` while its outer
+    # EDGE (what run[0]/run[-1]+1 actually measure) sticks past it by up to
+    # px/2 -- clip to the analytic bound so a segment can never reach past
+    # the true gore edge, which is the invariant the plain (unsplit) cut and
+    # every caller downstream rely on.
+    lo = geom.tx - half
+    hi = geom.tx + half
     for run in np.split(idx, splits):
-        x0 = geom.tx + float(run[0]) * px - geom.hw0
-        x1 = geom.tx + float(run[-1] + 1) * px - geom.hw0
+        x0 = max(geom.tx + float(run[0]) * px - geom.hw0, lo)
+        x1 = min(geom.tx + float(run[-1] + 1) * px - geom.hw0, hi)
         if x1 - x0 < _MIN_FRAGMENT_MM:
             continue
         segments.append(np.array([[x0, final_y], [x1, final_y]]))

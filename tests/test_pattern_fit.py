@@ -1267,6 +1267,44 @@ def test_gore_top_edge_segments_covers_only_the_background_half():
     assert (float(x0), float(x1)) == pytest.approx((-20.0, 0.0))
 
 
+def _tapered_geom(hw0=20.0, half=18.0, pattern_top=10.0, tx=0.0, base_y=50.0,
+                  xc=0.0):
+    # A gore that narrows above the base: the analytic edge (`half`) sits
+    # strictly inside the master-space half-width (`hw0`) the pixel grid is
+    # built from. That gap is exactly where a boundary pixel's CENTER can
+    # test as inside `half` while its EDGE -- what the old code used for the
+    # segment endpoint -- sticks out past it.
+    return pattern_warp.GoreGeometry(
+        warp=None, tx=tx, base_y=base_y, xc=xc, hw0=hw0,
+        right_x=lambda y: np.full_like(np.asarray(y, dtype=float), half),
+        pattern_top=pattern_top)
+
+
+def test_gore_top_edge_segments_clips_to_the_analytic_half_width():
+    # hw0=20, half=18, px=10 -> nx=4, fx=[-15,-5,5,15]. Every column's
+    # center is within |fx|<=18, so an all-background tile makes the run
+    # span the full pixel grid. The OLD code returned the run's pixel EDGES
+    # (tx-hw0, tx+hw0) = (-20, 20) unclipped, sticking 2mm past the analytic
+    # edge at half=18 on both sides -- the overshoot this fix closes.
+    geom = _tapered_geom()
+    tile = pattern_fit.TileMask(mask=np.zeros((4, 4), dtype=bool),
+                               px=10.0, W=40.0, tile_h=40.0)
+    segs = pattern_fit._gore_top_edge_segments(geom, tile)
+    assert len(segs) == 1
+    (x0, y0), (x1, y1) = segs[0]
+    assert y0 == y1 == pytest.approx(geom.base_y - geom.pattern_top)
+    assert x0 == pytest.approx(geom.tx - 18.0)
+    assert x1 == pytest.approx(geom.tx + 18.0)
+    # General property, independent of this fixture's exact numbers: no
+    # endpoint of any returned segment may extend past the analytic bound.
+    lo, hi = geom.tx - 18.0, geom.tx + 18.0
+    for seg in segs:
+        for x, _y in seg:
+            assert lo - 1e-9 <= x <= hi + 1e-9, (
+                f"segment endpoint {x} exceeds analytic half-width "
+                f"[{lo}, {hi}]")
+
+
 def test_top_edge_segments_skips_degenerate_gores(tmp_path):
     # The driver must not choke on a gore _gore_geometry reports as None
     # (top_inset at or past the apex) -- same contract top_edge_line has.
