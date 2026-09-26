@@ -358,6 +358,12 @@ since they continue unbroken into the untouched strip above the limit. Turn
 it off to get the plain cut spanning the full width regardless of polarity,
 the way every release before this one drew it.
 
+**With this on, the cut is no longer the same file with**
+[**Invert Pattern**](#invert-pattern) **on or off.** Which spans count as
+material flips with it, so this one boundary line moves. Every other cut in
+the file — the pattern itself, the gore outlines — stays exactly as
+described in Invert Pattern's own section: identical either way.
+
 ### Smooth to Curves
 
 Fit the warped pattern to smooth bezier curves, so the cutter does not stutter
